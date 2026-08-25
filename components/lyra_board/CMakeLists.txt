@@ -1,0 +1,21 @@
+idf_component_register(
+    SRCS
+        "lyra_board.cpp"
+        "lyra_axs15231b.cpp"
+    INCLUDE_DIRS
+        "include"
+        "../../board/JC3248W535EN/include"
+    REQUIRES
+        esp_lcd
+        esp_driver_gpio
+        esp_driver_i2c
+        esp_driver_ledc
+        esp_driver_spi
+        freertos
+        lvgl
+    PRIV_REQUIRES
+        esp_common
+        esp_timer
+        heap
+        log
+)
