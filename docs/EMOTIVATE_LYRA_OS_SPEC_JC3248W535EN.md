@@ -40,7 +40,7 @@ hardware references.
 | Board support | `components/lyra_board/` | AXS15231B QSPI display, backlight, LVGL integration, and touch polling |
 | User interface | `main/lyra_gui.cpp` | LVGL screens, touch routing, settings, and navigation |
 | Media service | `main/lyra_media.cpp` | MicroSD mount, catalog, metadata, playlists, search, sorting, and artwork |
-| Audio service | `main/lyra_audio.cpp` | Decode, PCM conversion, equalizer, volume, seeking, and PCM5102A I2S output |
+| Audio service | `main/lyra_audio.cpp` | Decode, PCM conversion, equalizer, volume, seeking, and mirrored I2S output |
 
 The display is initialised with its backlight off. Lyra renders the boot
 screen before enabling the panel, then starts its regular LVGL worker after
@@ -66,7 +66,10 @@ reported to the UI instead of preventing the system shell from starting.
 ## Playback and UI
 
 Audio is read from MicroSD and routed through the external PCM5102A I2S DAC
-via GPIO6 (BCLK), GPIO15 (LRCK), and GPIO7 (data out).
+via GPIO6 (BCLK), GPIO15 (LRCK), and GPIO7 (data out). When enabled in
+Settings, the same PCM stream is mirrored to the original on-board speaker
+path via GPIO42 (BCLK), GPIO2 (LRCK), and GPIO41 (data out); the setting is
+stored in NVS and enabled by default.
 ESP-IDF decoders handle MP3, FLAC, AAC, M4A/ALAC, WAV, OGG, and Opus-in-Ogg;
 Lyra also handles uncompressed AIFF/AIFC PCM. Playback supports play, pause,
 seek, queue navigation, volume, and per-track ReplayGain adjustment.

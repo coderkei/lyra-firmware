@@ -71,9 +71,9 @@ constexpr uint32_t kAudioOutputTaskStack = 8 * 1024;
 constexpr UBaseType_t kAudioTaskPriority = 8;
 constexpr UBaseType_t kAudioOutputTaskPriority = 9;
 // Keep the user-facing volume slider useful while limiting the PCM amplitude
-// sent to the speaker amplifier. 25% amplitude is -12 dB and approximately
-// 1/16 of the full-scale amplifier power, before the board's analog gain.
-constexpr int32_t kMaximumOutputGainQ15 = 8192;
+// sent to both output devices. 50% amplitude is -6 dB, a 6 dB increase over
+// the original 25% cap while retaining digital headroom.
+constexpr int32_t kMaximumOutputGainQ15 = 16384;
 constexpr int32_t kGainRampStepQ15 = 4;
 constexpr uint16_t kEqualizerCoefficientRampFrames = 128;
 constexpr float kEqualizerQ = 1.0f;
@@ -87,9 +87,13 @@ constexpr const char *kVolumeKey = "volume";
 SemaphoreHandle_t s_state_mutex;
 TaskHandle_t s_audio_task;
 i2s_chan_handle_t s_i2s_tx;
+i2s_chan_handle_t s_i2s_speaker_tx;
 bool s_i2s_started;
+bool s_i2s_speaker_started;
+bool s_speaker_output_faulted;
 bool s_initialized;
 bool s_nvs_ready;
+bool s_speaker_output_enabled = lyra::audio::kDefaultSpeakerOutputEnabled;
 int16_t s_replay_gain_tenths_db;
 uint8_t s_transition_gain_percent = 100;
 lyra::audio::EqualizerSettings s_equalizer{};
@@ -158,9 +162,107 @@ bool fail_pcm_output(PcmOutput *output, esp_err_t error)
     return false;
 }
 
+bool speaker_output_enabled()
+{
+    bool enabled = false;
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    enabled = s_speaker_output_enabled;
+    xSemaphoreGive(s_state_mutex);
+    return enabled;
+}
+
+esp_err_t preload_i2s_data(i2s_chan_handle_t channel, const uint8_t *data,
+                           size_t bytes)
+{
+    if (channel == nullptr || data == nullptr || bytes == 0 || bytes % kI2sFrameBytes != 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    size_t offset = 0;
+    while (offset < bytes) {
+        size_t loaded = 0;
+        const esp_err_t result = i2s_channel_preload_data(
+            channel, data + offset, bytes - offset, &loaded);
+        if (result != ESP_OK) return result;
+        if (loaded == 0 || loaded % kI2sFrameBytes != 0) return ESP_ERR_INVALID_SIZE;
+        offset += loaded;
+    }
+    return ESP_OK;
+}
+
+esp_err_t write_i2s_data(i2s_chan_handle_t channel, const uint8_t *data,
+                         size_t bytes)
+{
+    if (channel == nullptr || data == nullptr || bytes == 0 || bytes % kI2sFrameBytes != 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    size_t offset = 0;
+    while (offset < bytes) {
+        size_t written = 0;
+        const esp_err_t result = i2s_channel_write(
+            channel, data + offset, bytes - offset, &written, pdMS_TO_TICKS(250));
+        if (result != ESP_OK) return result;
+        if (written == 0 || written % kI2sFrameBytes != 0) return ESP_ERR_INVALID_SIZE;
+        offset += written;
+    }
+    return ESP_OK;
+}
+
+void disable_speaker_i2s()
+{
+    if (!s_i2s_speaker_started || s_i2s_speaker_tx == nullptr) return;
+    const esp_err_t result = i2s_channel_disable(s_i2s_speaker_tx);
+    if (result != ESP_OK) {
+        ESP_LOGW(kTag, "could not disable on-board speaker I2S: %s",
+                 esp_err_to_name(result));
+    }
+    s_i2s_speaker_started = false;
+}
+
+bool start_speaker_i2s(const uint8_t *data, size_t bytes)
+{
+    if (s_i2s_speaker_tx == nullptr || s_speaker_output_faulted) return false;
+    const esp_err_t preload_ret = preload_i2s_data(s_i2s_speaker_tx, data, bytes);
+    if (preload_ret != ESP_OK) {
+        ESP_LOGW(kTag, "could not preload on-board speaker I2S: %s",
+                 esp_err_to_name(preload_ret));
+        s_speaker_output_faulted = true;
+        return false;
+    }
+    const esp_err_t enable_ret = i2s_channel_enable(s_i2s_speaker_tx);
+    if (enable_ret != ESP_OK) {
+        ESP_LOGW(kTag, "could not enable on-board speaker I2S: %s",
+                 esp_err_to_name(enable_ret));
+        s_speaker_output_faulted = true;
+        return false;
+    }
+    s_i2s_speaker_started = true;
+    return true;
+}
+
+void mirror_to_speaker(const uint8_t *data, size_t bytes)
+{
+    if (!speaker_output_enabled()) {
+        disable_speaker_i2s();
+        return;
+    }
+    if (!s_i2s_speaker_started) {
+        start_speaker_i2s(data, bytes);
+        return;
+    }
+    const esp_err_t result = write_i2s_data(s_i2s_speaker_tx, data, bytes);
+    if (result != ESP_OK) {
+        ESP_LOGW(kTag, "on-board speaker I2S write failed: %s", esp_err_to_name(result));
+        disable_speaker_i2s();
+        s_speaker_output_faulted = true;
+    }
+}
+
 bool preload_and_start_i2s(PcmOutput *output)
 {
     if (!output || !output->stream || !s_i2s_tx) return false;
+    const bool mirror_speaker = speaker_output_enabled() &&
+                                s_i2s_speaker_tx != nullptr &&
+                                !s_speaker_output_faulted;
 
     // The channel is deliberately still in READY state here. Preloading the
     // complete DMA ring prevents the driver from transmitting its initial
@@ -186,19 +288,19 @@ bool preload_and_start_i2s(PcmOutput *output)
         }
         apply_output_processing(output, output->staging_buffer, received);
 
-        size_t source_offset = 0;
-        while (source_offset < received) {
-            size_t loaded = 0;
-            const esp_err_t result = i2s_channel_preload_data(
-                s_i2s_tx, output->staging_buffer + source_offset,
-                received - source_offset, &loaded);
-            if (result != ESP_OK || loaded == 0 || loaded % kI2sFrameBytes != 0) {
-                return fail_pcm_output(output, result == ESP_OK ?
-                                       ESP_ERR_INVALID_SIZE : result);
+        const esp_err_t dac_preload_ret = preload_i2s_data(
+            s_i2s_tx, output->staging_buffer, received);
+        if (dac_preload_ret != ESP_OK) return fail_pcm_output(output, dac_preload_ret);
+        if (mirror_speaker) {
+            const esp_err_t speaker_preload_ret = preload_i2s_data(
+                s_i2s_speaker_tx, output->staging_buffer, received);
+            if (speaker_preload_ret != ESP_OK) {
+                ESP_LOGW(kTag, "could not preload on-board speaker I2S: %s",
+                         esp_err_to_name(speaker_preload_ret));
+                s_speaker_output_faulted = true;
             }
-            source_offset += loaded;
-            preloaded += loaded;
         }
+        preloaded += received;
     }
 
     // A short final buffer is only possible while stopping a very short track;
@@ -207,6 +309,16 @@ bool preload_and_start_i2s(PcmOutput *output)
     const esp_err_t enable_ret = i2s_channel_enable(s_i2s_tx);
     if (enable_ret != ESP_OK) return fail_pcm_output(output, enable_ret);
     s_i2s_started = true;
+    if (mirror_speaker && !s_speaker_output_faulted) {
+        const esp_err_t speaker_enable_ret = i2s_channel_enable(s_i2s_speaker_tx);
+        if (speaker_enable_ret != ESP_OK) {
+            ESP_LOGW(kTag, "could not enable on-board speaker I2S: %s",
+                     esp_err_to_name(speaker_enable_ret));
+            s_speaker_output_faulted = true;
+        } else {
+            s_i2s_speaker_started = true;
+        }
+    }
     return true;
 }
 
@@ -2396,20 +2508,10 @@ void pcm_output_task(void *context)
             break;
         }
         apply_output_processing(output, output->staging_buffer, received);
-
-        size_t total_written = 0;
-        while (total_written < received) {
-            size_t written = 0;
-            const esp_err_t result = i2s_channel_write(
-                s_i2s_tx, output->staging_buffer + total_written,
-                received - total_written, &written, pdMS_TO_TICKS(250));
-            if (result != ESP_OK || written == 0 || written % kI2sFrameBytes != 0) {
-                fail_pcm_output(output, result == ESP_OK ?
-                                ESP_ERR_INVALID_SIZE : result);
-                break;
-            }
-            total_written += written;
-        }
+        mirror_to_speaker(output->staging_buffer, received);
+        const esp_err_t write_ret = write_i2s_data(
+            s_i2s_tx, output->staging_buffer, received);
+        if (write_ret != ESP_OK) fail_pcm_output(output, write_ret);
         if (output->error) break;
     }
 
@@ -2557,6 +2659,7 @@ esp_err_t configure_i2s(uint32_t sample_rate)
         if (disable_ret != ESP_OK) return disable_ret;
         s_i2s_started = false;
     }
+    disable_speaker_i2s();
 
     i2s_std_clk_config_t clock_config = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate);
     // Match the vendor speaker demo. MCLK is not routed on this board, but
@@ -2564,6 +2667,17 @@ esp_err_t configure_i2s(uint32_t sample_rate)
     clock_config.mclk_multiple = I2S_MCLK_MULTIPLE_128;
     const esp_err_t clock_ret = i2s_channel_reconfig_std_clock(s_i2s_tx, &clock_config);
     if (clock_ret != ESP_OK) return clock_ret;
+
+    s_speaker_output_faulted = s_i2s_speaker_tx == nullptr;
+    if (s_i2s_speaker_tx != nullptr) {
+        const esp_err_t speaker_clock_ret = i2s_channel_reconfig_std_clock(
+            s_i2s_speaker_tx, &clock_config);
+        if (speaker_clock_ret != ESP_OK) {
+            ESP_LOGW(kTag, "could not configure on-board speaker I2S: %s",
+                     esp_err_to_name(speaker_clock_ret));
+            s_speaker_output_faulted = true;
+        }
+    }
 
     // Leave the channel in READY state. The PCM output task preloads the DMA
     // descriptors and enables I2S only once complete stereo frames are ready.
@@ -3580,6 +3694,7 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
             i2s_channel_disable(s_i2s_tx);
             s_i2s_started = false;
         }
+        disable_speaker_i2s();
         result = ESP_OK;
     } else if (result == ESP_OK) {
         xSemaphoreTake(s_state_mutex, portMAX_DELAY);
@@ -3594,6 +3709,7 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
             i2s_channel_disable(s_i2s_tx);
             s_i2s_started = false;
         }
+        disable_speaker_i2s();
         set_error(result, path);
     }
 
@@ -3656,6 +3772,7 @@ void audio_task(void *)
                 i2s_channel_disable(s_i2s_tx);
                 s_i2s_started = false;
             }
+            disable_speaker_i2s();
             xSemaphoreTake(s_state_mutex, portMAX_DELAY);
             s_status.playing = false;
             s_status.paused = false;
@@ -3752,10 +3869,42 @@ esp_err_t init()
         return ret;
     }
 
+    i2s_chan_config_t speaker_channel_config = I2S_CHANNEL_DEFAULT_CONFIG(
+        kSpeakerI2sPort, I2S_ROLE_MASTER);
+    speaker_channel_config.dma_desc_num = kI2sDmaDescriptorCount;
+    speaker_channel_config.dma_frame_num = kI2sDmaFrameCount;
+    speaker_channel_config.auto_clear_after_cb = true;
+    ret = i2s_new_channel(&speaker_channel_config, &s_i2s_speaker_tx, nullptr);
+    if (ret != ESP_OK) {
+        ESP_LOGW(kTag, "on-board speaker output unavailable: %s", esp_err_to_name(ret));
+        s_i2s_speaker_tx = nullptr;
+    } else {
+        i2s_std_config_t speaker_std_config{};
+        speaker_std_config.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(44100);
+        speaker_std_config.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_128;
+        speaker_std_config.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(
+            I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
+        speaker_std_config.gpio_cfg.mclk = I2S_GPIO_UNUSED;
+        speaker_std_config.gpio_cfg.bclk = static_cast<gpio_num_t>(kSpeakerBclkGpio);
+        speaker_std_config.gpio_cfg.ws = static_cast<gpio_num_t>(kSpeakerLrclkGpio);
+        speaker_std_config.gpio_cfg.dout = static_cast<gpio_num_t>(kSpeakerDataOutGpio);
+        speaker_std_config.gpio_cfg.din = I2S_GPIO_UNUSED;
+        ret = i2s_channel_init_std_mode(s_i2s_speaker_tx, &speaker_std_config);
+        if (ret != ESP_OK) {
+            ESP_LOGW(kTag, "could not initialize on-board speaker output: %s",
+                     esp_err_to_name(ret));
+            i2s_del_channel(s_i2s_speaker_tx);
+            s_i2s_speaker_tx = nullptr;
+        }
+    }
+    s_speaker_output_faulted = s_i2s_speaker_tx == nullptr;
+
     const esp_audio_err_t decoder_ret = esp_audio_dec_register_default();
     if (decoder_ret != ESP_AUDIO_ERR_OK) {
         ESP_LOGE(kTag, "default audio decoder registration failed: %d",
                  static_cast<int>(decoder_ret));
+        if (s_i2s_speaker_tx) i2s_del_channel(s_i2s_speaker_tx);
+        s_i2s_speaker_tx = nullptr;
         i2s_del_channel(s_i2s_tx);
         s_i2s_tx = nullptr;
         vSemaphoreDelete(s_state_mutex);
@@ -3767,6 +3916,8 @@ esp_err_t init()
         ESP_LOGE(kTag, "audio simple decoder registration failed: %d",
                  static_cast<int>(simple_decoder_ret));
         esp_audio_dec_unregister_default();
+        if (s_i2s_speaker_tx) i2s_del_channel(s_i2s_speaker_tx);
+        s_i2s_speaker_tx = nullptr;
         i2s_del_channel(s_i2s_tx);
         s_i2s_tx = nullptr;
         vSemaphoreDelete(s_state_mutex);
@@ -3786,6 +3937,8 @@ esp_err_t init()
         s_initialized = false;
         esp_audio_simple_dec_unregister_default();
         esp_audio_dec_unregister_default();
+        if (s_i2s_speaker_tx) i2s_del_channel(s_i2s_speaker_tx);
+        s_i2s_speaker_tx = nullptr;
         i2s_del_channel(s_i2s_tx);
         s_i2s_tx = nullptr;
         vSemaphoreDelete(s_state_mutex);
@@ -3794,8 +3947,9 @@ esp_err_t init()
     }
 
     ESP_LOGI(kTag, "audio playback ready (MP3/FLAC/AAC/M4A/WAV/OGG/Opus/AIFF): "
-             "I2S BCLK=%d WS=%d DOUT=%d",
-             kAudioBclkGpio, kAudioLrclkGpio, kAudioDataOutGpio);
+             "DAC BCLK=%d WS=%d DOUT=%d; speaker=%s",
+             kAudioBclkGpio, kAudioLrclkGpio, kAudioDataOutGpio,
+             s_i2s_speaker_tx ? "available" : "unavailable");
     return ESP_OK;
 }
 
@@ -3900,6 +4054,15 @@ esp_err_t set_volume(uint8_t volume_percent)
     s_status.volume_percent = volume_percent;
     xSemaphoreGive(s_state_mutex);
     xTaskNotifyGive(s_audio_task);
+    return ESP_OK;
+}
+
+esp_err_t set_speaker_output_enabled(bool enabled)
+{
+    if (!s_initialized || s_state_mutex == nullptr) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    s_speaker_output_enabled = enabled;
+    xSemaphoreGive(s_state_mutex);
     return ESP_OK;
 }
 

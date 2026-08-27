@@ -49,6 +49,7 @@ constexpr const char *kGaplessKey = "gapless";
 constexpr const char *kReplayGainKey = "replay_gain";
 constexpr const char *kCrossfadeKey = "crossfade";
 constexpr const char *kBrightnessKey = "brightness";
+constexpr const char *kSpeakerOutputKey = "speaker_output";
 constexpr const char *kEqualizerPresetKey = "eq_preset";
 constexpr const char *kEqualizerBandKeys[lyra::audio::kEqualizerBandCount] = {
     "eq_band_0", "eq_band_1", "eq_band_2", "eq_band_3", "eq_band_4",
@@ -188,6 +189,7 @@ bool s_gapless = true;
 bool s_replay_gain = true;
 uint8_t s_crossfade_seconds = 0;
 uint8_t s_brightness_percent = 72;
+bool s_speaker_output_enabled = lyra::audio::kDefaultSpeakerOutputEnabled;
 EqualizerPreset s_equalizer_preset = EqualizerPreset::Custom;
 int16_t s_equalizer_custom_bands[lyra::audio::kEqualizerBandCount]{};
 uint16_t s_sleep_timer_minutes = 0;
@@ -337,6 +339,8 @@ void save_user_settings()
     if (result == ESP_OK) result = nvs_set_u8(handle, kReplayGainKey, s_replay_gain ? 1 : 0);
     if (result == ESP_OK) result = nvs_set_u8(handle, kCrossfadeKey, s_crossfade_seconds);
     if (result == ESP_OK) result = nvs_set_u8(handle, kBrightnessKey, s_brightness_percent);
+    if (result == ESP_OK) result = nvs_set_u8(handle, kSpeakerOutputKey,
+                                               s_speaker_output_enabled ? 1 : 0);
     if (result == ESP_OK) result = nvs_set_u8(handle, kEqualizerPresetKey,
                                                static_cast<uint8_t>(s_equalizer_preset));
     for (size_t band = 0; result == ESP_OK && band < lyra::audio::kEqualizerBandCount; ++band) {
@@ -363,6 +367,9 @@ void load_user_settings()
     }
     if (nvs_get_u8(handle, kBrightnessKey, &value) == ESP_OK && value >= 1 && value <= 100) {
         s_brightness_percent = value;
+    }
+    if (nvs_get_u8(handle, kSpeakerOutputKey, &value) == ESP_OK && value <= 1) {
+        s_speaker_output_enabled = value != 0;
     }
     if (nvs_get_u8(handle, kEqualizerPresetKey, &value) == ESP_OK &&
         value < static_cast<uint8_t>(EqualizerPreset::Count)) {
@@ -3470,6 +3477,16 @@ void toggle_bool_cb(lv_event_t *event)
         render(s_view);
         return;
     }
+    if (value == &s_speaker_output_enabled) {
+        const esp_err_t result = lyra::audio::set_speaker_output_enabled(*value);
+        if (result != ESP_OK) {
+            *value = !*value;
+            ESP_LOGW(kTag, "could not change on-board speaker output: %s",
+                     esp_err_to_name(result));
+            return;
+        }
+        save_user_settings();
+    }
 
     lv_obj_set_style_bg_color(toggle, *value ? kAccent : kDivider, 0);
     lv_obj_set_x(lv_obj_get_child(toggle, 0), *value ? 21 : 3);
@@ -4068,7 +4085,10 @@ void render_settings_page(View view)
         make_row(body, 190, LV_SYMBOL_WARNING, "Sleep timer", nullptr, View::SleepTimerOptions, 54);
     } else if (view == View::SoundSettings) {
         make_volume_control(body, 0);
-        make_row(body, 92, LV_SYMBOL_SETTINGS, "EQ preset",
+        make_setting_toggle(body, 92, "On-board speaker",
+                            "Also play through the built-in speaker",
+                            &s_speaker_output_enabled);
+        make_row(body, 158, LV_SYMBOL_SETTINGS, "EQ preset",
                  equalizer_preset_name(s_equalizer_preset), View::Equalizer, 62);
     } else if (view == View::DisplaySettings) {
         make_setting_toggle(body, 0, "Virtual controls", "Show bottom navigation bar", &s_show_nav);
@@ -4561,6 +4581,7 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     s_replay_gain = true;
     s_crossfade_seconds = 0;
     s_brightness_percent = 72;
+    s_speaker_output_enabled = lyra::audio::kDefaultSpeakerOutputEnabled;
     s_equalizer_preset = EqualizerPreset::Custom;
     std::memset(s_equalizer_custom_bands, 0, sizeof(s_equalizer_custom_bands));
     s_sleep_timer_minutes = 0;
@@ -4574,6 +4595,12 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     s_crossfade_transition_direction = 0;
     s_crossfade_pause_pending = false;
     load_user_settings();
+    const esp_err_t speaker_output_result =
+        lyra::audio::set_speaker_output_enabled(s_speaker_output_enabled);
+    if (speaker_output_result != ESP_OK) {
+        ESP_LOGW(kTag, "could not restore on-board speaker output: %s",
+                 esp_err_to_name(speaker_output_result));
+    }
     apply_equalizer_to_audio();
     const esp_err_t brightness_result = lyra_board_display_set_brightness(s_brightness_percent);
     if (brightness_result != ESP_OK) {

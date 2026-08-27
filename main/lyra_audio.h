@@ -17,9 +17,10 @@ constexpr size_t kEqualizerBandCount = 5;
 constexpr int16_t kEqualizerMinimumTenthsDb = -60;
 constexpr int16_t kEqualizerMaximumTenthsDb = 60;
 // This is the user-facing scale. The implementation applies an additional
-// conservative digital output cap below full-scale PCM amplitude.
+// digital output cap below full-scale PCM amplitude.
 constexpr uint8_t kMaximumVolumePercent = 100;
 constexpr uint8_t kDefaultVolumePercent = 50;
+constexpr bool kDefaultSpeakerOutputEnabled = true;
 
 // Five centre-frequency gains, in tenths of a decibel. The bands are 60 Hz,
 // 250 Hz, 1 kHz, 4 kHz, and 16 kHz respectively.
@@ -60,8 +61,8 @@ struct Diagnostics {
     bool stereo_internal;
 };
 
-// Initializes the native decoder registry and the PCM5102A I2S output channel.
-// This does not require a mounted MicroSD card.
+// Initializes the native decoder registry, PCM5102A I2S output, and optional
+// on-board speaker I2S channel. This does not require a mounted MicroSD card.
 esp_err_t init();
 
 // Requests asynchronous playback of a supported audio path in the VFS
@@ -73,6 +74,9 @@ esp_err_t stop();
 esp_err_t toggle_pause();
 esp_err_t seek(uint32_t position_ms);
 esp_err_t set_volume(uint8_t volume_percent);
+// Enables or disables the mirrored on-board speaker output. The caller owns
+// persistence of this preference.
+esp_err_t set_speaker_output_enabled(bool enabled);
 // Replaces all five EQ gains atomically. The new filter coefficients are
 // applied at the next PCM block and smoothed over a short transition.
 esp_err_t set_equalizer(const EqualizerSettings &settings);

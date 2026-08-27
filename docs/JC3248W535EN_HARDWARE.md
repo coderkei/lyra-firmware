@@ -15,7 +15,7 @@ software design and supported device behaviour.
 | Touch | AXS15231B I2C interface; the firmware uses polling |
 | Memory profile | 16 MB flash and 8 MB PSRAM configured by default |
 | Removable storage | MicroSD socket using 1-bit SDMMC |
-| Audio | I2S output to an external PCM5102A DAC |
+| Audio | I2S output to an external PCM5102A DAC and the on-board speaker/amplifier |
 | Power | USB-C input, battery connector, and a battery-sense divider |
 
 The values above come from the supplied board.
@@ -32,7 +32,8 @@ The values above come from the supplied board.
 | Touch interrupt reference | 3 | The native driver polls touch |
 | MicroSD DAT0 / clock / command | 13 / 12 / 11 | 1-bit SDMMC |
 | MicroSD SPI CS reference | 10 | Not used by the SDMMC configuration |
-| I2S BCLK / LRCLK / data out | 6 / 15 / 7 | External PCM5102A DAC via the 8-pin JST |
+| External DAC I2S BCLK / LRCLK / data out | 6 / 15 / 7 | PCM5102A via the 8-pin JST |
+| On-board speaker I2S BCLK / LRCLK / data out | 42 / 2 / 41 | Original speaker/amplifier path |
 | Battery sense | 5 | Divider calibration required |
 
 No LCD reset, LCD DC, touch reset, or I2S MCLK GPIO is defined for this
@@ -54,6 +55,10 @@ Configure the DAC for standard I2S: `FLT` low, `DEMP` low, `XSMT` high, and
 `FMT` low. These are normally selected using the DAC board's H1L-H4L solder
 jumpers. `ROUT` and `LROUT` are line-level outputs for an amplifier or active
 speakers; they do not drive passive speakers directly.
+
+The ESP32-S3 has two I2S peripherals. Lyra uses the second one to mirror
+playback to the original on-board speaker when **Settings > Sound > On-board
+speaker** is enabled. The setting is enabled by default and persists in NVS.
 
 ## Hardware validation required
 

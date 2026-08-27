@@ -52,6 +52,14 @@ constexpr int kAudioBclkGpio = 6;
 constexpr int kAudioLrclkGpio = 15;
 constexpr int kAudioDataOutGpio = 7;
 
+// Original on-board I2S speaker/amplifier path. It uses the second ESP32-S3
+// I2S controller so it can mirror the external DAC output independently.
+constexpr int kSpeakerI2sPort = 1;
+constexpr int kSpeakerMckGpio = -1;
+constexpr int kSpeakerBclkGpio = 42;
+constexpr int kSpeakerLrclkGpio = 2;
+constexpr int kSpeakerDataOutGpio = 41;
+
 // Battery sense input. The supplied schematic shows a resistor divider; scale
 // and calibration must be confirmed before exposing a percentage to users.
 constexpr int kBatteryAdcGpio = 5;
