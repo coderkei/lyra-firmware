@@ -43,12 +43,14 @@ constexpr int kSdClockGpio = 12;
 constexpr int kSdCommandGpio = 11;
 constexpr int kSdSpiChipSelectGpio = 10; // Schematic/SPI-mode reference; not used by SDMMC 1-bit demo.
 
-// On-board I2S speaker/amplifier path.
+// External PCM5102A DAC connected to the exposed 8-pin JST connector.
+// The DAC uses its internal PLL, so its SCK pin is tied to ground and no
+// ESP32-S3 MCLK output is required. GPIO5 remains available for battery sense.
 constexpr int kAudioI2sPort = 0;
 constexpr int kAudioMckGpio = -1;
-constexpr int kAudioBclkGpio = 42;
-constexpr int kAudioLrclkGpio = 2;
-constexpr int kAudioDataOutGpio = 41;
+constexpr int kAudioBclkGpio = 6;
+constexpr int kAudioLrclkGpio = 15;
+constexpr int kAudioDataOutGpio = 7;
 
 // Battery sense input. The supplied schematic shows a resistor divider; scale
 // and calibration must be confirmed before exposing a percentage to users.

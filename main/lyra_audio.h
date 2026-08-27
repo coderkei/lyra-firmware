@@ -60,8 +60,8 @@ struct Diagnostics {
     bool stereo_internal;
 };
 
-// Initializes the native decoder registry and the JC3248W535EN onboard speaker
-// I2S channel. This does not require a mounted MicroSD card.
+// Initializes the native decoder registry and the PCM5102A I2S output channel.
+// This does not require a mounted MicroSD card.
 esp_err_t init();
 
 // Requests asynchronous playback of a supported audio path in the VFS

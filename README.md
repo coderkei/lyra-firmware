@@ -4,7 +4,7 @@ Native ESP-IDF firmware for the **Emotivate Lyra** portable music player,
 targeting the JC3248W535EN ESP32-S3 development kit.
 
 The firmware uses C++, FreeRTOS, and LVGL to provide a 320 × 480 portrait
-touch interface, MicroSD music library, and I2S speaker playback.
+touch interface, MicroSD music library, and I2S audio playback.
 
 ## Development Hardware
 
@@ -12,7 +12,7 @@ touch interface, MicroSD music library, and I2S speaker playback.
 - **Display:** 320 × 480 RGB565 AXS15231B QSPI display with I2C touch
 - **Storage:** 16 MB flash, 8 MB PSRAM, and MicroSD via 1-bit SDMMC
 - **Framework:** ESP-IDF 6.0.2, FreeRTOS, and LVGL 9.4.0
-- **Audio:** File-based playback through the onboard I2S speaker path
+- **Audio:** File-based playback through an external PCM5102A I2S DAC
 
 ## Firmware features
 
