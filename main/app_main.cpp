@@ -5,6 +5,7 @@
 
 #include "lyra_gui.h"
 #include "lyra_audio.h"
+#include "lyra_boot_test.h"
 #include "lyra_media.h"
 
 #include "esp_log.h"
@@ -43,6 +44,10 @@ extern "C" void app_main(void)
 {
     static const char *kTag = "lyra.app";
     lyra_board_display_t board{};
+
+    // A debug OTA boot is marked before reboot and restored before any normal
+    // startup work, making the selected slot a one-shot test.
+    lyra::boot_test::restore_pending();
 
     ESP_LOGI(kTag, "Reset reason: %d", static_cast<int>(esp_reset_reason()));
 

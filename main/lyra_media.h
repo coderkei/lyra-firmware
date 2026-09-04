@@ -82,6 +82,19 @@ struct Status {
     uint16_t artwork_size;
 };
 
+// A copy of the decoded card identity is returned so callers do not need to
+// depend on the SDMMC driver's private card lifetime.
+struct CardInfo {
+    bool mounted;
+    uint64_t capacity_bytes;
+    int manufacturer_id;
+    int oem_id;
+    char name[8];
+    int revision;
+    int serial;
+    int date;
+};
+
 enum class GroupKind : uint8_t { Artist, Album, Genre, Year };
 
 enum class SortSection : uint8_t { Songs, Albums, Artists };
@@ -137,6 +150,7 @@ struct SearchResult {
 
 esp_err_t init();
 Status status();
+bool card_info(CardInfo *out);
 esp_err_t start_scan();
 esp_err_t clear_playlists();
 esp_err_t clear_artwork_cache();

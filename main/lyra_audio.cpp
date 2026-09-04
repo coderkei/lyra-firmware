@@ -83,6 +83,7 @@ constexpr float kEqualizerCenterFrequenciesHz[lyra::audio::kEqualizerBandCount] 
 };
 constexpr const char *kSettingsNamespace = "lyra";
 constexpr const char *kVolumeKey = "volume";
+constexpr const char *kMaximumVolumeKey = "max_volume";
 
 SemaphoreHandle_t s_state_mutex;
 TaskHandle_t s_audio_task;
@@ -94,6 +95,7 @@ bool s_speaker_output_faulted;
 bool s_initialized;
 bool s_nvs_ready;
 bool s_speaker_output_enabled = lyra::audio::kDefaultSpeakerOutputEnabled;
+uint8_t s_maximum_volume_percent = lyra::audio::kDefaultMaximumVolumePercent;
 int16_t s_replay_gain_tenths_db;
 uint8_t s_transition_gain_percent = 100;
 lyra::audio::EqualizerSettings s_equalizer{};
@@ -345,11 +347,26 @@ uint8_t load_saved_volume()
     }
     uint8_t volume = lyra::audio::kDefaultVolumePercent;
     if (nvs_get_u8(handle, kVolumeKey, &volume) != ESP_OK ||
-        volume > lyra::audio::kMaximumVolumePercent) {
-        volume = lyra::audio::kDefaultVolumePercent;
+        volume > s_maximum_volume_percent) {
+        volume = std::min<uint8_t>(lyra::audio::kDefaultVolumePercent,
+                                   s_maximum_volume_percent);
     }
     nvs_close(handle);
     return volume;
+}
+
+void load_saved_maximum_volume()
+{
+    s_maximum_volume_percent = lyra::audio::kDefaultMaximumVolumePercent;
+    if (!s_nvs_ready) return;
+    nvs_handle_t handle;
+    if (nvs_open(kSettingsNamespace, NVS_READONLY, &handle) != ESP_OK) return;
+    uint8_t maximum = s_maximum_volume_percent;
+    if (nvs_get_u8(handle, kMaximumVolumeKey, &maximum) == ESP_OK && maximum > 0 &&
+        maximum <= lyra::audio::kMaximumVolumePercent) {
+        s_maximum_volume_percent = maximum;
+    }
+    nvs_close(handle);
 }
 
 esp_err_t save_volume_to_nvs(uint8_t volume)
@@ -2724,16 +2741,18 @@ void apply_output_gain(uint8_t *pcm, size_t pcm_bytes, int32_t *current_gain_q15
     if (!pcm || !current_gain_q15 || pcm_bytes % kI2sFrameBytes != 0) return;
 
     uint8_t volume_percent;
+    uint8_t maximum_volume_percent;
     int16_t replay_gain_tenths_db;
     uint8_t transition_gain_percent;
     xSemaphoreTake(s_state_mutex, portMAX_DELAY);
     volume_percent = s_status.volume_percent;
+    maximum_volume_percent = s_maximum_volume_percent;
     replay_gain_tenths_db = s_replay_gain_tenths_db;
     transition_gain_percent = s_transition_gain_percent;
     xSemaphoreGive(s_state_mutex);
     const int32_t volume_gain_q15 = static_cast<int32_t>(
         (static_cast<uint32_t>(volume_percent) * kMaximumOutputGainQ15) /
-        lyra::audio::kMaximumVolumePercent);
+        std::max<uint8_t>(maximum_volume_percent, 1));
     const float replay_multiplier = std::pow(10.0f,
         static_cast<float>(replay_gain_tenths_db) / 200.0f);
     const int32_t replay_gain_q15 = static_cast<int32_t>(std::lround(
@@ -3928,6 +3947,7 @@ esp_err_t init()
     s_status = {};
     s_status.initialized = true;
     s_status.last_error = ESP_OK;
+    load_saved_maximum_volume();
     s_status.volume_percent = load_saved_volume();
     s_requested_seek_ms = 0;
     s_requested_pause_after_seek = false;
@@ -4047,11 +4067,36 @@ esp_err_t toggle_pause()
 esp_err_t set_volume(uint8_t volume_percent)
 {
     if (!s_initialized || s_state_mutex == nullptr) return ESP_ERR_INVALID_STATE;
-    if (volume_percent > kMaximumVolumePercent) {
-        volume_percent = kMaximumVolumePercent;
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    if (volume_percent > s_maximum_volume_percent) {
+        volume_percent = s_maximum_volume_percent;
+    }
+    s_status.volume_percent = volume_percent;
+    xSemaphoreGive(s_state_mutex);
+    xTaskNotifyGive(s_audio_task);
+    return ESP_OK;
+}
+
+uint8_t maximum_volume_percent()
+{
+    if (s_state_mutex == nullptr) return kDefaultMaximumVolumePercent;
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    const uint8_t maximum = s_maximum_volume_percent;
+    xSemaphoreGive(s_state_mutex);
+    return maximum;
+}
+
+esp_err_t set_maximum_volume_percent(uint8_t volume_percent)
+{
+    if (!s_initialized || s_state_mutex == nullptr) return ESP_ERR_INVALID_STATE;
+    if (volume_percent == 0 || volume_percent > kMaximumVolumePercent) {
+        return ESP_ERR_INVALID_ARG;
     }
     xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-    s_status.volume_percent = volume_percent;
+    s_maximum_volume_percent = volume_percent;
+    if (s_status.volume_percent > s_maximum_volume_percent) {
+        s_status.volume_percent = s_maximum_volume_percent;
+    }
     xSemaphoreGive(s_state_mutex);
     xTaskNotifyGive(s_audio_task);
     return ESP_OK;
@@ -4115,6 +4160,24 @@ esp_err_t save_volume()
     volume = s_status.volume_percent;
     xSemaphoreGive(s_state_mutex);
     return save_volume_to_nvs(volume);
+}
+
+esp_err_t save_maximum_volume()
+{
+    if (!s_initialized || s_state_mutex == nullptr) return ESP_ERR_INVALID_STATE;
+    if (!s_nvs_ready) return ESP_ERR_INVALID_STATE;
+    uint8_t maximum;
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    maximum = s_maximum_volume_percent;
+    xSemaphoreGive(s_state_mutex);
+
+    nvs_handle_t handle;
+    esp_err_t ret = nvs_open(kSettingsNamespace, NVS_READWRITE, &handle);
+    if (ret != ESP_OK) return ret;
+    ret = nvs_set_u8(handle, kMaximumVolumeKey, maximum);
+    if (ret == ESP_OK) ret = nvs_commit(handle);
+    nvs_close(handle);
+    return ret;
 }
 
 Status status()

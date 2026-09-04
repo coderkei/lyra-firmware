@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "app_main.cpp"
+        "lyra_boot_test.cpp"
         "lyra_gui.cpp"
         "lyra_audio.cpp"
         "lyra_media.cpp"
@@ -25,6 +26,10 @@ idf_component_register(
         esp_system
         esp_timer
         esp_hw_support
+        esp_psram
+        esp_partition
+        app_update
+        bootloader_support
         nvs_flash
         libjpeg-turbo
         libpng

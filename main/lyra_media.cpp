@@ -3773,6 +3773,24 @@ esp_err_t init()
 
 Status status() { Lock lock; return s_status; }
 
+bool card_info(CardInfo *out)
+{
+    if (!out) return false;
+    Lock lock;
+    *out = {};
+    if (!s_status.mounted || !s_card) return false;
+    out->mounted = true;
+    out->capacity_bytes = static_cast<uint64_t>(s_card->csd.capacity) *
+                          static_cast<uint64_t>(s_card->csd.sector_size);
+    out->manufacturer_id = s_card->cid.mfg_id;
+    out->oem_id = s_card->cid.oem_id;
+    std::memcpy(out->name, s_card->cid.name, sizeof(out->name));
+    out->revision = s_card->cid.revision;
+    out->serial = s_card->cid.serial;
+    out->date = s_card->cid.date;
+    return true;
+}
+
 esp_err_t clear_playlists()
 {
     Lock lock;
