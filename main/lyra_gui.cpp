@@ -49,6 +49,8 @@ constexpr const char *kGaplessKey = "gapless";
 constexpr const char *kReplayGainKey = "replay_gain";
 constexpr const char *kCrossfadeKey = "crossfade";
 constexpr const char *kBrightnessKey = "brightness";
+constexpr const char *kDarkModeKey = "dark_mode";
+constexpr const char *kAccentColorKey = "accent_color";
 constexpr const char *kSpeakerOutputKey = "speaker_output";
 constexpr const char *kEqualizerPresetKey = "eq_preset";
 constexpr const char *kEqualizerBandKeys[lyra::audio::kEqualizerBandCount] = {
@@ -59,15 +61,49 @@ constexpr uint32_t kNonGaplessTrackPauseMs = 500;
 extern const uint8_t boot_png_start[] asm("_binary_boot_png_start");
 extern const uint8_t boot_png_end[] asm("_binary_boot_png_end");
 
-const lv_color_t kBackground = lv_color_hex(0x080C12);
-const lv_color_t kSurface = lv_color_hex(0x101720);
-const lv_color_t kSurfaceRaised = lv_color_hex(0x18212D);
-const lv_color_t kAccent = lv_color_hex(0x38BDF8);
-const lv_color_t kAccentDark = lv_color_hex(0x075985);
-const lv_color_t kTextPrimary = lv_color_hex(0xF4F7FB);
-const lv_color_t kTextSecondary = lv_color_hex(0xCBD5E1);
-const lv_color_t kTextMuted = lv_color_hex(0x718096);
-const lv_color_t kDivider = lv_color_hex(0x25303D);
+struct AccentPalette {
+    uint32_t dark_rgb;
+    uint32_t dark_pressed_rgb;
+    uint32_t dark_surface_rgb;
+    uint32_t light_rgb;
+    uint32_t light_pressed_rgb;
+    uint32_t light_surface_rgb;
+};
+
+// These swatches intentionally use familiar, high-contrast UI colours. The
+// light and dark variants keep the selected accent readable in either theme.
+constexpr AccentPalette kAccentPalettes[] = {
+    {0x38BDF8, 0x075985, 0x123A52, 0x2563EB, 0x1D4ED8, 0xDBEAFE}, // Blue
+    {0xC084FC, 0x7E22CE, 0x3B214F, 0x7C3AED, 0x6D28D9, 0xEDE9FE}, // Purple
+    {0x2DD4BF, 0x0F766E, 0x123F42, 0x0D9488, 0x0F766E, 0xCCFBF1}, // Teal
+    {0x4ADE80, 0x15803D, 0x163D2A, 0x16A34A, 0x15803D, 0xDCFCE7}, // Green
+    {0xFBBF24, 0xB45309, 0x493512, 0xD97706, 0xB45309, 0xFEF3C7}, // Amber
+    {0xFB923C, 0xC2410C, 0x492812, 0xEA580C, 0xC2410C, 0xFFEDD5}, // Orange
+    {0xF87171, 0xB91C1C, 0x4A2026, 0xDC2626, 0xB91C1C, 0xFEE2E2}, // Red
+    {0xF472B6, 0xBE185D, 0x4A1D3B, 0xDB2777, 0xBE185D, 0xFCE7F3}, // Pink
+};
+constexpr size_t kAccentPaletteCount = sizeof(kAccentPalettes) / sizeof(kAccentPalettes[0]);
+
+bool s_dark_mode = true;
+uint8_t s_accent_colour = 0;
+
+lv_color_t kBackground = lv_color_hex(0x080C12);
+lv_color_t kSurface = lv_color_hex(0x101720);
+lv_color_t kSurfaceRaised = lv_color_hex(0x18212D);
+lv_color_t kAccent = lv_color_hex(0x38BDF8);
+lv_color_t kAccentDark = lv_color_hex(0x075985);
+lv_color_t kAccentSurface = lv_color_hex(0x123A52);
+lv_color_t kTextPrimary = lv_color_hex(0xF4F7FB);
+lv_color_t kTextSecondary = lv_color_hex(0xCBD5E1);
+lv_color_t kTextMuted = lv_color_hex(0x718096);
+lv_color_t kDivider = lv_color_hex(0x25303D);
+lv_color_t kNavSurface = lv_color_hex(0x0B111A);
+lv_color_t kKeyboardSurface = lv_color_hex(0x05080D);
+lv_color_t kArtworkSurface = lv_color_hex(0x142131);
+lv_color_t kPlayerArtSurface = lv_color_hex(0x101D45);
+lv_color_t kDangerSurface = lv_color_hex(0x3F1118);
+const lv_color_t kOverlay = lv_color_hex(0x000000);
+const lv_color_t kTextOnAccent = lv_color_hex(0xFFFFFF);
 constexpr const char *kHeartOutline = "\xE2\x99\xA1"; // U+2661 WHITE HEART SUIT
 constexpr const char *kHeartFilled = "\xE2\x99\xA5";  // U+2665 BLACK HEART SUIT
 
@@ -251,6 +287,46 @@ PlaylistManageAction s_pending_playlist_manage_action = PlaylistManageAction::De
 size_t s_pending_playlist = 0;
 size_t s_pending_playlist_track = 0;
 
+void apply_theme_palette()
+{
+    const size_t accent_index = static_cast<size_t>(s_accent_colour) < kAccentPaletteCount ?
+                                s_accent_colour : 0;
+    const AccentPalette &accent = kAccentPalettes[accent_index];
+    if (s_dark_mode) {
+        kBackground = lv_color_hex(0x080C12);
+        kSurface = lv_color_hex(0x101720);
+        kSurfaceRaised = lv_color_hex(0x18212D);
+        kAccent = lv_color_hex(accent.dark_rgb);
+        kAccentDark = lv_color_hex(accent.dark_pressed_rgb);
+        kAccentSurface = lv_color_hex(accent.dark_surface_rgb);
+        kTextPrimary = lv_color_hex(0xF4F7FB);
+        kTextSecondary = lv_color_hex(0xCBD5E1);
+        kTextMuted = lv_color_hex(0x718096);
+        kDivider = lv_color_hex(0x25303D);
+        kNavSurface = lv_color_hex(0x0B111A);
+        kKeyboardSurface = lv_color_hex(0x05080D);
+        kArtworkSurface = lv_color_hex(0x142131);
+        kPlayerArtSurface = lv_color_hex(0x101D45);
+        kDangerSurface = lv_color_hex(0x3F1118);
+    } else {
+        kBackground = lv_color_hex(0xF8FAFC);
+        kSurface = lv_color_hex(0xFFFFFF);
+        kSurfaceRaised = lv_color_hex(0xF1F5F9);
+        kAccent = lv_color_hex(accent.light_rgb);
+        kAccentDark = lv_color_hex(accent.light_pressed_rgb);
+        kAccentSurface = lv_color_hex(accent.light_surface_rgb);
+        kTextPrimary = lv_color_hex(0x172033);
+        kTextSecondary = lv_color_hex(0x475569);
+        kTextMuted = lv_color_hex(0x64748B);
+        kDivider = lv_color_hex(0xCBD5E1);
+        kNavSurface = lv_color_hex(0xFFFFFF);
+        kKeyboardSurface = lv_color_hex(0xE2E8F0);
+        kArtworkSurface = lv_color_hex(0xE2E8F0);
+        kPlayerArtSurface = lv_color_hex(0xE0E7FF);
+        kDangerSurface = lv_color_hex(0xFEE2E2);
+    }
+}
+
 constexpr int16_t kEqualizerFlat[lyra::audio::kEqualizerBandCount] = {
     0, 0, 0, 0, 0,
 };
@@ -339,6 +415,8 @@ void save_user_settings()
     if (result == ESP_OK) result = nvs_set_u8(handle, kReplayGainKey, s_replay_gain ? 1 : 0);
     if (result == ESP_OK) result = nvs_set_u8(handle, kCrossfadeKey, s_crossfade_seconds);
     if (result == ESP_OK) result = nvs_set_u8(handle, kBrightnessKey, s_brightness_percent);
+    if (result == ESP_OK) result = nvs_set_u8(handle, kDarkModeKey, s_dark_mode ? 1 : 0);
+    if (result == ESP_OK) result = nvs_set_u8(handle, kAccentColorKey, s_accent_colour);
     if (result == ESP_OK) result = nvs_set_u8(handle, kSpeakerOutputKey,
                                                s_speaker_output_enabled ? 1 : 0);
     if (result == ESP_OK) result = nvs_set_u8(handle, kEqualizerPresetKey,
@@ -367,6 +445,13 @@ void load_user_settings()
     }
     if (nvs_get_u8(handle, kBrightnessKey, &value) == ESP_OK && value >= 1 && value <= 100) {
         s_brightness_percent = value;
+    }
+    if (nvs_get_u8(handle, kDarkModeKey, &value) == ESP_OK && value <= 1) {
+        s_dark_mode = value != 0;
+    }
+    if (nvs_get_u8(handle, kAccentColorKey, &value) == ESP_OK &&
+        static_cast<size_t>(value) < kAccentPaletteCount) {
+        s_accent_colour = value;
     }
     if (nvs_get_u8(handle, kSpeakerOutputKey, &value) == ESP_OK && value <= 1) {
         s_speaker_output_enabled = value != 0;
@@ -1100,7 +1185,7 @@ bool restart_current_track()
 void make_virtual_nav()
 {
     lv_obj_t *dock = make_box(s_screen, 0, kScreenHeight - kNavHeight,
-                              kScreenWidth, kNavHeight, lv_color_hex(0x0B111A));
+                              kScreenWidth, kNavHeight, kNavSurface);
     make_box(dock, 0, 0, kScreenWidth, 1, kAccentDark);
     const char *icons[] = {LV_SYMBOL_BARS, LV_SYMBOL_PREV, LV_SYMBOL_PLAY, LV_SYMBOL_NEXT, LV_SYMBOL_LEFT};
     for (int i = 0; i < 5; ++i) {
@@ -1195,7 +1280,7 @@ void show_volume_popup_cb(lv_event_t *)
     lv_slider_set_value(slider, audio_status.volume_percent, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(slider, kDivider, LV_PART_MAIN);
     lv_obj_set_style_bg_color(slider, kAccentDark, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(slider, kTextPrimary, LV_PART_KNOB);
+    lv_obj_set_style_bg_color(slider, kTextOnAccent, LV_PART_KNOB);
     lv_obj_set_style_border_color(slider, kAccent, LV_PART_KNOB);
     lv_obj_set_style_border_width(slider, 2, LV_PART_KNOB);
     lv_obj_set_user_data(slider, value);
@@ -1259,7 +1344,7 @@ void show_notice(const char *title_text, const char *message_text)
 {
     if (!s_screen) return;
     lv_obj_t *overlay = make_box(s_screen, 0, 0, kScreenWidth, kScreenHeight,
-                                 lv_color_hex(0x030609));
+                                 kOverlay);
     lv_obj_set_style_bg_opa(overlay, LV_OPA_90, 0);
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_move_foreground(overlay);
@@ -1272,7 +1357,7 @@ void show_notice(const char *title_text, const char *message_text)
     lv_label_set_long_mode(message, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(message, LV_ALIGN_CENTER, 0, -3);
     lv_obj_t *close = make_button(dialog, 78, 134, 116, 44, kAccentDark, 7);
-    lv_obj_t *close_label = make_label(close, "OK", kTextPrimary);
+    lv_obj_t *close_label = make_label(close, "OK", kTextOnAccent);
     lv_obj_center(close_label);
     lv_obj_add_event_cb(close, dismiss_overlay_cb, LV_EVENT_CLICKED, overlay);
 }
@@ -1384,7 +1469,7 @@ lv_obj_t *make_artwork(lv_obj_t *parent, int x, int y, int width, int height,
                        const lyra::media::Track &track, int radius,
                        bool preserve_aspect = false)
 {
-    lv_obj_t *art = make_box(parent, x, y, width, height, lv_color_hex(0x142131), radius);
+    lv_obj_t *art = make_box(parent, x, y, width, height, kArtworkSurface, radius);
     lv_obj_t *fallback = make_label(art, LV_SYMBOL_AUDIO, kAccent);
     lv_obj_set_style_text_font(fallback, &lv_font_montserrat_18, 0);
     lv_obj_set_style_transform_scale_x(fallback, width > 80 ? 512 : 320, 0);
@@ -1723,14 +1808,14 @@ void make_queue_song_row(lv_obj_t *parent, int y, size_t queue_position, bool cu
     lv_obj_t *row = make_button(parent, 7, y, 306, 54, current ? kAccentDark : kSurface, 5);
     const int text_x = current ? 45 : 12;
     if (current) {
-        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, kAccent);
+        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, kTextOnAccent);
         lv_obj_align(playing, LV_ALIGN_LEFT_MID, 12, 0);
         lv_obj_clear_flag(playing, LV_OBJ_FLAG_CLICKABLE);
     }
-    lv_obj_t *title = make_label(row, track.title, kTextPrimary);
+    lv_obj_t *title = make_label(row, track.title, current ? kTextOnAccent : kTextPrimary);
     make_marquee(title, current ? 220 : 282);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, text_x, -9);
-    lv_obj_t *artist = make_label(row, track.artist, kTextSecondary);
+    lv_obj_t *artist = make_label(row, track.artist, current ? kTextOnAccent : kTextSecondary);
     make_marquee(artist, current ? 220 : 282);
     lv_obj_align(artist, LV_ALIGN_LEFT_MID, text_x, 11);
     lv_obj_add_event_cb(row, queue_track_cb, LV_EVENT_CLICKED,
@@ -1973,7 +2058,7 @@ void make_artist_detail_tab(lv_obj_t *parent, int x, const char *label,
     lv_obj_t *button = make_button(parent, x, 0, 149, 40,
                                    s_artist_detail_tab == tab ? kAccentDark : kSurface, 6);
     lv_obj_t *text = make_label(button, label,
-                                s_artist_detail_tab == tab ? kTextPrimary : kTextSecondary);
+                                s_artist_detail_tab == tab ? kTextOnAccent : kTextSecondary);
     lv_obj_center(text);
     lv_obj_add_event_cb(button, artist_detail_tab_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(tab)));
@@ -2241,7 +2326,7 @@ void show_playlist_manage_confirmation(PlaylistManageAction action, size_t playl
         "All favorite songs will be cleared.\nThe Favorites playlist remains available." :
         "The playlist will be removed.\nMusic files stay on the MicroSD card.";
     lv_obj_t *overlay = make_box(s_screen, 0, 0, kScreenWidth, kScreenHeight,
-                                 lv_color_hex(0x030609));
+                                 kOverlay);
     lv_obj_set_style_bg_opa(overlay, LV_OPA_90, 0);
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_move_foreground(overlay);
@@ -2259,7 +2344,7 @@ void show_playlist_manage_confirmation(PlaylistManageAction action, size_t playl
     lv_obj_add_event_cb(cancel, dismiss_overlay_cb, LV_EVENT_CLICKED, overlay);
     lv_obj_t *confirm = make_button(dialog, 150, 166, 116, 48, lv_color_hex(0x991B1B), 7);
     lv_obj_t *confirm_label = make_label(confirm, action == PlaylistManageAction::RemoveTrack ?
-                                          "REMOVE" : favorites ? "CLEAR" : "DELETE", kTextPrimary);
+                                          "REMOVE" : favorites ? "CLEAR" : "DELETE", kTextOnAccent);
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm, confirm_playlist_manage_action_cb, LV_EVENT_CLICKED, overlay);
 }
@@ -2288,7 +2373,7 @@ void make_playlist_manage_row(lv_obj_t *parent, int y, size_t playlist_index,
     lv_obj_t *sub = make_label(row, subtitle, kTextSecondary);
     lv_obj_align(sub, LV_ALIGN_LEFT_MID, 12, 11);
     lv_obj_t *remove = make_button(row, 246, 11, 48, 36, lv_color_hex(0x991B1B), 5);
-    lv_obj_t *remove_icon = make_label(remove, LV_SYMBOL_TRASH, kTextPrimary);
+    lv_obj_t *remove_icon = make_label(remove, LV_SYMBOL_TRASH, kTextOnAccent);
     lv_obj_center(remove_icon);
     lv_obj_add_event_cb(remove, delete_playlist_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(playlist_index));
@@ -2306,7 +2391,7 @@ void make_playlist_track_manage_row(lv_obj_t *parent, int y, size_t track_index)
     make_marquee(artist, 220);
     lv_obj_align(artist, LV_ALIGN_LEFT_MID, 12, 11);
     lv_obj_t *remove = make_button(row, 246, 9, 48, 36, lv_color_hex(0x991B1B), 5);
-    lv_obj_t *remove_icon = make_label(remove, LV_SYMBOL_TRASH, kTextPrimary);
+    lv_obj_t *remove_icon = make_label(remove, LV_SYMBOL_TRASH, kTextOnAccent);
     lv_obj_center(remove_icon);
     lv_obj_add_event_cb(remove, remove_playlist_track_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(track_index));
@@ -2563,7 +2648,7 @@ void make_track_info_tab_button(lv_obj_t *parent, int x, const char *label,
     const bool selected = s_track_info_tab == tab;
     lv_obj_t *button = make_button(parent, x, 76, 150, 36,
                                    selected ? kAccentDark : kSurface, 6);
-    lv_obj_t *text = make_label(button, label, selected ? kTextPrimary : kTextSecondary);
+    lv_obj_t *text = make_label(button, label, selected ? kTextOnAccent : kTextSecondary);
     lv_obj_center(text);
     lv_obj_add_event_cb(button, track_info_tab_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(tab)));
@@ -2855,14 +2940,14 @@ void render_player(bool fullscreen)
     const bool favorite = lyra::media::is_favorite(s_current_track);
     const int body_height = content_height(kStatusHeight);
     if (fullscreen) {
-        lv_obj_t *art = make_box(s_screen, 0, kStatusHeight, 320, body_height, lv_color_hex(0x101D45));
+        lv_obj_t *art = make_box(s_screen, 0, kStatusHeight, 320, body_height, kPlayerArtSurface);
         // Keep the square cover flush with the status bar instead of centering
         // it in the taller fullscreen content area.
         make_album_art(art, 0, 0, kScreenWidth, kScreenWidth, track, true);
         lv_obj_t *exit_hit = make_button(art, 0, 0, 320, body_height, kBackground, 0);
         lv_obj_set_style_bg_opa(exit_hit, LV_OPA_TRANSP, 0);
         add_route(exit_hit, View::Player);
-        lv_obj_t *overlay = make_box(art, 0, body_height - 132, 320, 132, lv_color_hex(0x080C12));
+        lv_obj_t *overlay = make_box(art, 0, body_height - 132, 320, 132, kOverlay);
         lv_obj_set_style_bg_opa(overlay, LV_OPA_80, 0);
         lv_obj_t *title = make_label(overlay, track.title, kTextPrimary);
         lv_obj_set_style_text_font(title, lyra::font::ui(), 0);
@@ -3048,7 +3133,7 @@ void make_equalizer_preset_option(lv_obj_t *parent, int y, EqualizerPreset prese
 {
     const bool active = s_equalizer_preset == preset;
     lv_obj_t *row = make_button(parent, 7, y, 306, 54,
-                                active ? lv_color_hex(0x123A52) : kSurface, 6);
+                                active ? kAccentSurface : kSurface, 6);
     lv_obj_t *label = make_label(row, equalizer_preset_name(preset),
                                  active ? kAccent : kTextPrimary);
     lv_obj_align(label, LV_ALIGN_LEFT_MID, 12, 0);
@@ -3116,7 +3201,7 @@ void render_equalizer()
         lv_slider_set_value(slider, bands[band], LV_ANIM_OFF);
         lv_obj_set_style_bg_color(slider, kDivider, LV_PART_MAIN);
         lv_obj_set_style_bg_color(slider, kAccentDark, LV_PART_INDICATOR);
-        lv_obj_set_style_bg_color(slider, kTextPrimary, LV_PART_KNOB);
+        lv_obj_set_style_bg_color(slider, kTextOnAccent, LV_PART_KNOB);
         lv_obj_set_style_border_color(slider, kAccent, LV_PART_KNOB);
         lv_obj_set_style_border_width(slider, 3, LV_PART_KNOB);
 
@@ -3410,7 +3495,7 @@ void render_search()
         lv_obj_t *tab = make_button(body, 7 + static_cast<int>(i) * 77, 52, 72, 28,
                                     categories[i] == s_search_category ? kAccentDark : kSurfaceRaised, 5);
         lv_obj_t *tab_label = make_label(tab, labels[i],
-                                         categories[i] == s_search_category ? kTextPrimary : kTextSecondary);
+                                         categories[i] == s_search_category ? kTextOnAccent : kTextSecondary);
         lv_obj_center(tab_label);
         lv_obj_add_event_cb(tab, search_category_cb, LV_EVENT_CLICKED,
                             reinterpret_cast<void *>(static_cast<uintptr_t>(categories[i])));
@@ -3422,7 +3507,7 @@ void render_search()
     s_search_results = make_box(body, 0, 84, 320, results_height, kBackground);
     configure_cover_aware_scroll(s_search_results);
     populate_search_results();
-    s_search_keyboard = make_box(body, 0, keyboard_y, 320, keyboard_height, lv_color_hex(0x05080D));
+    s_search_keyboard = make_box(body, 0, keyboard_y, 320, keyboard_height, kKeyboardSurface);
     lv_obj_t *keyboard = s_search_keyboard;
     make_library_keyboard(keyboard, "SEARCH");
     if (!s_search_keyboard_visible) lv_obj_add_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
@@ -3438,7 +3523,7 @@ void render_playlist_create()
     update_search_label();
     const int keyboard_height = library_keyboard_height();
     const int keyboard_y = content_height(72) - keyboard_height;
-    lv_obj_t *keyboard = make_box(body, 0, keyboard_y, 320, keyboard_height, lv_color_hex(0x05080D));
+    lv_obj_t *keyboard = make_box(body, 0, keyboard_y, 320, keyboard_height, kKeyboardSurface);
     make_library_keyboard(keyboard, "SAVE");
 }
 
@@ -3472,6 +3557,12 @@ void toggle_bool_cb(lv_event_t *event)
         save_user_settings();
         if (value == &s_replay_gain) apply_replay_gain_to_current_track();
     }
+    if (value == &s_dark_mode) {
+        apply_theme_palette();
+        save_user_settings();
+        render(s_view);
+        return;
+    }
     if (value == &s_show_nav) {
         // This setting changes the usable page height and dock object tree.
         render(s_view);
@@ -3502,9 +3593,43 @@ void make_setting_toggle(lv_obj_t *parent, int y, const char *title, const char 
         lv_obj_align(sub, LV_ALIGN_LEFT_MID, 12, 12);
     }
     lv_obj_t *toggle = make_box(row, 250, 17, 42, 24, *value ? kAccent : kDivider, 12);
-    make_box(toggle, *value ? 21 : 3, 3, 18, 18, kTextPrimary, 9);
+    make_box(toggle, *value ? 21 : 3, 3, 18, 18,
+             *value ? kTextOnAccent : kTextPrimary, 9);
     lv_obj_set_user_data(toggle, value);
     lv_obj_add_event_cb(row, toggle_bool_cb, LV_EVENT_CLICKED, toggle);
+}
+
+void accent_colour_cb(lv_event_t *event)
+{
+    const uintptr_t index = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
+    if (index >= kAccentPaletteCount) return;
+    if (s_accent_colour == index) return;
+    s_accent_colour = static_cast<uint8_t>(index);
+    apply_theme_palette();
+    save_user_settings();
+    render(s_view);
+}
+
+void make_accent_selector(lv_obj_t *parent, int y)
+{
+    lv_obj_t *card = make_box(parent, 7, y, 306, 110, kSurface, 6);
+    lv_obj_t *title = make_label(card, "Accent colour", kTextPrimary);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 12, 9);
+
+    for (size_t index = 0; index < kAccentPaletteCount; ++index) {
+        const int column = static_cast<int>(index % 4);
+        const int row = static_cast<int>(index / 4);
+        const AccentPalette &accent = kAccentPalettes[index];
+        const uint32_t rgb = s_dark_mode ? accent.dark_rgb : accent.light_rgb;
+        lv_obj_t *swatch = make_box(card, 14 + column * 72, 42 + row * 36, 28, 28,
+                                    lv_color_hex(rgb), 14);
+        lv_obj_set_style_border_width(swatch, s_accent_colour == index ? 3 : 1, 0);
+        lv_obj_set_style_border_color(swatch,
+                                      s_accent_colour == index ? kTextPrimary : kDivider, 0);
+        lv_obj_add_flag(swatch, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(swatch, accent_colour_cb, LV_EVENT_CLICKED,
+                            reinterpret_cast<void *>(static_cast<uintptr_t>(index)));
+    }
 }
 
 void artwork_setting_cb(lv_event_t *event)
@@ -3533,7 +3658,8 @@ void make_artwork_setting_toggle(lv_obj_t *parent, int y, const char *title,
     lv_obj_t *sub = make_label(row, subtitle, kTextMuted);
     lv_obj_align(sub, LV_ALIGN_LEFT_MID, 12, 12);
     lv_obj_t *toggle = make_box(row, 250, 17, 42, 24, value ? kAccent : kDivider, 12);
-    make_box(toggle, value ? 21 : 3, 3, 18, 18, kTextPrimary, 9);
+    make_box(toggle, value ? 21 : 3, 3, 18, 18,
+             value ? kTextOnAccent : kTextPrimary, 9);
     lv_obj_add_event_cb(row, artwork_setting_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(setting)));
 }
@@ -3577,7 +3703,7 @@ void make_volume_control(lv_obj_t *parent, int y)
     lv_slider_set_value(slider, audio_status.volume_percent, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(slider, kDivider, LV_PART_MAIN);
     lv_obj_set_style_bg_color(slider, kAccentDark, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(slider, kTextPrimary, LV_PART_KNOB);
+    lv_obj_set_style_bg_color(slider, kTextOnAccent, LV_PART_KNOB);
     lv_obj_set_style_border_color(slider, kAccent, LV_PART_KNOB);
     lv_obj_set_style_border_width(slider, 2, LV_PART_KNOB);
     lv_obj_set_user_data(slider, value_label);
@@ -3624,7 +3750,7 @@ void make_brightness_control(lv_obj_t *parent, int y)
     lv_slider_set_value(slider, s_brightness_percent, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(slider, kDivider, LV_PART_MAIN);
     lv_obj_set_style_bg_color(slider, kAccentDark, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(slider, kTextPrimary, LV_PART_KNOB);
+    lv_obj_set_style_bg_color(slider, kTextOnAccent, LV_PART_KNOB);
     lv_obj_set_style_border_color(slider, kAccent, LV_PART_KNOB);
     lv_obj_set_style_border_width(slider, 2, LV_PART_KNOB);
     lv_obj_set_user_data(slider, value_label);
@@ -3711,7 +3837,7 @@ void make_sorting_option_row(lv_obj_t *parent, int y, lyra::media::SortField fie
 {
     const bool active = selected.field == field && selected.direction == direction;
     lv_obj_t *row = make_button(parent, 7, y, 306, 54,
-                                active ? lv_color_hex(0x123A52) : kSurface, 6);
+                                active ? kAccentSurface : kSurface, 6);
     char title[64];
     std::snprintf(title, sizeof(title), "%s / %s", sort_field_name(field),
                   sort_direction_name(direction));
@@ -3760,7 +3886,7 @@ void make_playback_option_row(lv_obj_t *parent, int y, const char *title, bool a
                               lv_event_cb_t callback, uintptr_t value)
 {
     lv_obj_t *row = make_button(parent, 7, y, 306, 54,
-                                active ? lv_color_hex(0x123A52) : kSurface, 6);
+                                active ? kAccentSurface : kSurface, 6);
     lv_obj_t *label = make_label(row, title, active ? kAccent : kTextPrimary);
     lv_obj_align(label, LV_ALIGN_LEFT_MID, 12, 0);
     if (active) {
@@ -3839,7 +3965,7 @@ void scan_library_cb(lv_event_t *)
         render(View::SystemSettings);
         return;
     }
-    s_scan_overlay = make_box(s_screen, 0, 0, kScreenWidth, kScreenHeight, lv_color_hex(0x02050A));
+    s_scan_overlay = make_box(s_screen, 0, 0, kScreenWidth, kScreenHeight, kOverlay);
     lv_obj_set_style_bg_opa(s_scan_overlay, LV_OPA_80, 0);
     lv_obj_add_flag(s_scan_overlay, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_t *dialog = make_box(s_scan_overlay, 24, 126, 272, 228, kSurfaceRaised, 14);
@@ -3955,7 +4081,7 @@ void cancel_power_action_cb(lv_event_t *event)
 void show_power_confirmation(PowerAction action)
 {
     lv_obj_t *overlay = make_box(s_screen, 0, 0, kScreenWidth, kScreenHeight,
-                                 lv_color_hex(0x030609));
+                                 kOverlay);
     lv_obj_set_style_bg_opa(overlay, LV_OPA_90, 0);
     lv_obj_move_foreground(overlay);
     lv_obj_t *dialog = make_box(overlay, 20, 132, 280, 216, kSurfaceRaised, 12);
@@ -3978,7 +4104,7 @@ void show_power_confirmation(PowerAction action)
     lv_obj_t *confirm = make_button(dialog, 150, 152, 116, 48,
                                     action == PowerAction::Reboot ? kAccentDark : lv_color_hex(0x991B1B), 7);
     lv_obj_t *confirm_label = make_label(confirm, action == PowerAction::Reboot ? "REBOOT" : "POWER OFF",
-                                         kTextPrimary);
+                                         kTextOnAccent);
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm, confirm_power_action_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(action)));
@@ -4009,7 +4135,7 @@ void confirm_database_action_cb(lv_event_t *event)
 
 void show_database_confirmation(DatabaseAction action)
 {
-    lv_obj_t *overlay = make_box(s_screen, 0, 0, kScreenWidth, kScreenHeight, lv_color_hex(0x030609));
+    lv_obj_t *overlay = make_box(s_screen, 0, 0, kScreenWidth, kScreenHeight, kOverlay);
     lv_obj_set_style_bg_opa(overlay, LV_OPA_90, 0);
     lv_obj_move_foreground(overlay);
     lv_obj_t *dialog = make_box(overlay, 20, 118, 280, 244, kSurfaceRaised, 12);
@@ -4033,7 +4159,7 @@ void show_database_confirmation(DatabaseAction action)
     lv_obj_center(cancel_label);
     lv_obj_add_event_cb(cancel, cancel_power_action_cb, LV_EVENT_CLICKED, overlay);
     lv_obj_t *confirm = make_button(dialog, 150, 180, 116, 48, lv_color_hex(0x991B1B), 7);
-    lv_obj_t *confirm_label = make_label(confirm, "CLEAR", kTextPrimary);
+    lv_obj_t *confirm_label = make_label(confirm, "CLEAR", kTextOnAccent);
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm, confirm_database_action_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(action)));
@@ -4061,7 +4187,7 @@ void render_database_storage()
                         reinterpret_cast<void *>(static_cast<uintptr_t>(DatabaseAction::Artwork)));
     lv_obj_t *all = make_row(body, 132, LV_SYMBOL_WARNING, "Clear All Databases",
                              "Music library rescan required", View::DatabaseStorage, 62);
-    lv_obj_set_style_bg_color(all, lv_color_hex(0x3F1118), 0);
+    lv_obj_set_style_bg_color(all, kDangerSurface, 0);
     lv_obj_remove_event_cb(all, route_cb);
     lv_obj_add_event_cb(all, database_action_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(DatabaseAction::All)));
@@ -4091,9 +4217,14 @@ void render_settings_page(View view)
         make_row(body, 158, LV_SYMBOL_SETTINGS, "EQ preset",
                  equalizer_preset_name(s_equalizer_preset), View::Equalizer, 62);
     } else if (view == View::DisplaySettings) {
-        make_setting_toggle(body, 0, "Virtual controls", "Show bottom navigation bar", &s_show_nav);
-        make_brightness_control(body, 66);
-        lv_obj_t *screen_timeout = make_row(body, 158, LV_SYMBOL_POWER, "Screen timeout", "Coming soon",
+        make_setting_toggle(body, 0, "Dark mode",
+                            s_dark_mode ? "Dark colours for the interface" :
+                                          "Light colours for the interface",
+                            &s_dark_mode);
+        make_accent_selector(body, 66);
+        make_setting_toggle(body, 182, "Virtual controls", "Show bottom navigation bar", &s_show_nav);
+        make_brightness_control(body, 248);
+        lv_obj_t *screen_timeout = make_row(body, 340, LV_SYMBOL_POWER, "Screen timeout", "Coming soon",
                                              View::DisplaySettings, 62);
         lv_obj_remove_event_cb(screen_timeout, route_cb);
         lv_obj_set_style_opa(screen_timeout, LV_OPA_60, 0);
@@ -4393,7 +4524,7 @@ void show_sorting_overlay(const lyra::media::Status &status)
 {
     if (s_sort_overlay || !s_screen) return;
     s_sort_overlay = make_box(s_screen, 0, 0, kScreenWidth, kScreenHeight,
-                              lv_color_hex(0x02050A));
+                              kOverlay);
     lv_obj_set_style_bg_opa(s_sort_overlay, LV_OPA_80, 0);
     lv_obj_add_flag(s_sort_overlay, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_move_foreground(s_sort_overlay);
@@ -4581,6 +4712,8 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     s_replay_gain = true;
     s_crossfade_seconds = 0;
     s_brightness_percent = 72;
+    s_dark_mode = true;
+    s_accent_colour = 0;
     s_speaker_output_enabled = lyra::audio::kDefaultSpeakerOutputEnabled;
     s_equalizer_preset = EqualizerPreset::Custom;
     std::memset(s_equalizer_custom_bands, 0, sizeof(s_equalizer_custom_bands));
@@ -4595,6 +4728,7 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     s_crossfade_transition_direction = 0;
     s_crossfade_pause_pending = false;
     load_user_settings();
+    apply_theme_palette();
     const esp_err_t speaker_output_result =
         lyra::audio::set_speaker_output_enabled(s_speaker_output_enabled);
     if (speaker_output_result != ESP_OK) {
