@@ -30,6 +30,7 @@
 #include "lyra_board.h"
 #include "lyra_boot_test.h"
 #include "lyra_font.h"
+#include "lyra_gui_settings.h"
 #include "lyra_media.h"
 #include "lyra_audio.h"
 #include "lyra_png.h"
@@ -54,18 +55,6 @@ constexpr uint16_t kBootImageWidth = 300;
 constexpr uint16_t kBootImageHeight = 59;
 constexpr uint32_t kBootBackgroundRgb = 0x080C12;
 constexpr size_t kDebugInfoCapacity = 4096;
-constexpr const char *kSettingsNamespace = "lyra";
-constexpr const char *kGaplessKey = "gapless";
-constexpr const char *kReplayGainKey = "replay_gain";
-constexpr const char *kCrossfadeKey = "crossfade";
-constexpr const char *kBrightnessKey = "brightness";
-constexpr const char *kDarkModeKey = "dark_mode";
-constexpr const char *kAccentColorKey = "accent_color";
-constexpr const char *kSpeakerOutputKey = "speaker_output";
-constexpr const char *kEqualizerPresetKey = "eq_preset";
-constexpr const char *kEqualizerBandKeys[lyra::audio::kEqualizerBandCount] = {
-    "eq_band_0", "eq_band_1", "eq_band_2", "eq_band_3", "eq_band_4",
-};
 constexpr uint32_t kNonGaplessTrackPauseMs = 500;
 
 extern const uint8_t boot_png_start[] asm("_binary_boot_png_start");
@@ -114,6 +103,8 @@ lv_color_t kPlayerArtSurface = lv_color_hex(0x101D45);
 lv_color_t kDangerSurface = lv_color_hex(0x3F1118);
 const lv_color_t kOverlay = lv_color_hex(0x000000);
 const lv_color_t kTextOnAccent = lv_color_hex(0xFFFFFF);
+const lv_color_t kTextOnOverlayPrimary = lv_color_hex(0xFFFFFF);
+const lv_color_t kTextOnOverlaySecondary = lv_color_hex(0xE2E8F0);
 constexpr const char *kHeartOutline = "\xE2\x99\xA1"; // U+2661 WHITE HEART SUIT
 constexpr const char *kHeartFilled = "\xE2\x99\xA5";  // U+2665 BLACK HEART SUIT
 
@@ -425,70 +416,49 @@ void apply_equalizer_to_audio()
 
 void save_user_settings()
 {
-    nvs_handle_t handle;
-    esp_err_t result = nvs_open(kSettingsNamespace, NVS_READWRITE, &handle);
-    if (result != ESP_OK) {
-        ESP_LOGW(kTag, "settings persistence unavailable: %s", esp_err_to_name(result));
-        return;
-    }
-    result = nvs_set_u8(handle, kGaplessKey, s_gapless ? 1 : 0);
-    if (result == ESP_OK) result = nvs_set_u8(handle, kReplayGainKey, s_replay_gain ? 1 : 0);
-    if (result == ESP_OK) result = nvs_set_u8(handle, kCrossfadeKey, s_crossfade_seconds);
-    if (result == ESP_OK) result = nvs_set_u8(handle, kBrightnessKey, s_brightness_percent);
-    if (result == ESP_OK) result = nvs_set_u8(handle, kDarkModeKey, s_dark_mode ? 1 : 0);
-    if (result == ESP_OK) result = nvs_set_u8(handle, kAccentColorKey, s_accent_colour);
-    if (result == ESP_OK) result = nvs_set_u8(handle, kSpeakerOutputKey,
-                                               s_speaker_output_enabled ? 1 : 0);
-    if (result == ESP_OK) result = nvs_set_u8(handle, kEqualizerPresetKey,
-                                               static_cast<uint8_t>(s_equalizer_preset));
-    for (size_t band = 0; result == ESP_OK && band < lyra::audio::kEqualizerBandCount; ++band) {
-        result = nvs_set_i8(handle, kEqualizerBandKeys[band],
-                            static_cast<int8_t>(s_equalizer_custom_bands[band]));
-    }
-    if (result == ESP_OK) result = nvs_commit(handle);
-    nvs_close(handle);
-    if (result != ESP_OK) {
-        ESP_LOGW(kTag, "could not save settings: %s", esp_err_to_name(result));
-    }
+    lyra::gui_settings::Values values{
+        s_gapless,
+        s_replay_gain,
+        s_crossfade_seconds,
+        s_brightness_percent,
+        s_dark_mode,
+        s_accent_colour,
+        s_speaker_output_enabled,
+        static_cast<uint8_t>(s_equalizer_preset),
+        {},
+    };
+    std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
+                sizeof(values.equalizer_custom_bands));
+    (void)lyra::gui_settings::save(values);
 }
 
 void load_user_settings()
 {
-    nvs_handle_t handle;
-    if (nvs_open(kSettingsNamespace, NVS_READONLY, &handle) != ESP_OK) return;
-    uint8_t value = 0;
-    if (nvs_get_u8(handle, kGaplessKey, &value) == ESP_OK && value <= 1) s_gapless = value != 0;
-    if (nvs_get_u8(handle, kReplayGainKey, &value) == ESP_OK && value <= 1) s_replay_gain = value != 0;
-    if (nvs_get_u8(handle, kCrossfadeKey, &value) == ESP_OK &&
-        (value == 0 || value == 1 || value == 2 || value == 4 || value == 6)) {
-        s_crossfade_seconds = value;
-    }
-    if (nvs_get_u8(handle, kBrightnessKey, &value) == ESP_OK && value >= 1 && value <= 100) {
-        s_brightness_percent = value;
-    }
-    if (nvs_get_u8(handle, kDarkModeKey, &value) == ESP_OK && value <= 1) {
-        s_dark_mode = value != 0;
-    }
-    if (nvs_get_u8(handle, kAccentColorKey, &value) == ESP_OK &&
-        static_cast<size_t>(value) < kAccentPaletteCount) {
-        s_accent_colour = value;
-    }
-    if (nvs_get_u8(handle, kSpeakerOutputKey, &value) == ESP_OK && value <= 1) {
-        s_speaker_output_enabled = value != 0;
-    }
-    if (nvs_get_u8(handle, kEqualizerPresetKey, &value) == ESP_OK &&
-        value < static_cast<uint8_t>(EqualizerPreset::Count)) {
-        s_equalizer_preset = static_cast<EqualizerPreset>(value);
-    }
-    for (size_t band = 0; band < lyra::audio::kEqualizerBandCount; ++band) {
-        int8_t gain = 0;
-        if (nvs_get_i8(handle, kEqualizerBandKeys[band], &gain) == ESP_OK &&
-            gain >= lyra::audio::kEqualizerMinimumTenthsDb &&
-            gain <= lyra::audio::kEqualizerMaximumTenthsDb) {
-            s_equalizer_custom_bands[band] = gain;
-        }
-    }
-    nvs_close(handle);
+    lyra::gui_settings::Values values{
+        s_gapless,
+        s_replay_gain,
+        s_crossfade_seconds,
+        s_brightness_percent,
+        s_dark_mode,
+        s_accent_colour,
+        s_speaker_output_enabled,
+        static_cast<uint8_t>(s_equalizer_preset),
+        {},
+    };
+    std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
+                sizeof(values.equalizer_custom_bands));
+    lyra::gui_settings::load(&values, kAccentPaletteCount,
+                             static_cast<uint8_t>(EqualizerPreset::Count));
+    s_gapless = values.gapless;
+    s_replay_gain = values.replay_gain;
+    s_crossfade_seconds = values.crossfade_seconds;
+    s_brightness_percent = values.brightness_percent;
+    s_dark_mode = values.dark_mode;
+    s_accent_colour = values.accent_colour;
+    s_speaker_output_enabled = values.speaker_output_enabled;
+    s_equalizer_preset = static_cast<EqualizerPreset>(values.equalizer_preset);
+    std::memcpy(s_equalizer_custom_bands, values.equalizer_custom_bands,
+                sizeof(s_equalizer_custom_bands));
 }
 
 void copy_ui_text(char *destination, size_t capacity, const char *source)
@@ -599,14 +569,16 @@ size_t search_page_size()
     return s_show_nav ? kSearchPageSizeWithNav : kSearchPageSizeWithoutNav;
 }
 
-lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int width, int height, lv_color_t color, int radius = 0)
+lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int width, int height,
+                   lv_color_t color, int radius = 0, bool show_border = false)
 {
     lv_obj_t *box = lv_obj_create(parent);
     lv_obj_set_pos(box, x, y);
     lv_obj_set_size(box, width, height);
     lv_obj_set_style_bg_color(box, color, 0);
     lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(box, 0, 0);
+    lv_obj_set_style_border_width(box, show_border && !s_dark_mode ? 1 : 0, 0);
+    lv_obj_set_style_border_color(box, kDivider, 0);
     lv_obj_set_style_radius(box, radius, 0);
     lv_obj_set_style_pad_all(box, 0, 0);
     lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
@@ -1576,7 +1548,7 @@ void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height = 54,
 {
     lyra::media::Track track{};
     if (!lyra::media::track_at(track_index, &track)) return;
-    lv_obj_t *row = make_button(parent, 7, y, 306, height, kSurface, 5);
+    lv_obj_t *row = make_button(parent, 7, y, 306, height, kSurface, 5, true);
     lv_obj_t *title = make_label(row, track.title, kTextPrimary);
     make_marquee(title, s_playlist_add_mode ? 244 : 282);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -9);
@@ -1631,7 +1603,7 @@ void make_search_playlist_row(lv_obj_t *parent, int y,
     lyra::media::Playlist playlist{};
     if (!lyra::media::track_at(result.track_index, &track) ||
         !lyra::media::playlist_at(result.playlist_index, &playlist)) return;
-    lv_obj_t *row = make_button(parent, 7, y, 306, 54, kSurface, 5);
+    lv_obj_t *row = make_button(parent, 7, y, 306, 54, kSurface, 5, true);
     lv_obj_t *title = make_label(row, track.title, kTextPrimary);
     make_marquee(title, 282);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -9);
@@ -1672,7 +1644,7 @@ void make_file_row(lv_obj_t *parent, int y, size_t track_index, int height = 54)
     if (!lyra::media::track_at(track_index, &track)) return;
     const char *filename = std::strrchr(track.path, '/');
     filename = filename ? filename + 1 : track.path;
-    lv_obj_t *row = make_button(parent, 7, y, 306, height, kSurface, 5);
+    lv_obj_t *row = make_button(parent, 7, y, 306, height, kSurface, 5, true);
     lv_obj_t *icon = make_label(row, LV_SYMBOL_FILE, kAccent);
     lv_obj_align(icon, LV_ALIGN_LEFT_MID, 12, 0);
     lv_obj_t *name = make_label(row, filename, kTextPrimary);
@@ -1977,7 +1949,7 @@ void make_album_row(lv_obj_t *parent, int y, size_t group_index)
     const size_t representative = group.representative_track;
     lyra::media::Track track{};
     if (!lyra::media::track_at(representative, &track)) return;
-    lv_obj_t *row = make_button(parent, 7, y, 306, 60, kSurface, 5);
+    lv_obj_t *row = make_button(parent, 7, y, 306, 60, kSurface, 5, true);
     lv_obj_t *title = make_label(row, group.name, kTextPrimary);
     make_marquee(title, 282);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -10);
@@ -2080,7 +2052,7 @@ void make_artist_detail_tab(lv_obj_t *parent, int x, const char *label,
                             ArtistDetailTab tab)
 {
     lv_obj_t *button = make_button(parent, x, 0, 149, 40,
-                                   s_artist_detail_tab == tab ? kAccentDark : kSurface, 6);
+                                   s_artist_detail_tab == tab ? kAccentDark : kSurface, 6, true);
     lv_obj_t *text = make_label(button, label,
                                 s_artist_detail_tab == tab ? kTextOnAccent : kTextSecondary);
     lv_obj_center(text);
@@ -2204,7 +2176,7 @@ void render_album_detail()
     if (!lyra::media::track_at(representative, &track)) return;
     make_header(album.name, View::LibraryAlbums, true);
     lv_obj_t *body = make_scroll_body(72);
-    lv_obj_t *summary = make_box(body, 7, 0, 306, 122, kSurface, 7);
+    lv_obj_t *summary = make_box(body, 7, 0, 306, 122, kSurface, 7, true);
     make_album_art(summary, 8, 8, 106, 106, track);
     lv_obj_t *name = make_label(summary, album.name, kTextPrimary);
     lv_obj_set_style_text_font(name, lyra::font::ui(), 0);
@@ -2388,7 +2360,7 @@ void remove_playlist_track_cb(lv_event_t *event)
 void make_playlist_manage_row(lv_obj_t *parent, int y, size_t playlist_index,
                               const lyra::media::Playlist &playlist)
 {
-    lv_obj_t *row = make_button(parent, 7, y, 306, 58, kSurface, 6);
+    lv_obj_t *row = make_button(parent, 7, y, 306, 58, kSurface, 6, true);
     lv_obj_t *name = make_label(row, playlist.name, kTextPrimary);
     make_marquee(name, 205);
     lv_obj_align(name, LV_ALIGN_LEFT_MID, 12, -10);
@@ -2407,7 +2379,7 @@ void make_playlist_track_manage_row(lv_obj_t *parent, int y, size_t track_index)
 {
     lyra::media::Track track{};
     if (!lyra::media::track_at(track_index, &track)) return;
-    lv_obj_t *row = make_button(parent, 7, y, 306, 54, kSurface, 5);
+    lv_obj_t *row = make_button(parent, 7, y, 306, 54, kSurface, 5, true);
     lv_obj_t *title = make_label(row, track.title, kTextPrimary);
     make_marquee(title, 220);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -9);
@@ -2536,7 +2508,8 @@ void show_player_playlist_picker_cb(lv_event_t *)
     for (size_t i = 0; i < count; ++i) {
         lyra::media::Playlist playlist{};
         if (!lyra::media::playlist_at(i, &playlist)) continue;
-        lv_obj_t *choice = make_button(list, 0, static_cast<int>(i) * 50, 272, 46, kBackground, 5);
+        lv_obj_t *choice = make_button(list, 0, static_cast<int>(i) * 50,
+                                        272, 46, kBackground, 5, true);
         lv_obj_t *name = make_label(choice, playlist.name, kTextPrimary);
         make_marquee(name, 196);
         lv_obj_align(name, LV_ALIGN_LEFT_MID, 12, 0);
@@ -2649,8 +2622,8 @@ void track_info_tab_cb(lv_event_t *event)
 lv_obj_t *make_track_info_row(lv_obj_t *parent, int y, const char *label,
                               const char *value, bool clickable = false)
 {
-    lv_obj_t *row = clickable ? make_button(parent, 8, y, 304, 52, kSurface, 6) :
-                                make_box(parent, 8, y, 304, 52, kSurface, 6);
+    lv_obj_t *row = clickable ? make_button(parent, 8, y, 304, 52, kSurface, 6, true) :
+                                make_box(parent, 8, y, 304, 52, kSurface, 6, true);
     if (clickable) lv_obj_set_style_bg_color(row, kSurfaceRaised, LV_STATE_PRESSED);
     lv_obj_t *label_view = make_label(row, label, kTextMuted);
     lv_obj_set_pos(label_view, 12, 6);
@@ -2671,7 +2644,7 @@ void make_track_info_tab_button(lv_obj_t *parent, int x, const char *label,
 {
     const bool selected = s_track_info_tab == tab;
     lv_obj_t *button = make_button(parent, x, 76, 150, 36,
-                                   selected ? kAccentDark : kSurface, 6);
+                                   selected ? kAccentDark : kSurface, 6, true);
     lv_obj_t *text = make_label(button, label, selected ? kTextOnAccent : kTextSecondary);
     lv_obj_center(text);
     lv_obj_add_event_cb(button, track_info_tab_cb, LV_EVENT_CLICKED,
@@ -3930,15 +3903,15 @@ void render_player(bool fullscreen)
         add_route(exit_hit, View::Player);
         lv_obj_t *overlay = make_box(art, 0, body_height - 132, 320, 132, kOverlay);
         lv_obj_set_style_bg_opa(overlay, LV_OPA_80, 0);
-        lv_obj_t *title = make_label(overlay, track.title, kTextPrimary);
+        lv_obj_t *title = make_label(overlay, track.title, kTextOnOverlayPrimary);
         lv_obj_set_style_text_font(title, lyra::font::ui(), 0);
         make_marquee(title, 250);
         lv_obj_align(title, LV_ALIGN_TOP_LEFT, 10, 20);
-        lv_obj_t *artist = make_label(overlay, track.artist, kTextSecondary);
+        lv_obj_t *artist = make_label(overlay, track.artist, kTextOnOverlaySecondary);
         make_marquee(artist, 280);
         lv_obj_align(artist, LV_ALIGN_TOP_LEFT, 10, 43);
         lv_obj_t *heart = make_label(overlay, favorite ? kHeartFilled : kHeartOutline,
-                                     favorite ? kAccent : kTextPrimary);
+                                     favorite ? kAccent : kTextOnOverlayPrimary);
         lv_obj_align(heart, LV_ALIGN_TOP_RIGHT, -13, 24);
         lv_obj_t *bar = lv_bar_create(overlay);
         lv_obj_set_size(bar, 258, 5);
@@ -3949,9 +3922,9 @@ void render_player(bool fullscreen)
         lv_obj_set_style_bg_color(bar, kAccent, LV_PART_INDICATOR);
         s_player_progress_bar = bar;
         s_player_progress_touch = make_player_progress_touch(overlay, 31, 87, 258, 21);
-        s_player_elapsed_label = make_label(overlay, "00:00", kTextSecondary);
+        s_player_elapsed_label = make_label(overlay, "00:00", kTextOnOverlaySecondary);
         lv_obj_align(s_player_elapsed_label, LV_ALIGN_BOTTOM_LEFT, 10, -8);
-        s_player_duration_label = make_label(overlay, "--:--", kTextSecondary);
+        s_player_duration_label = make_label(overlay, "--:--", kTextOnOverlaySecondary);
         lv_obj_align(s_player_duration_label, LV_ALIGN_BOTTOM_RIGHT, -10, -8);
         update_player_progress();
         return;
@@ -4023,7 +3996,8 @@ void render_player(bool fullscreen)
     lv_obj_t *equalizer = make_button(body, 76, controls_y + 4, 44, 38, kBackground, 7);
     make_equalizer_icon(equalizer, kTextSecondary);
     add_route(equalizer, View::Equalizer);
-    lv_obj_t *playlist_button = make_button(body, 136, controls_y + 4, 44, 38, kBackground, 7);
+    lv_obj_t *playlist_button = make_button(body, 136, controls_y + 4, 44, 38,
+                                            kBackground, 7);
     lv_obj_t *playlist_icon = make_label(playlist_button, LV_SYMBOL_LIST, kTextSecondary);
     lv_obj_align(playlist_icon, LV_ALIGN_CENTER, -3, 0);
     lv_obj_t *playlist_plus = make_label(playlist_button, LV_SYMBOL_PLUS, kTextSecondary);
@@ -4566,7 +4540,7 @@ void toggle_bool_cb(lv_event_t *event)
 
 void make_setting_toggle(lv_obj_t *parent, int y, const char *title, const char *subtitle, bool *value)
 {
-    lv_obj_t *row = make_button(parent, 7, y, 306, 62, kSurface, 6);
+    lv_obj_t *row = make_button(parent, 7, y, 306, 62, kSurface, 6, true);
     lv_obj_t *title_label = make_label(row, title, kTextPrimary);
     lv_obj_align(title_label, LV_ALIGN_LEFT_MID, 12, subtitle == nullptr ? 0 : -10);
     if (subtitle != nullptr) {
@@ -4633,7 +4607,7 @@ void make_artwork_setting_toggle(lv_obj_t *parent, int y, const char *title,
                                  const char *subtitle, bool value,
                                  ArtworkSetting setting)
 {
-    lv_obj_t *row = make_button(parent, 7, y, 306, 62, kSurface, 6);
+    lv_obj_t *row = make_button(parent, 7, y, 306, 62, kSurface, 6, true);
     lv_obj_t *title_label = make_label(row, title, kTextPrimary);
     lv_obj_align(title_label, LV_ALIGN_LEFT_MID, 12, -10);
     lv_obj_t *sub = make_label(row, subtitle, kTextMuted);

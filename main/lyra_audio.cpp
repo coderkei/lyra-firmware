@@ -18,6 +18,7 @@
 #include "esp_audio_simple_dec.h"
 #include "esp_audio_simple_dec_default.h"
 #include "decoder/impl/esp_opus_dec.h"
+#include "lyra_audio_pcm.h"
 #include "lyra_board_pins.h"
 #include "lyra_sd.h"
 #include "nvs.h"
@@ -70,17 +71,6 @@ constexpr uint32_t kAudioTaskStack = 24 * 1024;
 constexpr uint32_t kAudioOutputTaskStack = 8 * 1024;
 constexpr UBaseType_t kAudioTaskPriority = 8;
 constexpr UBaseType_t kAudioOutputTaskPriority = 9;
-// Keep the user-facing volume slider useful while limiting the PCM amplitude
-// sent to both output devices. 50% amplitude is -6 dB, a 6 dB increase over
-// the original 25% cap while retaining digital headroom.
-constexpr int32_t kMaximumOutputGainQ15 = 16384;
-constexpr int32_t kGainRampStepQ15 = 4;
-constexpr uint16_t kEqualizerCoefficientRampFrames = 128;
-constexpr float kEqualizerQ = 1.0f;
-constexpr float kEqualizerPi = 3.14159265358979323846f;
-constexpr float kEqualizerCenterFrequenciesHz[lyra::audio::kEqualizerBandCount] = {
-    60.0f, 250.0f, 1000.0f, 4000.0f, 16000.0f,
-};
 constexpr const char *kSettingsNamespace = "lyra";
 constexpr const char *kVolumeKey = "volume";
 constexpr const char *kMaximumVolumeKey = "max_volume";
@@ -110,49 +100,7 @@ uint8_t s_duration_scan_buffer[kDurationScanBufferBytes];
 lyra::audio::Status s_status{};
 lyra::audio::Diagnostics s_diagnostics{};
 
-struct EqualizerBiquad {
-    float b0 = 1.0f;
-    float b1 = 0.0f;
-    float b2 = 0.0f;
-    float a1 = 0.0f;
-    float a2 = 0.0f;
-    float target_b0 = 1.0f;
-    float target_b1 = 0.0f;
-    float target_b2 = 0.0f;
-    float target_a1 = 0.0f;
-    float target_a2 = 0.0f;
-    float step_b0 = 0.0f;
-    float step_b1 = 0.0f;
-    float step_b2 = 0.0f;
-    float step_a1 = 0.0f;
-    float step_a2 = 0.0f;
-    float z1_left = 0.0f;
-    float z2_left = 0.0f;
-    float z1_right = 0.0f;
-    float z2_right = 0.0f;
-    uint16_t ramp_frames = 0;
-};
-
-struct PcmOutput {
-    uint8_t *ring_buffer;
-    uint8_t *staging_buffer;
-    StreamBufferHandle_t stream;
-    StaticStreamBuffer_t stream_storage;
-    SemaphoreHandle_t done;
-    TaskHandle_t task;
-    volatile bool stop_requested;
-    volatile bool drain_on_stop;
-    volatile bool finished;
-    volatile bool error;
-    esp_err_t error_code;
-    int32_t gain_q15;
-    uint32_t sample_rate;
-    uint32_t equalizer_generation;
-    bool equalizer_initialized;
-    EqualizerBiquad equalizer[lyra::audio::kEqualizerBandCount];
-};
-
-void apply_output_processing(PcmOutput *output, uint8_t *pcm, size_t pcm_bytes);
+using lyra::audio::pcm::PcmOutput;
 
 bool fail_pcm_output(PcmOutput *output, esp_err_t error)
 {
@@ -162,6 +110,20 @@ bool fail_pcm_output(PcmOutput *output, esp_err_t error)
     output->stop_requested = true;
     output->drain_on_stop = false;
     return false;
+}
+
+lyra::audio::pcm::ProcessingSettings pcm_processing_settings()
+{
+    lyra::audio::pcm::ProcessingSettings settings{};
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    settings.volume_percent = s_status.volume_percent;
+    settings.maximum_volume_percent = s_maximum_volume_percent;
+    settings.replay_gain_tenths_db = s_replay_gain_tenths_db;
+    settings.transition_gain_percent = s_transition_gain_percent;
+    settings.equalizer = s_equalizer;
+    settings.equalizer_generation = s_equalizer_generation;
+    xSemaphoreGive(s_state_mutex);
+    return settings;
 }
 
 bool speaker_output_enabled()
@@ -288,7 +250,8 @@ bool preload_and_start_i2s(PcmOutput *output)
         if (received == 0 || received % kI2sFrameBytes != 0) {
             return fail_pcm_output(output, ESP_ERR_INVALID_SIZE);
         }
-        apply_output_processing(output, output->staging_buffer, received);
+        lyra::audio::pcm::apply_output_processing(
+            output, output->staging_buffer, received, pcm_processing_settings());
 
         const esp_err_t dac_preload_ret = preload_i2s_data(
             s_i2s_tx, output->staging_buffer, received);
@@ -2524,7 +2487,8 @@ void pcm_output_task(void *context)
             fail_pcm_output(output, ESP_ERR_INVALID_SIZE);
             break;
         }
-        apply_output_processing(output, output->staging_buffer, received);
+        lyra::audio::pcm::apply_output_processing(
+            output, output->staging_buffer, received, pcm_processing_settings());
         mirror_to_speaker(output->staging_buffer, received);
         const esp_err_t write_ret = write_i2s_data(
             s_i2s_tx, output->staging_buffer, received);
@@ -2701,213 +2665,6 @@ esp_err_t configure_i2s(uint32_t sample_rate)
     return ESP_OK;
 }
 
-int16_t pcm_sample_to_i16(const uint8_t *sample, uint8_t bits_per_sample)
-{
-    if (bits_per_sample == 8) {
-        return static_cast<int16_t>(static_cast<int16_t>(static_cast<int8_t>(sample[0])) << 8);
-    }
-    if (bits_per_sample == 16) {
-        const uint16_t value = static_cast<uint16_t>(sample[0]) |
-                               (static_cast<uint16_t>(sample[1]) << 8);
-        return static_cast<int16_t>(value);
-    }
-    if (bits_per_sample == 24) {
-        int32_t value = static_cast<int32_t>(sample[0]) |
-                        (static_cast<int32_t>(sample[1]) << 8) |
-                        (static_cast<int32_t>(sample[2]) << 16);
-        // Sign-extend the 24-bit FLAC sample before reducing it to I2S's
-        // 16-bit output format.
-        if ((value & 0x00800000) != 0) value |= ~0x00FFFFFF;
-        return static_cast<int16_t>(value >> 8);
-    }
-
-    const uint32_t value = static_cast<uint32_t>(sample[0]) |
-                           (static_cast<uint32_t>(sample[1]) << 8) |
-                           (static_cast<uint32_t>(sample[2]) << 16) |
-                           (static_cast<uint32_t>(sample[3]) << 24);
-    return static_cast<int16_t>(static_cast<int32_t>(value) >> 16);
-}
-
-int16_t scale_pcm_sample(int16_t sample, int32_t gain_q15)
-{
-    const int64_t scaled = (static_cast<int64_t>(sample) * gain_q15) >> 15;
-    if (scaled > 32767) return 32767;
-    if (scaled < -32768) return -32768;
-    return static_cast<int16_t>(scaled);
-}
-
-void apply_output_gain(uint8_t *pcm, size_t pcm_bytes, int32_t *current_gain_q15)
-{
-    if (!pcm || !current_gain_q15 || pcm_bytes % kI2sFrameBytes != 0) return;
-
-    uint8_t volume_percent;
-    uint8_t maximum_volume_percent;
-    int16_t replay_gain_tenths_db;
-    uint8_t transition_gain_percent;
-    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-    volume_percent = s_status.volume_percent;
-    maximum_volume_percent = s_maximum_volume_percent;
-    replay_gain_tenths_db = s_replay_gain_tenths_db;
-    transition_gain_percent = s_transition_gain_percent;
-    xSemaphoreGive(s_state_mutex);
-    const int32_t volume_gain_q15 = static_cast<int32_t>(
-        (static_cast<uint32_t>(volume_percent) * kMaximumOutputGainQ15) /
-        std::max<uint8_t>(maximum_volume_percent, 1));
-    const float replay_multiplier = std::pow(10.0f,
-        static_cast<float>(replay_gain_tenths_db) / 200.0f);
-    const int32_t replay_gain_q15 = static_cast<int32_t>(std::lround(
-        static_cast<float>(volume_gain_q15) * replay_multiplier));
-    const int32_t target_gain_q15 = std::min<int32_t>(kMaximumOutputGainQ15,
-        std::max<int32_t>(0, (replay_gain_q15 * transition_gain_percent) / 100));
-
-    auto *samples = reinterpret_cast<int16_t *>(pcm);
-    const size_t frame_count = pcm_bytes / kI2sFrameBytes;
-    int32_t gain_q15 = *current_gain_q15;
-    for (size_t frame = 0; frame < frame_count; ++frame) {
-        if (gain_q15 < target_gain_q15) {
-            gain_q15 = std::min(gain_q15 + kGainRampStepQ15, target_gain_q15);
-        } else if (gain_q15 > target_gain_q15) {
-            gain_q15 = std::max(gain_q15 - kGainRampStepQ15, target_gain_q15);
-        }
-        samples[frame * 2] = scale_pcm_sample(samples[frame * 2], gain_q15);
-        samples[frame * 2 + 1] = scale_pcm_sample(samples[frame * 2 + 1], gain_q15);
-    }
-    *current_gain_q15 = gain_q15;
-}
-
-void set_equalizer_target(EqualizerBiquad *filter, uint32_t sample_rate,
-                          float center_frequency_hz, int16_t gain_tenths_db,
-                          bool immediate)
-{
-    if (!filter) return;
-
-    float b0 = 1.0f;
-    float b1 = 0.0f;
-    float b2 = 0.0f;
-    float a1 = 0.0f;
-    float a2 = 0.0f;
-    const float nyquist_safe_frequency = static_cast<float>(sample_rate) * 0.45f;
-    if (gain_tenths_db != 0 && sample_rate != 0 &&
-        center_frequency_hz < nyquist_safe_frequency) {
-        const float gain_db = static_cast<float>(gain_tenths_db) / 10.0f;
-        const float amplitude = std::pow(10.0f, gain_db / 40.0f);
-        const float omega = 2.0f * kEqualizerPi * center_frequency_hz /
-                            static_cast<float>(sample_rate);
-        const float alpha = std::sin(omega) / (2.0f * kEqualizerQ);
-        const float cosine = std::cos(omega);
-        const float a0 = 1.0f + alpha / amplitude;
-        b0 = (1.0f + alpha * amplitude) / a0;
-        b1 = (-2.0f * cosine) / a0;
-        b2 = (1.0f - alpha * amplitude) / a0;
-        a1 = (-2.0f * cosine) / a0;
-        a2 = (1.0f - alpha / amplitude) / a0;
-    }
-
-    filter->target_b0 = b0;
-    filter->target_b1 = b1;
-    filter->target_b2 = b2;
-    filter->target_a1 = a1;
-    filter->target_a2 = a2;
-    if (immediate) {
-        filter->b0 = b0;
-        filter->b1 = b1;
-        filter->b2 = b2;
-        filter->a1 = a1;
-        filter->a2 = a2;
-        filter->ramp_frames = 0;
-        return;
-    }
-
-    filter->step_b0 = (b0 - filter->b0) / kEqualizerCoefficientRampFrames;
-    filter->step_b1 = (b1 - filter->b1) / kEqualizerCoefficientRampFrames;
-    filter->step_b2 = (b2 - filter->b2) / kEqualizerCoefficientRampFrames;
-    filter->step_a1 = (a1 - filter->a1) / kEqualizerCoefficientRampFrames;
-    filter->step_a2 = (a2 - filter->a2) / kEqualizerCoefficientRampFrames;
-    filter->ramp_frames = kEqualizerCoefficientRampFrames;
-}
-
-void update_equalizer_coefficients(EqualizerBiquad *filter)
-{
-    if (!filter || filter->ramp_frames == 0) return;
-    filter->b0 += filter->step_b0;
-    filter->b1 += filter->step_b1;
-    filter->b2 += filter->step_b2;
-    filter->a1 += filter->step_a1;
-    filter->a2 += filter->step_a2;
-    --filter->ramp_frames;
-    if (filter->ramp_frames == 0) {
-        filter->b0 = filter->target_b0;
-        filter->b1 = filter->target_b1;
-        filter->b2 = filter->target_b2;
-        filter->a1 = filter->target_a1;
-        filter->a2 = filter->target_a2;
-    }
-}
-
-float process_equalizer_sample(const EqualizerBiquad &filter, float sample,
-                               float *z1, float *z2)
-{
-    const float output = filter.b0 * sample + *z1;
-    *z1 = filter.b1 * sample - filter.a1 * output + *z2;
-    *z2 = filter.b2 * sample - filter.a2 * output;
-    return output;
-}
-
-void configure_equalizer(PcmOutput *output)
-{
-    if (!output) return;
-    lyra::audio::EqualizerSettings settings{};
-    uint32_t generation = 0;
-    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-    settings = s_equalizer;
-    generation = s_equalizer_generation;
-    xSemaphoreGive(s_state_mutex);
-    if (output->equalizer_initialized && output->equalizer_generation == generation) return;
-
-    const bool immediate = !output->equalizer_initialized;
-    for (size_t band = 0; band < lyra::audio::kEqualizerBandCount; ++band) {
-        set_equalizer_target(&output->equalizer[band], output->sample_rate,
-                             kEqualizerCenterFrequenciesHz[band],
-                             settings.band_tenths_db[band], immediate);
-    }
-    output->equalizer_generation = generation;
-    output->equalizer_initialized = true;
-}
-
-void apply_equalizer(PcmOutput *output, uint8_t *pcm, size_t pcm_bytes)
-{
-    if (!output || !pcm || pcm_bytes % kI2sFrameBytes != 0) return;
-    configure_equalizer(output);
-
-    auto *samples = reinterpret_cast<int16_t *>(pcm);
-    const size_t frame_count = pcm_bytes / kI2sFrameBytes;
-    for (size_t frame = 0; frame < frame_count; ++frame) {
-        for (size_t band = 0; band < lyra::audio::kEqualizerBandCount; ++band) {
-            update_equalizer_coefficients(&output->equalizer[band]);
-        }
-        float left = static_cast<float>(samples[frame * 2]) / 32768.0f;
-        float right = static_cast<float>(samples[frame * 2 + 1]) / 32768.0f;
-        for (size_t band = 0; band < lyra::audio::kEqualizerBandCount; ++band) {
-            EqualizerBiquad &filter = output->equalizer[band];
-            left = process_equalizer_sample(filter, left, &filter.z1_left, &filter.z2_left);
-            right = process_equalizer_sample(filter, right, &filter.z1_right, &filter.z2_right);
-        }
-        left = std::clamp(left, -1.0f, 32767.0f / 32768.0f);
-        right = std::clamp(right, -1.0f, 32767.0f / 32768.0f);
-        samples[frame * 2] = static_cast<int16_t>(std::lround(left * 32768.0f));
-        samples[frame * 2 + 1] = static_cast<int16_t>(std::lround(right * 32768.0f));
-    }
-}
-
-void apply_output_processing(PcmOutput *output, uint8_t *pcm, size_t pcm_bytes)
-{
-    if (!output) return;
-    // Apply the normal output cap first so a +6 dB EQ band retains useful
-    // headroom instead of clipping before the speaker safety gain is applied.
-    apply_output_gain(pcm, pcm_bytes, &output->gain_q15);
-    apply_equalizer(output, pcm, pcm_bytes);
-}
-
 esp_err_t write_pcm(const uint8_t *pcm, size_t pcm_bytes, uint8_t channels,
                     uint8_t bits_per_sample,
                     int16_t *stereo_buffer, size_t stereo_buffer_bytes,
@@ -2944,18 +2701,19 @@ esp_err_t write_pcm(const uint8_t *pcm, size_t pcm_bytes, uint8_t channels,
             int16_t left = 0;
             int16_t right = 0;
             if (channels == 1) {
-                left = right = pcm_sample_to_i16(frame, bits_per_sample);
+                left = right = lyra::audio::pcm::sample_to_i16(frame, bits_per_sample);
             } else if (channels == 2) {
-                left = pcm_sample_to_i16(frame, bits_per_sample);
-                right = pcm_sample_to_i16(frame + bytes_per_sample, bits_per_sample);
+                left = lyra::audio::pcm::sample_to_i16(frame, bits_per_sample);
+                right = lyra::audio::pcm::sample_to_i16(frame + bytes_per_sample,
+                                                        bits_per_sample);
             } else {
                 // The I2S path is stereo. Preserve the energy of multichannel
                 // FLACs by averaging all decoded channels into a centered mono
                 // signal instead of rejecting otherwise valid 5.1/7.1 files.
                 int32_t sum = 0;
                 for (uint8_t channel = 0; channel < channels; ++channel) {
-                    sum += pcm_sample_to_i16(frame + channel * bytes_per_sample,
-                                             bits_per_sample);
+                    sum += lyra::audio::pcm::sample_to_i16(
+                        frame + channel * bytes_per_sample, bits_per_sample);
                 }
                 left = right = static_cast<int16_t>(sum / channels);
             }
