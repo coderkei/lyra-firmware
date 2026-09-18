@@ -293,6 +293,7 @@ bool s_saved_queue_pending = false;
 bool s_has_active_queue = false;
 size_t s_queue_position = 0;
 bool s_queue_position_valid = false;
+bool s_firmware_update_in_progress = false;
 
 enum class PowerAction : uintptr_t { Reboot, PowerOff };
 enum class DatabaseAction : uintptr_t { Playlists, Artwork, All };
@@ -3220,6 +3221,233 @@ void show_clear_nvs_confirmation()
     lv_obj_add_event_cb(confirm, confirm_clear_nvs_cb, LV_EVENT_CLICKED, overlay);
 }
 
+struct FirmwareUpdateFailure {
+    char message[176];
+};
+
+void firmware_update_failure_async_cb(void *context)
+{
+    auto *failure = static_cast<FirmwareUpdateFailure *>(context);
+    if (failure) {
+        render(View::About);
+        show_notice("Firmware update failed", failure->message);
+        heap_caps_free(failure);
+    }
+    s_firmware_update_in_progress = false;
+}
+
+void post_firmware_update_failure(const char *message)
+{
+    auto *failure = static_cast<FirmwareUpdateFailure *>(
+        heap_caps_malloc(sizeof(FirmwareUpdateFailure), MALLOC_CAP_8BIT));
+    if (!failure) {
+        ESP_LOGE(kTag, "could not allocate firmware update error message");
+        s_firmware_update_in_progress = false;
+        return;
+    }
+    std::strncpy(failure->message, message ? message : "Firmware update failed.",
+                 sizeof(failure->message) - 1);
+    failure->message[sizeof(failure->message) - 1] = '\0';
+    lv_async_call(firmware_update_failure_async_cb, failure);
+}
+
+bool firmware_update_file_size(FILE *file, size_t *size)
+{
+    if (!file || !size || !lyra::sd::acquire(lyra::sd::Client::Filesystem)) return false;
+    const bool seek_succeeded = std::fseek(file, 0, SEEK_END) == 0;
+    const long end = seek_succeeded ? std::ftell(file) : -1;
+    lyra::sd::release(lyra::sd::Client::Filesystem);
+    if (!seek_succeeded || end <= 0) return false;
+    *size = static_cast<size_t>(end);
+    return true;
+}
+
+bool firmware_update_media_idle()
+{
+    constexpr int kWaitCount = 600;
+    for (int wait_count = 0; wait_count < kWaitCount; ++wait_count) {
+        const lyra::media::Status media_status = lyra::media::status();
+        const lyra::media::SearchStatus search_status = lyra::media::search_status();
+        if (!media_status.scanning && !media_status.duration_indexing &&
+            !media_status.sorting_indexing && !media_status.artwork_busy &&
+            !search_status.running) {
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    return false;
+}
+
+void firmware_update_task(void *)
+{
+    constexpr const char *kUpdatePath = "/sdcard/update.bin";
+    constexpr size_t kTransferBufferSize = 8192;
+    FILE *file = lyra::sd::open(kUpdatePath, "rb", lyra::sd::Client::Filesystem);
+    if (!file) {
+        post_firmware_update_failure("update.bin was not found on the SD card.");
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    // Stop playback before taking the filesystem gate for the long transfer.
+    // The audio task closes its current file asynchronously, so wait for it
+    // to finish before touching the update image.
+    const esp_err_t stop_result = lyra::audio::stop();
+    if (stop_result != ESP_OK && stop_result != ESP_ERR_INVALID_STATE) {
+        lyra::sd::close(file, lyra::sd::Client::Filesystem);
+        post_firmware_update_failure("Could not stop audio before the firmware update.");
+        vTaskDelete(nullptr);
+        return;
+    }
+    for (int wait_count = 0; wait_count < 200; ++wait_count) {
+        if (!lyra::audio::status().playing) break;
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    if (lyra::audio::status().playing || !firmware_update_media_idle()) {
+        lyra::sd::close(file, lyra::sd::Client::Filesystem);
+        post_firmware_update_failure("The SD card is busy. Please try again.");
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    size_t file_size = 0;
+    if (!firmware_update_file_size(file, &file_size)) {
+        lyra::sd::close(file, lyra::sd::Client::Filesystem);
+        post_firmware_update_failure("Could not read update.bin from the SD card.");
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    // Reject obviously non-ESP images before erasing the inactive slot. Full
+    // image validation is performed by esp_ota_end after the transfer.
+    uint8_t image_header[2]{};
+    const bool header_read = lyra::sd::seek(file, 0, SEEK_SET,
+                                             lyra::sd::Client::Filesystem) == 0 &&
+                             lyra::sd::read(file, image_header, sizeof(image_header),
+                                            lyra::sd::Client::Filesystem) == sizeof(image_header);
+    if (!header_read || image_header[0] != 0xE9 || image_header[1] == 0 || image_header[1] > 16) {
+        lyra::sd::close(file, lyra::sd::Client::Filesystem);
+        post_firmware_update_failure("update.bin is not a valid firmware update.");
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    const esp_partition_t *target = esp_ota_get_next_update_partition(running);
+    if (!target || target == running || file_size > target->size) {
+        lyra::sd::close(file, lyra::sd::Client::Filesystem);
+        post_firmware_update_failure("update.bin is too large or no inactive OTA partition is available.");
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    esp_ota_handle_t ota_handle = 0;
+    esp_err_t result = esp_ota_begin(target, file_size, &ota_handle);
+    if (result != ESP_OK) {
+        lyra::sd::close(file, lyra::sd::Client::Filesystem);
+        char message[176];
+        std::snprintf(message, sizeof(message), "Could not prepare the OTA partition (%s).",
+                      esp_err_to_name(result));
+        post_firmware_update_failure(message);
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    auto *buffer = static_cast<uint8_t *>(heap_caps_malloc(kTransferBufferSize, MALLOC_CAP_8BIT));
+    if (!buffer) {
+        esp_ota_abort(ota_handle);
+        lyra::sd::close(file, lyra::sd::Client::Filesystem);
+        post_firmware_update_failure("Not enough memory to install the firmware update.");
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    bool transfer_succeeded = lyra::sd::seek(file, 0, SEEK_SET,
+                                             lyra::sd::Client::Filesystem) == 0;
+    size_t remaining = file_size;
+    while (transfer_succeeded && remaining > 0) {
+        const size_t wanted = remaining < kTransferBufferSize ? remaining : kTransferBufferSize;
+        const size_t read = lyra::sd::read(file, buffer, wanted, lyra::sd::Client::Filesystem);
+        if (read != wanted) {
+            transfer_succeeded = false;
+            break;
+        }
+        result = esp_ota_write(ota_handle, buffer, read);
+        if (result != ESP_OK) {
+            transfer_succeeded = false;
+            break;
+        }
+        remaining -= read;
+        vTaskDelay(1);
+    }
+    heap_caps_free(buffer);
+    const int close_result = lyra::sd::close(file, lyra::sd::Client::Filesystem);
+    if (close_result != 0) transfer_succeeded = false;
+
+    if (!transfer_succeeded) {
+        esp_ota_abort(ota_handle);
+        post_firmware_update_failure("Could not read or write the firmware update.");
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    // esp_ota_end verifies the complete image, including its checksum and
+    // image structure. Do not change the persistent boot target until this
+    // validation succeeds.
+    result = esp_ota_end(ota_handle);
+    if (result != ESP_OK) {
+        char message[176];
+        std::snprintf(message, sizeof(message), "update.bin is not a valid firmware update (%s).",
+                      esp_err_to_name(result));
+        post_firmware_update_failure(message);
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    result = esp_ota_set_boot_partition(target);
+    if (result != ESP_OK) {
+        char message[176];
+        std::snprintf(message, sizeof(message), "Could not select the new firmware for boot (%s).",
+                      esp_err_to_name(result));
+        post_firmware_update_failure(message);
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    // The source file is closed and the image is selected before unmounting;
+    // this keeps the card safe and leaves the new OTA slot as the persistent
+    // boot target across the restart.
+    const esp_err_t shutdown_result = lyra::media::shutdown();
+    if (shutdown_result != ESP_OK) {
+        post_firmware_update_failure("The SD card could not be safely unmounted.");
+        vTaskDelete(nullptr);
+        return;
+    }
+    ESP_LOGI(kTag, "firmware update installed in %s; restarting", target->label);
+    lyra_board_display_set_backlight(false);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    esp_restart();
+    vTaskDelete(nullptr);
+}
+
+void firmware_update_cb(lv_event_t *)
+{
+    if (s_firmware_update_in_progress) return;
+    s_firmware_update_in_progress = true;
+    style_root();
+    lv_obj_t *label = make_label(s_screen, "UPDATING FIRMWARE\n\nChecking update.bin...",
+                                 kTextPrimary);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(label, LV_ALIGN_CENTER, 0, -10);
+    lv_refr_now(lv_obj_get_display(s_screen));
+    if (xTaskCreatePinnedToCore(firmware_update_task, "lyra_ota", 8192, nullptr,
+                                3, nullptr, 0) != pdPASS) {
+        s_firmware_update_in_progress = false;
+        render(View::About);
+        show_notice("Firmware update failed", "Could not start the update task.");
+    }
+}
+
 void run_force_boot_test(uint8_t ota_slot)
 {
     const esp_err_t volume_result = lyra::audio::save_volume();
@@ -5020,6 +5248,7 @@ void render_about()
     lv_obj_t *update = make_button(body, 36, 270, 248, 48, kSurface, 7);
     lv_obj_t *update_label = make_label(update, "FIRMWARE UPDATE", kTextPrimary);
     lv_obj_center(update_label);
+    lv_obj_add_event_cb(update, firmware_update_cb, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *licenses = make_button(body, 36, 326, 248, 48, kSurface, 7);
     lv_obj_t *licenses_label = make_label(licenses, "LICENSES", kTextPrimary);
     lv_obj_center(licenses_label);
