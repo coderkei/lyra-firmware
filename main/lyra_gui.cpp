@@ -646,14 +646,16 @@ void make_marquee(lv_obj_t *label, int width)
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
 }
 
-lv_obj_t *make_button(lv_obj_t *parent, int x, int y, int width, int height, lv_color_t color, int radius = 7)
+lv_obj_t *make_button(lv_obj_t *parent, int x, int y, int width, int height,
+                      lv_color_t color, int radius = 7, bool show_border = false)
 {
     lv_obj_t *button = lv_button_create(parent);
     lv_obj_set_pos(button, x, y);
     lv_obj_set_size(button, width, height);
     lv_obj_set_style_bg_color(button, color, 0);
     lv_obj_set_style_bg_color(button, kAccentDark, LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(button, 0, 0);
+    lv_obj_set_style_border_width(button, show_border && !s_dark_mode ? 1 : 0, 0);
+    lv_obj_set_style_border_color(button, kDivider, 0);
     lv_obj_set_style_radius(button, radius, 0);
     lv_obj_set_style_pad_all(button, 0, 0);
     lv_obj_set_style_shadow_width(button, 0, 0);
@@ -1387,7 +1389,7 @@ void show_notice(const char *title_text, const char *message_text)
 lv_obj_t *make_row(lv_obj_t *parent, int y, const char *icon_text, const char *title,
                    const char *subtitle, View target, int height = 54)
 {
-    lv_obj_t *row = make_button(parent, 7, y, 306, height, kSurface, 6);
+    lv_obj_t *row = make_button(parent, 7, y, 306, height, kSurface, 6, true);
     lv_obj_set_style_bg_color(row, kSurfaceRaised, LV_STATE_PRESSED);
     const int text_x = icon_text ? 45 : 12;
     if (icon_text) {
@@ -3430,7 +3432,7 @@ void firmware_update_task(void *)
     vTaskDelete(nullptr);
 }
 
-void firmware_update_cb(lv_event_t *)
+void start_firmware_update()
 {
     if (s_firmware_update_in_progress) return;
     s_firmware_update_in_progress = true;
@@ -3446,6 +3448,43 @@ void firmware_update_cb(lv_event_t *)
         render(View::About);
         show_notice("Firmware update failed", "Could not start the update task.");
     }
+}
+
+void confirm_firmware_update_cb(lv_event_t *event)
+{
+    lv_obj_t *overlay = static_cast<lv_obj_t *>(lv_event_get_user_data(event));
+    if (overlay) lv_obj_delete(overlay);
+    start_firmware_update();
+}
+
+void show_firmware_update_confirmation()
+{
+    lv_obj_t *overlay = make_box(s_screen, 0, 0, kScreenWidth, kScreenHeight, kOverlay);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_90, 0);
+    lv_obj_move_foreground(overlay);
+    lv_obj_t *dialog = make_box(overlay, 20, 124, 280, 232, kSurfaceRaised, 12);
+    lv_obj_t *title = make_label(dialog, "Update firmware?", kTextPrimary);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 22);
+    lv_obj_t *message = make_label(dialog,
+                                   "Install update.bin from the SD card?\n"
+                                   "Lyra will reboot after the update.",
+                                   kTextSecondary);
+    lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(message, LV_ALIGN_CENTER, 0, -12);
+
+    lv_obj_t *cancel = make_button(dialog, 14, 164, 116, 48, kSurface, 7);
+    lv_obj_t *cancel_label = make_label(cancel, "CANCEL", kTextSecondary);
+    lv_obj_center(cancel_label);
+    lv_obj_add_event_cb(cancel, cancel_power_action_cb, LV_EVENT_CLICKED, overlay);
+    lv_obj_t *confirm = make_button(dialog, 150, 164, 116, 48, kAccentDark, 7);
+    lv_obj_t *confirm_label = make_label(confirm, "UPDATE", kTextOnAccent);
+    lv_obj_center(confirm_label);
+    lv_obj_add_event_cb(confirm, confirm_firmware_update_cb, LV_EVENT_CLICKED, overlay);
+}
+
+void firmware_update_cb(lv_event_t *)
+{
+    show_firmware_update_confirmation();
 }
 
 void run_force_boot_test(uint8_t ota_slot)
@@ -3673,7 +3712,7 @@ void render_track_info()
         constexpr int kArtSize = 116;
         const int art_x = (kScreenWidth - kArtSize) / 2;
         make_album_art(body, art_x, 8, kArtSize, kArtSize, track);
-        lv_obj_t *art_hit = make_button(body, art_x, 8, kArtSize, kArtSize, kBackground, 13);
+        lv_obj_t *art_hit = make_button(body, art_x, 8, kArtSize, kArtSize, kBackground, 13, false);
         lv_obj_set_style_bg_opa(art_hit, LV_OPA_TRANSP, 0);
         add_route(art_hit, View::FullscreenInfoArt);
         lv_obj_t *hint = make_label(body, "Tap album art for full screen", kTextMuted);
@@ -3765,7 +3804,7 @@ void render_fullscreen_info_art()
         return;
     }
     make_artwork(s_screen, 0, 0, kScreenWidth, kScreenHeight, track, 0, true);
-    lv_obj_t *exit_hit = make_button(s_screen, 0, 0, kScreenWidth, kScreenHeight, kBackground, 0);
+    lv_obj_t *exit_hit = make_button(s_screen, 0, 0, kScreenWidth, kScreenHeight, kBackground, 0, false);
     lv_obj_set_style_bg_opa(exit_hit, LV_OPA_TRANSP, 0);
     lv_obj_add_event_cb(exit_hit, [](lv_event_t *) { navigate_back(View::TrackInfo); },
                         LV_EVENT_CLICKED, nullptr);
@@ -3886,7 +3925,7 @@ void render_player(bool fullscreen)
         // Keep the square cover flush with the status bar instead of centering
         // it in the taller fullscreen content area.
         make_album_art(art, 0, 0, kScreenWidth, kScreenWidth, track, true);
-        lv_obj_t *exit_hit = make_button(art, 0, 0, 320, body_height, kBackground, 0);
+        lv_obj_t *exit_hit = make_button(art, 0, 0, 320, body_height, kBackground, 0, false);
         lv_obj_set_style_bg_opa(exit_hit, LV_OPA_TRANSP, 0);
         add_route(exit_hit, View::Player);
         lv_obj_t *overlay = make_box(art, 0, body_height - 132, 320, 132, kOverlay);
@@ -3924,7 +3963,7 @@ void render_player(bool fullscreen)
     const int controls_y = body_height - 54;
     const int progress_y = controls_y - 19;
     make_album_art(body, art_x, 8, art_size, art_size, track);
-    lv_obj_t *art_hit = make_button(body, art_x, 8, art_size, art_size, kBackground, 13);
+    lv_obj_t *art_hit = make_button(body, art_x, 8, art_size, art_size, kBackground, 13, false);
     lv_obj_set_style_bg_opa(art_hit, LV_OPA_TRANSP, 0);
     add_route(art_hit, View::FullscreenArt);
 
@@ -5239,17 +5278,17 @@ void render_about()
     }
     lv_obj_t *firmware_heading = make_label(body, "FIRMWARE VERSION", kTextMuted);
     lv_obj_align(firmware_heading, LV_ALIGN_TOP_MID, 0, 112);
-    lv_obj_t *firmware_version = make_label(body, "1.0.0", kTextPrimary);
+    lv_obj_t *firmware_version = make_label(body, "1.0.1", kTextPrimary);
     lv_obj_align(firmware_version, LV_ALIGN_TOP_MID, 0, 138);
     lv_obj_t *hardware_heading = make_label(body, "HARDWARE ID", kTextMuted);
     lv_obj_align(hardware_heading, LV_ALIGN_TOP_MID, 0, 190);
     lv_obj_t *hardware_id = make_label(body, "JC3248W535EN", kTextPrimary);
     lv_obj_align(hardware_id, LV_ALIGN_TOP_MID, 0, 216);
-    lv_obj_t *update = make_button(body, 36, 270, 248, 48, kSurface, 7);
+    lv_obj_t *update = make_button(body, 36, 270, 248, 48, kSurface, 7, true);
     lv_obj_t *update_label = make_label(update, "FIRMWARE UPDATE", kTextPrimary);
     lv_obj_center(update_label);
     lv_obj_add_event_cb(update, firmware_update_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *licenses = make_button(body, 36, 326, 248, 48, kSurface, 7);
+    lv_obj_t *licenses = make_button(body, 36, 326, 248, 48, kSurface, 7, true);
     lv_obj_t *licenses_label = make_label(licenses, "LICENSES", kTextPrimary);
     lv_obj_center(licenses_label);
     add_route(licenses, View::Licenses);

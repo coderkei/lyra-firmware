@@ -18,7 +18,9 @@ namespace {
 
 constexpr const char *kTag = "lyra.boot_test";
 constexpr const char *kSettingsNamespace = "lyra";
-constexpr const char *kPendingKey = "boot_test_pending";
+// NVS keys are limited to 15 characters, including neither the terminator nor
+// the namespace. Keep this marker short enough for nvs_set_u8/get_u8/erase.
+constexpr const char *kPendingKey = "boot_test_pend";
 constexpr const char *kOriginalAddressKey = "boot_test_orig";
 
 esp_err_t ensure_nvs_ready()
