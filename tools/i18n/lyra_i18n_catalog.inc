@@ -70,6 +70,8 @@ LYRA_I18N_COUNT(SongCount, "%u song", "%u songs", "%u chanson", "%u chansons", "
 LYRA_I18N_ENTRY(ArtistPlayCount, "%s / %u plays", "%s / %u lectures", "%s / %u Wiedergaben", "%s / %u reproducciones", "%s / %u riproduzioni", "%s / %u回再生", "%s / %u회 재생", "%s / %u прослушиваний", "%s / %u 次播放", "%s / %u 次播放")
 LYRA_I18N_COUNT(AlbumTrackCount, "%u song", "%u songs", "%u chanson", "%u chansons", "%u Titel", "%u Titel", "%u canción", "%u canciones", "%u brano", "%u brani", "%u曲", "%u曲", "%u곡", "%u곡", "%u песня", "%u песни", "%u песен", "%u 首歌曲", "%u 首歌曲", "%u 首歌曲", "%u 首歌曲")
 LYRA_I18N_COUNT(TracksCount, "%u TRACK", "%u TRACKS", "%u PISTE", "%u PISTES", "%u TITEL", "%u TITEL", "%u PISTA", "%u PISTAS", "%u BRANO", "%u BRANI", "%u曲", "%u曲", "%u곡", "%u곡", "%u ТРЕК", "%u ТРЕКА", "%u ТРЕКОВ", "%u 首歌曲", "%u 首歌曲", "%u 首歌曲", "%u 首歌曲")
+LYRA_I18N_ENTRY(QueuePosition, "(%u / %u)", "(%u / %u)", "(%u / %u)", "(%u / %u)", "(%u / %u)", "(%u / %u)", "(%u / %u)", "(%u / %u)", "(%u / %u)", "(%u / %u)")
+LYRA_I18N_ENTRY(QueueNumber, "%u", "%u", "%u", "%u", "%u", "%u", "%u", "%u", "%u", "%u")
 LYRA_I18N_ENTRY(AddToPlaylist, "Add to %s", "Ajouter à %s", "Zu %s hinzufügen", "Añadir a %s", "Aggiungi a %s", "%sに追加", "%s에 추가", "Добавить в %s", "添加到%s", "加入%s")
 LYRA_I18N_ENTRY(AlbumSummaryCount, "%s / %u songs", "%s / %u chansons", "%s / %u Titel", "%s / %u canciones", "%s / %u brani", "%s / %u曲", "%s / %u곡", "%s / %u песен", "%s / %u 首歌曲", "%s / %u 首歌曲")
 LYRA_I18N_ENTRY(AlbumSummaryOne, "%s / 1 song", "%s / 1 chanson", "%s / 1 Titel", "%s / 1 canción", "%s / 1 brano", "%s / 1曲", "%s / 1곡", "%s / 1 песня", "%s / 1 首歌曲", "%s / 1 首歌曲")

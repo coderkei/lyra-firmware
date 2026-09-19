@@ -155,12 +155,27 @@ void render_player(bool fullscreen)
     }
 
     lv_obj_t *body = make_box(s_screen, 0, kStatusHeight, 320, body_height, kBackground);
-    const int art_size = s_show_nav ? 236 : 280;
+    const size_t queue_count = s_has_active_queue ? playback_queue_count() : 0;
+    size_t queue_position = 0;
+    const bool queue_position_valid = queue_count > 0 && current_queue_position(&queue_position);
+    if (queue_position_valid) {
+        char position_text[24];
+        format_u32_u32(lyra::i18n::StringId::QueuePosition,
+                       static_cast<uint32_t>(queue_position + 1),
+                       static_cast<uint32_t>(queue_count),
+                       position_text, sizeof(position_text));
+        lv_obj_t *position = make_label(body, position_text, kTextSecondary);
+        lv_obj_set_width(position, kScreenWidth);
+        lv_obj_set_style_text_align(position, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_align(position, LV_ALIGN_TOP_MID, 0, 0);
+    }
+    const int art_size = s_show_nav ? 224 : 272;
     const int art_x = (kScreenWidth - art_size) / 2;
     const int controls_y = body_height - 54;
     const int progress_y = controls_y - 19;
-    make_album_art(body, art_x, 8, art_size, art_size, track);
-    lv_obj_t *art_hit = make_button(body, art_x, 8, art_size, art_size, kBackground, 13, false);
+    const int art_y = 20;
+    make_album_art(body, art_x, art_y, art_size, art_size, track);
+    lv_obj_t *art_hit = make_button(body, art_x, art_y, art_size, art_size, kBackground, 13, false);
     lv_obj_set_style_bg_opa(art_hit, LV_OPA_TRANSP, 0);
     add_route(art_hit, View::FullscreenArt);
 
@@ -242,7 +257,7 @@ void render_player(bool fullscreen)
     lv_obj_t *shuffle = make_button(body, 256, controls_y + 4, 44, 38, kBackground, 7);
     lv_obj_t *shuffle_icon = make_label(shuffle, LV_SYMBOL_SHUFFLE, s_shuffle ? kAccent : kTextSecondary);
     lv_obj_center(shuffle_icon);
-    lv_obj_add_event_cb(shuffle, [](lv_event_t *event) {
+    lv_obj_add_event_cb(shuffle, [](lv_event_t *) {
         s_shuffle = !s_shuffle;
         reset_shuffle_queue();
         if (s_shuffle && !build_shuffle_queue()) {
@@ -251,8 +266,7 @@ void render_player(bool fullscreen)
         }
         if (!s_shuffle) s_queue_position_valid = false;
         if (s_shuffle && lyra::audio::status().eof) s_audio_eof_seen = false;
-        lv_obj_set_style_text_color(static_cast<lv_obj_t *>(lv_event_get_user_data(event)),
-                                    s_shuffle ? kAccent : kTextSecondary, 0);
+        render(s_view);
     }, LV_EVENT_CLICKED, shuffle_icon);
 }
 
