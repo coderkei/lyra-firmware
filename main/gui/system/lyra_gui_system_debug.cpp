@@ -890,7 +890,7 @@ void dump_debug_info_cb(lv_event_t *)
 
 void render_debug_menu()
 {
-    make_header(tr(lyra::i18n::StringId::Debug), View::About, true);
+    make_header(tr(lyra::i18n::StringId::ServiceMenu), View::About, true);
     lv_obj_t *body = make_scroll_body(72);
     for (size_t index = 0; index < 2; ++index) {
         const DebugTab tab = static_cast<DebugTab>(index);

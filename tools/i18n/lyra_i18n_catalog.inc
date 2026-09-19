@@ -480,6 +480,7 @@ LYRA_I18N_ENTRY(LicenseNotices,
     "zlib\nCopyright 1995-2022 Jean-loup Gailly and Mark Adler\n"
     "zlib License")
 LYRA_I18N_ENTRY(Debug, "Debug", "Débogage", "Debug", "Depuración", "Debug", "デバッグ", "디버그", "Отладка", "调试", "偵錯")
+LYRA_I18N_ENTRY(ServiceMenu, "Service Menu", "Menu service", "Servicemenü", "Menú de servicio", "Menu di servizio", "サービスメニュー", "서비스 메뉴", "Сервисное меню", "服务菜单", "服務選單")
 LYRA_I18N_ENTRY(Info, "Info", "Infos", "Info", "Información", "Info", "情報", "정보", "Информация", "信息", "資訊")
 LYRA_I18N_ENTRY(DumpInfoToSd, "Dump info to SD card", "Exporter les informations sur la carte SD", "Informationen auf SD-Karte speichern", "Volcar información en la tarjeta SD", "Scarica informazioni sulla scheda SD", "SDカードに情報を書き出す", "SD 카드에 정보 덤프", "Сохранить сведения на SD-карту", "将信息转储到 SD 卡", "將資訊傾印到 SD 卡")
 LYRA_I18N_ENTRY(SaveInfoToSdRoot, "Save the Info tab to a TXT file in the SD root", "Enregistrer l'onglet Infos dans un fichier TXT à la racine de la SD", "Info-Registerkarte als TXT-Datei im SD-Stamm speichern", "Guardar la pestaña Información en un TXT en la raíz de la SD", "Salva la scheda Info in un file TXT nella radice della SD", "情報タブをSDルートのTXTファイルに保存", "정보 탭을 SD 루트의 TXT 파일로 저장", "Сохранить вкладку «Информация» в TXT-файл в корне SD", "将信息选项卡保存到 SD 根目录的 TXT 文件", "將資訊索引標籤儲存至 SD 根目錄的 TXT 檔案")
