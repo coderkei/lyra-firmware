@@ -44,6 +44,7 @@ void load(Values *values, size_t accent_palette_count, uint8_t equalizer_preset_
     // boot, an absent key, a corrupt key, and an unavailable NVS partition
     // the same safe English default without disturbing other caller defaults.
     values->language = lyra::i18n::Language::English;
+    values->language_selected = false;
 
     nvs_handle_t handle;
     if (nvs_open(kSettingsNamespace, NVS_READONLY, &handle) != ESP_OK) return;
@@ -71,6 +72,7 @@ void load(Values *values, size_t accent_palette_count, uint8_t equalizer_preset_
     if (nvs_get_u8(handle, kLanguageKey, &value) == ESP_OK &&
         lyra::i18n::is_valid_language(value)) {
         values->language = static_cast<lyra::i18n::Language>(value);
+        values->language_selected = true;
     }
     if (nvs_get_u8(handle, kSpeakerOutputKey, &value) == ESP_OK && value <= 1) {
         values->speaker_output_enabled = value != 0;

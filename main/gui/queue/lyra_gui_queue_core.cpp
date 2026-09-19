@@ -504,12 +504,27 @@ void make_virtual_nav()
     }
 }
 
+uint8_t display_volume_percent(uint8_t volume_percent)
+{
+    const uint8_t maximum = lyra::audio::maximum_volume_percent();
+    if (maximum == 0) return 0;
+    return static_cast<uint8_t>(std::min<uint32_t>(
+        100u, (static_cast<uint32_t>(volume_percent) * 100u + maximum / 2u) / maximum));
+}
+
+uint8_t audio_volume_percent_from_display(uint8_t display_percent)
+{
+    const uint8_t maximum = lyra::audio::maximum_volume_percent();
+    return static_cast<uint8_t>(std::min<uint32_t>(
+        maximum, (static_cast<uint32_t>(display_percent) * maximum + 50u) / 100u));
+}
+
 void update_status_volume_label(uint8_t volume_percent)
 {
     if (!s_status_volume_label) return;
     char volume_text[24];
     std::snprintf(volume_text, sizeof(volume_text), "%s %u", LV_SYMBOL_VOLUME_MID,
-                  static_cast<unsigned>(volume_percent));
+                  static_cast<unsigned>(display_volume_percent(volume_percent)));
     lv_label_set_text(s_status_volume_label, volume_text);
 }
 
@@ -525,13 +540,15 @@ void close_volume_popup()
 void volume_popup_slider_cb(lv_event_t *event)
 {
     lv_obj_t *slider = lv_event_get_current_target_obj(event);
-    const int value = lv_slider_get_value(slider);
-    lyra::audio::set_volume(static_cast<uint8_t>(value));
-    update_status_volume_label(static_cast<uint8_t>(value));
+    const uint8_t display_value = static_cast<uint8_t>(lv_slider_get_value(slider));
+    const uint8_t audio_value = audio_volume_percent_from_display(display_value);
+    lyra::audio::set_volume(audio_value);
+    update_status_volume_label(audio_value);
     lv_obj_t *value_label = static_cast<lv_obj_t *>(lv_obj_get_user_data(slider));
     if (value_label) {
         char text[16];
-        std::snprintf(text, sizeof(text), "%d%%", value);
+        std::snprintf(text, sizeof(text), "%u%%",
+                      static_cast<unsigned>(display_value));
         lv_label_set_text(value_label, text);
     }
 }
@@ -562,7 +579,7 @@ void show_volume_popup_cb(lv_event_t *)
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, 12);
     char value_text[16];
     std::snprintf(value_text, sizeof(value_text), "%u%%",
-                  static_cast<unsigned>(audio_status.volume_percent));
+                  static_cast<unsigned>(display_volume_percent(audio_status.volume_percent)));
     lv_obj_t *value = make_label(s_volume_popup, value_text, kAccent);
     lv_obj_align(value, LV_ALIGN_TOP_RIGHT, -52, 12);
     lv_obj_t *close = make_button(s_volume_popup, 184, 7, 32, 32, kSurface, 16);
@@ -574,8 +591,8 @@ void show_volume_popup_cb(lv_event_t *)
     lv_obj_t *slider = lv_slider_create(s_volume_popup);
     lv_obj_set_pos(slider, 14, 60);
     lv_obj_set_size(slider, 196, 14);
-    lv_slider_set_range(slider, 0, lyra::audio::maximum_volume_percent());
-    lv_slider_set_value(slider, audio_status.volume_percent, LV_ANIM_OFF);
+    lv_slider_set_range(slider, 0, 100);
+    lv_slider_set_value(slider, display_volume_percent(audio_status.volume_percent), LV_ANIM_OFF);
     lv_obj_set_style_bg_color(slider, kDivider, LV_PART_MAIN);
     lv_obj_set_style_bg_color(slider, kAccentDark, LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(slider, kTextOnAccent, LV_PART_KNOB);

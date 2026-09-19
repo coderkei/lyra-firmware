@@ -15,6 +15,34 @@ namespace {
 // safe card unmounting.
 constexpr uint32_t kPowerActionTaskStack = 8 * 1024;
 
+struct FactoryResetFailure {
+    char message[112];
+};
+
+void factory_reset_failure_async_cb(void *context)
+{
+    auto *failure = static_cast<FactoryResetFailure *>(context);
+    if (failure) {
+        render(View::SystemSettings);
+        show_notice(tr(lyra::i18n::StringId::FactoryReset), failure->message);
+        heap_caps_free(failure);
+    }
+}
+
+void post_factory_reset_failure(esp_err_t result)
+{
+    auto *failure = static_cast<FactoryResetFailure *>(
+        heap_caps_malloc(sizeof(FactoryResetFailure), MALLOC_CAP_8BIT));
+    if (!failure) {
+        ESP_LOGE(kTag, "could not allocate factory reset error message: %s",
+                 esp_err_to_name(result));
+        return;
+    }
+    format_text(lyra::i18n::StringId::FactoryResetFailed,
+                esp_err_to_name(result), failure->message, sizeof(failure->message));
+    lv_async_call(factory_reset_failure_async_cb, failure);
+}
+
 const char *clock_date_format_name()
 {
     switch (s_date_format) {
@@ -198,13 +226,15 @@ void make_artwork_setting_toggle(lv_obj_t *parent, int y, const char *title,
 void volume_slider_cb(lv_event_t *event)
 {
     lv_obj_t *slider = lv_event_get_current_target_obj(event);
-    const int value = lv_slider_get_value(slider);
-    lyra::audio::set_volume(static_cast<uint8_t>(value));
-    update_status_volume_label(static_cast<uint8_t>(value));
+    const uint8_t display_value = static_cast<uint8_t>(lv_slider_get_value(slider));
+    const uint8_t audio_value = audio_volume_percent_from_display(display_value);
+    lyra::audio::set_volume(audio_value);
+    update_status_volume_label(audio_value);
     lv_obj_t *value_label = static_cast<lv_obj_t *>(lv_obj_get_user_data(slider));
     if (value_label != nullptr) {
         char text[32];
-        std::snprintf(text, sizeof(text), "%d%%", value);
+        std::snprintf(text, sizeof(text), "%u%%",
+                      static_cast<unsigned>(display_value));
         lv_label_set_text(value_label, text);
     }
 }
@@ -223,15 +253,15 @@ void make_volume_control(lv_obj_t *parent, int y)
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 12, 10);
     char value_text[32];
     std::snprintf(value_text, sizeof(value_text), "%u%%",
-                  static_cast<unsigned>(audio_status.volume_percent));
+                  static_cast<unsigned>(display_volume_percent(audio_status.volume_percent)));
     lv_obj_t *value_label = make_label(card, value_text, kAccent);
     lv_obj_align(value_label, LV_ALIGN_TOP_RIGHT, -12, 10);
 
     lv_obj_t *slider = lv_slider_create(card);
     lv_obj_set_pos(slider, 12, 54);
     lv_obj_set_size(slider, 282, 14);
-    lv_slider_set_range(slider, 0, lyra::audio::maximum_volume_percent());
-    lv_slider_set_value(slider, audio_status.volume_percent, LV_ANIM_OFF);
+    lv_slider_set_range(slider, 0, 100);
+    lv_slider_set_value(slider, display_volume_percent(audio_status.volume_percent), LV_ANIM_OFF);
     lv_obj_set_style_bg_color(slider, kDivider, LV_PART_MAIN);
     lv_obj_set_style_bg_color(slider, kAccentDark, LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(slider, kTextOnAccent, LV_PART_KNOB);
@@ -745,7 +775,8 @@ void language_option_cb(lv_event_t *event)
     if (!lyra::i18n::is_valid_language(value)) return;
 
     const auto language = static_cast<lyra::i18n::Language>(value);
-    if (language == lyra::i18n::current_language()) return;
+    const bool completing_initial_setup = s_language_setup_pending;
+    if (language == lyra::i18n::current_language() && !completing_initial_setup) return;
 
     lyra::i18n::set_language(language);
     // These buffers contain translated status messages rather than user data.
@@ -753,13 +784,27 @@ void language_option_cb(lv_event_t *event)
     s_search_error[0] = '\0';
     s_database_status[0] = '\0';
     s_debug_status[0] = '\0';
-    save_user_settings();
-    render(s_view);
+    const esp_err_t result = save_user_settings();
+    if (result != ESP_OK) {
+        char message[112];
+        format_text(lyra::i18n::StringId::LanguageSaveFailed,
+                    esp_err_to_name(result), message, sizeof(message));
+        show_notice(tr(lyra::i18n::StringId::SelectLanguage), message);
+        return;
+    }
+    if (completing_initial_setup) {
+        s_language_setup_pending = false;
+        render(View::Menu);
+    } else {
+        render(s_view);
+    }
 }
 
 void render_language_options()
 {
-    make_header(tr(lyra::i18n::StringId::Language), View::SystemSettings, true);
+    make_header(s_language_setup_pending ? tr(lyra::i18n::StringId::SelectLanguage) :
+                                            tr(lyra::i18n::StringId::Language),
+                View::SystemSettings, !s_language_setup_pending);
     lv_obj_t *body = make_scroll_body(72);
     for (size_t index = 0; index < lyra::i18n::kLanguageCount; ++index) {
         const auto language = static_cast<lyra::i18n::Language>(index);
@@ -886,7 +931,7 @@ void scan_library_cb(lv_event_t *)
     lv_obj_align(s_scan_phase_label, LV_ALIGN_TOP_MID, 0, 169);
 }
 
-void save_active_queue_snapshot()
+void save_active_queue_snapshot(const lyra::audio::Status &audio_status)
 {
     if (!s_has_active_queue) return;
     const size_t count = playback_queue_count();
@@ -895,7 +940,6 @@ void save_active_queue_snapshot()
 
     uint32_t playback_position_ms = s_saved_playback_position_pending ?
                                     s_saved_playback_position_ms : 0;
-    const lyra::audio::Status audio_status = lyra::audio::status();
     if (!s_saved_playback_position_pending && audio_status.playing && !audio_status.eof &&
         audio_status.last_error == ESP_OK) {
         auto *current_track = static_cast<lyra::media::Track *>(heap_caps_malloc(
@@ -942,12 +986,12 @@ void save_active_queue_snapshot()
 void power_action_task(void *context)
 {
     const PowerAction action = static_cast<PowerAction>(reinterpret_cast<uintptr_t>(context));
+    const bool factory_reset = action == PowerAction::FactoryReset;
     // Give LVGL time to present the shutdown status before filesystem work.
     vTaskDelay(pdMS_TO_TICKS(250));
-    save_active_queue_snapshot();
-    const esp_err_t volume_result = lyra::audio::save_volume();
-    if (volume_result != ESP_OK) ESP_LOGW(kTag, "could not save volume before shutdown: %s",
-                                          esp_err_to_name(volume_result));
+    const lyra::audio::Status audio_status = lyra::audio::status();
+    // A factory reset must not create or update any files on the MicroSD card,
+    // so it deliberately skips the normal shutdown queue/volume persistence.
     lyra::audio::stop();
     // The decoder owns an open MicroSD FILE while it is active. Wait for its
     // worker to release that handle before attempting the filesystem unmount.
@@ -955,14 +999,46 @@ void power_action_task(void *context)
         if (!lyra::audio::status().playing) break;
         vTaskDelay(pdMS_TO_TICKS(10));
     }
+
+    if (!factory_reset) {
+        // Stop playback before writing the queue snapshot so the filesystem
+        // write cannot contend with the decoder's changing SD reads.
+        save_active_queue_snapshot(audio_status);
+        const esp_err_t volume_result = lyra::audio::save_volume();
+        if (volume_result != ESP_OK) ESP_LOGW(kTag, "could not save volume before shutdown: %s",
+                                              esp_err_to_name(volume_result));
+    }
+
     const esp_err_t media_result = lyra::media::shutdown();
     if (media_result != ESP_OK) {
         ESP_LOGE(kTag, "safe shutdown failed: %s", esp_err_to_name(media_result));
+        if (factory_reset) post_factory_reset_failure(media_result);
         // Do not restart or sleep after an unmount failure: preserving the card
         // takes priority over completing the requested power action.
         vTaskDelete(nullptr);
         return;
     }
+
+    if (factory_reset) {
+        // This is the default flash NVS partition only. The MicroSD card has
+        // already been unmounted and no SD-backed state was saved above.
+        esp_err_t result = nvs_flash_erase();
+        if (result == ESP_OK) result = nvs_flash_init();
+        if (result == ESP_ERR_INVALID_STATE) result = ESP_OK;
+        if (result != ESP_OK) {
+            ESP_LOGE(kTag, "factory reset failed: %s", esp_err_to_name(result));
+            post_factory_reset_failure(result);
+            vTaskDelete(nullptr);
+            return;
+        }
+        ESP_LOGI(kTag, "factory reset complete; restarting");
+        lyra_board_display_set_backlight(false);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        esp_restart();
+        vTaskDelete(nullptr);
+        return;
+    }
+
     lyra_board_display_set_backlight(false);
     vTaskDelay(pdMS_TO_TICKS(100));
     if (action == PowerAction::Reboot) {
@@ -982,6 +1058,8 @@ void confirm_power_action_cb(lv_event_t *event)
     lv_obj_t *label = make_label(s_screen,
                                  action == PowerAction::Reboot ?
                                  tr(lyra::i18n::StringId::Rebooting) :
+                                 action == PowerAction::FactoryReset ?
+                                 tr(lyra::i18n::StringId::FactoryResetting) :
                                  tr(lyra::i18n::StringId::PoweringOff), kTextPrimary);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, -10);
@@ -1007,13 +1085,22 @@ void show_power_confirmation(PowerAction action)
     lv_obj_t *dialog = make_box(overlay, 20, 132, 280, 216, kSurfaceRaised, 12);
     lv_obj_t *title = make_label(dialog, action == PowerAction::Reboot ?
                                  tr(lyra::i18n::StringId::RebootLyraQuestion) :
+                                 action == PowerAction::FactoryReset ?
+                                 tr(lyra::i18n::StringId::FactoryResetQuestion) :
                                  tr(lyra::i18n::StringId::PowerOffLyraQuestion), kTextPrimary);
+    lv_obj_set_width(title, 240);
+    lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 22);
     lv_obj_t *message = make_label(dialog,
                                    action == PowerAction::Reboot ?
                                        tr(lyra::i18n::StringId::RebootMessage) :
+                                       action == PowerAction::FactoryReset ?
+                                       tr(lyra::i18n::StringId::FactoryResetMessage) :
                                        tr(lyra::i18n::StringId::PowerOffMessage),
                                    kTextSecondary);
+    lv_obj_set_width(message, 240);
+    lv_label_set_long_mode(message, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(message, LV_ALIGN_CENTER, 0, -15);
 
@@ -1026,6 +1113,8 @@ void show_power_confirmation(PowerAction action)
                                     action == PowerAction::Reboot ? kAccentDark : lv_color_hex(0x991B1B), 7);
     lv_obj_t *confirm_label = make_label(confirm, action == PowerAction::Reboot ?
                                          tr(lyra::i18n::StringId::Reboot) :
+                                         action == PowerAction::FactoryReset ?
+                                         tr(lyra::i18n::StringId::FactoryResetButton) :
                                          tr(lyra::i18n::StringId::PowerOffButton), kTextOnAccent);
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm, confirm_power_action_cb, LV_EVENT_CLICKED,
@@ -1034,6 +1123,7 @@ void show_power_confirmation(PowerAction action)
 
 void reboot_cb(lv_event_t *) { show_power_confirmation(PowerAction::Reboot); }
 void power_off_cb(lv_event_t *) { show_power_confirmation(PowerAction::PowerOff); }
+void factory_reset_cb(lv_event_t *) { show_power_confirmation(PowerAction::FactoryReset); }
 
 void confirm_database_action_cb(lv_event_t *event)
 {
@@ -1174,14 +1264,17 @@ void render_settings_page(View view)
             format_text(lyra::i18n::StringId::NotMounted,
                         esp_err_to_name(status.last_error), sd_status, sizeof(sd_status));
         }
+        make_row(body, 0, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::Language),
+                 lyra::i18n::language_name(lyra::i18n::current_language()),
+                 View::LanguageOptions, 62);
         char clock_text[32];
         format_clock_date_time(lyra::clock::now(), clock_text, sizeof(clock_text));
-        lv_obj_t *clock = make_row(body, 0, LV_SYMBOL_SETTINGS,
+        lv_obj_t *clock = make_row(body, 66, LV_SYMBOL_SETTINGS,
                                    tr(lyra::i18n::StringId::TimeAndDate), clock_text,
                                    View::ClockSettings, 62);
         lv_obj_remove_event_cb(clock, route_cb);
         lv_obj_add_event_cb(clock, clock_settings_cb, LV_EVENT_CLICKED, nullptr);
-        make_row(body, 66, LV_SYMBOL_SD_CARD, tr(lyra::i18n::StringId::MicroSdCard),
+        make_row(body, 132, LV_SYMBOL_SD_CARD, tr(lyra::i18n::StringId::MicroSdCard),
                  sd_status, View::SystemSettings, 62);
         char scan_status[48];
         if (status.scanning) {
@@ -1192,24 +1285,21 @@ void render_settings_page(View view)
             format_count(lyra::i18n::StringId::IndexedTracks,
                          static_cast<uint32_t>(status.track_count), scan_status, sizeof(scan_status));
         }
-        lv_obj_t *scan = make_row(body, 132, LV_SYMBOL_REFRESH,
+        lv_obj_t *scan = make_row(body, 198, LV_SYMBOL_REFRESH,
                                   tr(lyra::i18n::StringId::ScanMusicLibrary), scan_status,
                                   View::SystemSettings, 62);
         lv_obj_remove_event_cb(scan, route_cb);
         lv_obj_add_event_cb(scan, scan_library_cb, LV_EVENT_CLICKED, nullptr);
-        make_row(body, 198, LV_SYMBOL_DRIVE, tr(lyra::i18n::StringId::DatabaseStorage),
+        make_row(body, 264, LV_SYMBOL_DRIVE, tr(lyra::i18n::StringId::DatabaseStorage),
                  tr(lyra::i18n::StringId::ManagePlaylistsLibrary),
                  View::DatabaseStorage, 62);
-        make_artwork_setting_toggle(body, 264, tr(lyra::i18n::StringId::SdAlbumArtCache),
+        make_artwork_setting_toggle(body, 330, tr(lyra::i18n::StringId::SdAlbumArtCache),
                                     tr(lyra::i18n::StringId::AllowOversizedJpeg),
                                     status.artwork_sd_cache_enabled, ArtworkSetting::SdCache);
-        make_artwork_setting_toggle(body, 330, tr(lyra::i18n::StringId::AlbumArt320),
+        make_artwork_setting_toggle(body, 396, tr(lyra::i18n::StringId::AlbumArt320),
                                     tr(lyra::i18n::StringId::AlbumArt240WhenDisabled),
                                     status.artwork_size == lyra::media::kLargeArtworkSize,
                                     ArtworkSetting::Size320);
-        make_row(body, 396, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::Language),
-                 lyra::i18n::language_name(lyra::i18n::current_language()),
-                 View::LanguageOptions, 62);
         lv_obj_t *reboot = make_row(body, 462, LV_SYMBOL_REFRESH,
                                     tr(lyra::i18n::StringId::Reboot),
                                     tr(lyra::i18n::StringId::SafelyRestartLyra),
@@ -1222,6 +1312,13 @@ void render_settings_page(View view)
                                        View::SystemSettings, 62);
         lv_obj_remove_event_cb(power_off, route_cb);
         lv_obj_add_event_cb(power_off, power_off_cb, LV_EVENT_CLICKED, nullptr);
+        lv_obj_t *factory_reset = make_row(body, 594, LV_SYMBOL_WARNING,
+                                           tr(lyra::i18n::StringId::FactoryReset),
+                                           tr(lyra::i18n::StringId::FactoryResetDescription),
+                                           View::SystemSettings, 62);
+        lv_obj_set_style_bg_color(factory_reset, kDangerSurface, 0);
+        lv_obj_remove_event_cb(factory_reset, route_cb);
+        lv_obj_add_event_cb(factory_reset, factory_reset_cb, LV_EVENT_CLICKED, nullptr);
     }
 }
 

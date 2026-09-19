@@ -30,10 +30,14 @@ struct Values {
     uint8_t date_format;
     bool use_24_hour;
     bool dst_enabled;
+    // False when the language key is absent or invalid, identifying the
+    // first GUI boot after a factory reset.
+    bool language_selected;
 };
 
 // Loads only valid persisted values, leaving caller-provided defaults intact.
-// A missing or invalid persisted language always resolves to English.
+// A missing or invalid persisted language resolves to English and leaves
+// language_selected false.
 void load(Values *values, size_t accent_palette_count, uint8_t equalizer_preset_count);
 
 // Persists the complete preference set atomically from the caller's point of view.

@@ -147,7 +147,7 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     s_seen_duration_generation = status.duration_generation;
     s_seen_sorting_generation = status.sorting_generation;
     s_seen_search_generation = lyra::media::search_status().generation;
-    render(View::Menu);
+    render(s_language_setup_pending ? View::LanguageOptions : View::Menu);
     lv_timer_create(player_progress_poll_cb, 250, nullptr);
     // The crossfade envelope must not force full player-screen redraws. Keep
     // its gain work isolated from normal progress/UI refreshes.

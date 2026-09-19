@@ -114,6 +114,7 @@ bool s_playlist_manage_mode = false;
 // The JC3248W535EN dev kit has no Lyra hardware key matrix, so keep the
 // simulator-equivalent touch dock available from first boot.
 bool s_show_nav = true;
+bool s_language_setup_pending = false;
 char s_search_query[48] = "";
 char s_submitted_search_query[48] = "";
 lyra::media::SearchCategory s_search_category = lyra::media::SearchCategory::Songs;

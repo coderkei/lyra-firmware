@@ -123,7 +123,7 @@ void apply_equalizer_to_audio()
     }
 }
 
-void save_user_settings()
+esp_err_t save_user_settings()
 {
     lyra::gui_settings::Values values{
         s_gapless,
@@ -139,10 +139,11 @@ void save_user_settings()
         static_cast<uint8_t>(s_date_format),
         s_use_24_hour,
         s_dst_enabled,
+        true,
     };
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
-    (void)lyra::gui_settings::save(values);
+    return lyra::gui_settings::save(values);
 }
 
 void load_user_settings()
@@ -161,11 +162,13 @@ void load_user_settings()
         static_cast<uint8_t>(s_date_format),
         s_use_24_hour,
         s_dst_enabled,
+        false,
     };
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
     lyra::gui_settings::load(&values, kAccentPaletteCount,
                              static_cast<uint8_t>(EqualizerPreset::Count));
+    s_language_setup_pending = !values.language_selected;
     const bool clear_fallback_dst = lyra::clock::is_using_default_time() && values.dst_enabled;
     if (clear_fallback_dst) values.dst_enabled = false;
     s_gapless = values.gapless;
@@ -183,7 +186,7 @@ void load_user_settings()
     s_dst_enabled = values.dst_enabled;
     std::memcpy(s_equalizer_custom_bands, values.equalizer_custom_bands,
                 sizeof(s_equalizer_custom_bands));
-    if (clear_fallback_dst) save_user_settings();
+    if (clear_fallback_dst && !s_language_setup_pending) save_user_settings();
 }
 
 void copy_ui_text(char *destination, size_t capacity, const char *source)
@@ -274,7 +277,7 @@ void navigate_back(View fallback)
 
 int content_bottom()
 {
-    return kScreenHeight - (s_show_nav ? kNavHeight : 0);
+    return kScreenHeight - (s_show_nav && !s_language_setup_pending ? kNavHeight : 0);
 }
 
 int content_height(int top)
