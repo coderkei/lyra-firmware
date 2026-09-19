@@ -16,8 +16,23 @@ void format_file_date(uint64_t modified_time, char *output, size_t capacity)
     }
     const std::time_t timestamp = static_cast<std::time_t>(modified_time);
     std::tm local{};
+    const auto language = lyra::i18n::current_language();
+    const char *date_format = "%Y-%m-%d %H:%M";
+    if (language == lyra::i18n::Language::German) {
+        date_format = "%d.%m.%Y %H:%M";
+    } else if (language == lyra::i18n::Language::French ||
+               language == lyra::i18n::Language::Spanish ||
+               language == lyra::i18n::Language::Italian ||
+               language == lyra::i18n::Language::Russian) {
+        date_format = "%d/%m/%Y %H:%M";
+    } else if (language == lyra::i18n::Language::Japanese ||
+               language == lyra::i18n::Language::Korean ||
+               language == lyra::i18n::Language::SimplifiedChinese ||
+               language == lyra::i18n::Language::TraditionalChinese) {
+        date_format = "%Y/%m/%d %H:%M";
+    }
     if (localtime_r(&timestamp, &local) == nullptr ||
-        std::strftime(output, capacity, "%Y-%m-%d %H:%M", &local) == 0) {
+        std::strftime(output, capacity, date_format, &local) == 0) {
         copy_ui_text(output, capacity, tr(lyra::i18n::StringId::Unavailable));
     }
 }
@@ -25,9 +40,8 @@ void format_file_date(uint64_t modified_time, char *output, size_t capacity)
 void format_track_format(const lyra::media::Track &track, char *output, size_t capacity)
 {
     copy_ui_text(output, capacity, track.format);
-    for (char *character = output; *character; ++character) {
-        *character = static_cast<char>(std::toupper(static_cast<unsigned char>(*character)));
-    }
+    // File-format identifiers are user/media data. Preserve their spelling
+    // instead of applying an English-only casing transformation.
     if (!output[0]) copy_ui_text(output, capacity, tr(lyra::i18n::StringId::Unknown));
 }
 

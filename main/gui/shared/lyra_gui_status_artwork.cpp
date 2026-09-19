@@ -47,6 +47,7 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
     lv_obj_align(label, LV_ALIGN_LEFT_MID, show_back ? 45 : 10, 0);
     if (right != nullptr) {
         lv_obj_t *right_label = make_label(header, right, kAccent);
+        make_marquee(right_label, 84);
         lv_obj_align(right_label, LV_ALIGN_RIGHT_MID, -12, 0);
     }
     return header;
@@ -68,6 +69,9 @@ void show_notice(const char *title_text, const char *message_text)
     lv_obj_move_foreground(overlay);
     lv_obj_t *dialog = make_box(overlay, 24, 142, 272, 196, kSurfaceRaised, 12);
     lv_obj_t *title = make_label(dialog, title_text, kTextPrimary);
+    lv_obj_set_width(title, 232);
+    lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
     lv_obj_t *message = make_label(dialog, message_text, kTextSecondary);
     lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, 0);

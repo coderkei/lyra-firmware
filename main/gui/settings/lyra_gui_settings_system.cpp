@@ -46,9 +46,11 @@ void make_setting_toggle(lv_obj_t *parent, int y, const char *title, const char 
 {
     lv_obj_t *row = make_button(parent, 7, y, 306, 62, kSurface, 6, true);
     lv_obj_t *title_label = make_label(row, title, kTextPrimary);
+    make_marquee(title_label, 220);
     lv_obj_align(title_label, LV_ALIGN_LEFT_MID, 12, subtitle == nullptr ? 0 : -10);
     if (subtitle != nullptr) {
         lv_obj_t *sub = make_label(row, subtitle, kTextMuted);
+        make_marquee(sub, 220);
         lv_obj_align(sub, LV_ALIGN_LEFT_MID, 12, 12);
     }
     lv_obj_t *toggle = make_box(row, 250, 17, 42, 24, *value ? kAccent : kDivider, 12);
@@ -113,8 +115,10 @@ void make_artwork_setting_toggle(lv_obj_t *parent, int y, const char *title,
 {
     lv_obj_t *row = make_button(parent, 7, y, 306, 62, kSurface, 6, true);
     lv_obj_t *title_label = make_label(row, title, kTextPrimary);
+    make_marquee(title_label, 220);
     lv_obj_align(title_label, LV_ALIGN_LEFT_MID, 12, -10);
     lv_obj_t *sub = make_label(row, subtitle, kTextMuted);
+    make_marquee(sub, 220);
     lv_obj_align(sub, LV_ALIGN_LEFT_MID, 12, 12);
     lv_obj_t *toggle = make_box(row, 250, 17, 42, 24, value ? kAccent : kDivider, 12);
     make_box(toggle, value ? 21 : 3, 3, 18, 18,

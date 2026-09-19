@@ -251,14 +251,16 @@ void make_library_keyboard(lv_obj_t *keyboard, const char *action)
 void render_search()
 {
     lv_obj_t *body = make_box(s_screen, 0, kStatusHeight, 320, content_height(kStatusHeight), kBackground);
-    lv_obj_t *input = make_box(body, 9, 4, 233, 43, kSurfaceRaised, 7);
+    lv_obj_t *input = make_box(body, 9, 4, 224, 43, kSurfaceRaised, 7);
     lv_obj_t *magnifier = make_label(input, LV_SYMBOL_EDIT, kTextSecondary);
     lv_obj_align(magnifier, LV_ALIGN_LEFT_MID, 10, 0);
     s_search_label = make_label(input, "", kTextMuted);
-    make_marquee(s_search_label, 180);
+    make_marquee(s_search_label, 171);
     lv_obj_align(s_search_label, LV_ALIGN_LEFT_MID, 37, 0);
     update_search_label();
-    lv_obj_t *toggle = make_button(body, 248, 4, 63, 43, kSurfaceRaised, 7);
+    // Four 16 px CJK glyphs need 64 px before any internal spacing. Keep a
+    // full 72 px action button so translated keyboard labels cannot clip.
+    lv_obj_t *toggle = make_button(body, 239, 4, 72, 43, kSurfaceRaised, 7);
     s_search_keyboard_toggle = make_label(toggle, s_search_keyboard_visible ?
                                           tr(lyra::i18n::StringId::HideKeyboard) :
                                           tr(lyra::i18n::StringId::ShowKeyboard), kAccent);
@@ -302,6 +304,7 @@ void render_playlist_create()
     lv_obj_t *body = make_box(s_screen, 0, 72, 320, content_height(72), kBackground);
     lv_obj_t *input = make_box(body, 9, 8, 302, 43, kSurfaceRaised, 7);
     s_search_label = make_label(input, "", kTextMuted);
+    make_marquee(s_search_label, 278);
     lv_obj_align(s_search_label, LV_ALIGN_LEFT_MID, 12, 0);
     update_search_label();
     const int keyboard_height = library_keyboard_height();

@@ -19,6 +19,17 @@ Run the completeness check from the repository root:
 python tools/i18n/check_i18n.py
 ```
 
+Check the generated embedded font coverage with:
+
+```text
+python tools/i18n/check_font_manifest.py --write
+python tools/i18n/check_font_manifest.py
+```
+
+The font check validates the generated LVGL cmaps used by the primary font and
+the catalog-specific CJK fallback. `lyra_glyph_manifest.txt` records the
+locale code points used for the repeatable GUI review.
+
 The check scans `main/gui/` for direct string literals passed to `make_label()`
 and validates every catalog locale, placeholder signature, and line-break
 signature. New user-facing label text must be added to the catalog.

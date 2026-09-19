@@ -219,13 +219,16 @@ void show_sorting_overlay(const lyra::media::Status &status)
     lv_obj_set_style_arc_width(spinner, 6, LV_PART_MAIN);
     lv_obj_set_style_arc_width(spinner, 6, LV_PART_INDICATOR);
     lv_obj_t *title = make_label(dialog, tr(lyra::i18n::StringId::PreparingLibrarySort), kTextPrimary);
+    make_marquee(title, 248);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 105);
     s_sort_progress_label = make_label(dialog, tr(lyra::i18n::StringId::BuildingSortCache), kAccent);
+    make_marquee(s_sort_progress_label, 248);
     lv_obj_align(s_sort_progress_label, LV_ALIGN_TOP_MID, 0, 137);
     lv_obj_t *section = make_label(dialog,
         status.sorting_section == static_cast<uint8_t>(lyra::media::SortSection::Songs) ?
             tr(lyra::i18n::StringId::Songs) : status.sorting_section == static_cast<uint8_t>(lyra::media::SortSection::Albums) ?
             tr(lyra::i18n::StringId::Albums) : tr(lyra::i18n::StringId::Artists), kTextSecondary);
+    make_marquee(section, 248);
     lv_obj_align(section, LV_ALIGN_TOP_MID, 0, 169);
 }
 

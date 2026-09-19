@@ -76,6 +76,13 @@ const char *count_format(const CatalogEntry &entry, Language language, uint32_t 
     return count == 1 ? entry.one[index] : entry.many[index];
 }
 
+bool uses_decimal_comma(Language language)
+{
+    return language == Language::French || language == Language::German ||
+           language == Language::Spanish || language == Language::Italian ||
+           language == Language::Russian;
+}
+
 } // namespace
 
 const char *tr(StringId id)
@@ -180,6 +187,15 @@ void format_float(StringId id, double value, char *output, size_t capacity)
 {
     if (!output || capacity == 0) return;
     std::snprintf(output, capacity, tr(id), value);
+    // The catalog controls the surrounding unit/order; apply the customary
+    // decimal separator for locales that use a comma. These helpers are used
+    // for sizes and storage values, so a full locale-sensitive printf runtime
+    // would be unnecessary overhead on the device.
+    if (uses_decimal_comma(s_language)) {
+        for (char *character = output; *character; ++character) {
+            if (*character == '.') *character = ',';
+        }
+    }
 }
 
 void format_count(StringId id, uint32_t count, char *output, size_t capacity)

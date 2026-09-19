@@ -39,6 +39,7 @@ idf_component_register(
         "lyra_png.cpp"
         "lyra_jpeg_memory.c"
         "lyra_font.cpp"
+        "lyra_cjk_16.c"
         "lyra_unicode_16.c"
     INCLUDE_DIRS
         "."

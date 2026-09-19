@@ -22,6 +22,10 @@ The versions below are the versions locked in `dependencies.lock`:
   `main/lyra_unicode_16.c` file is derived from the 1.001 release,
   whose Apache-2.0 terms match the firmware's existing source licence and
   retain the Adobe attribution in the generated file.
+- **Source Han Sans CJK SC selected glyph data** — SIL Open Font License 1.1.
+  The generated `main/lyra_cjk_16.c` catalog fallback is derived from the
+  Source Han Sans CJK SC face distributed with LVGL. Retain the Adobe
+  attribution and the OFL-1.1 terms when redistributing the firmware.
 - **espressif/esp_audio_codec 2.6.2** — Espressif Modified MIT,
   `LicenseRef-Espressif-Modified-MIT`. The license restricts use to
   Espressif Systems products. The exact license text is in the component's

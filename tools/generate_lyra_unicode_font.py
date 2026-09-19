@@ -15,9 +15,13 @@ import shutil
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).parent / "i18n"))
+from check_i18n import decode_string_argument, macro_invocations, split_arguments
+
 
 FONT_SIZE_PX = 16
 BPP = 2
+DEFAULT_CATALOG = Path("tools/i18n/lyra_i18n_catalog.inc")
 
 # Latin covers western and central/eastern European titles, Vietnamese, Greek,
 # and Cyrillic.  The remaining ranges cover punctuation, currency, common
@@ -62,6 +66,27 @@ def compact_han_symbols() -> str:
     return "".join(chr(point) for point in sorted(points))
 
 
+def catalog_han_symbols(catalog: Path) -> set[int]:
+    """Return Han code points used by the translated catalog.
+
+    The legacy charset sets remain useful for music metadata, but they are not
+    sufficient evidence that every current GUI translation is covered.  The
+    catalog is therefore an explicit input to the generated font as well.
+    """
+    points: set[int] = set()
+    text = catalog.read_text(encoding="utf-8")
+    for macro, raw in macro_invocations(text):
+        if macro not in {"LYRA_I18N_ENTRY", "LYRA_I18N_COUNT"}:
+            continue
+        for argument in split_arguments(raw)[1:]:
+            value = decode_string_argument(argument)
+            if value is None:
+                raise ValueError(f"{catalog}: invalid catalog string")
+            points.update(ord(character) for character in value
+                          if 0x4E00 <= ord(character) <= 0x9FFF)
+    return points
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -77,6 +102,12 @@ def main() -> int:
         help="generated LVGL C source (default: main/lyra_unicode_16.c)",
     )
     parser.add_argument(
+        "--catalog",
+        type=Path,
+        default=DEFAULT_CATALOG,
+        help="translated catalog used to guarantee GUI glyph coverage",
+    )
+    parser.add_argument(
         "--converter",
         default="lv_font_conv",
         help="lv_font_conv 1.5.3 executable (default: resolve from PATH)",
@@ -85,6 +116,8 @@ def main() -> int:
 
     if not args.font.is_file():
         parser.error(f"font source not found: {args.font}")
+    if not args.catalog.is_file():
+        parser.error(f"catalog not found: {args.catalog}")
     converter = shutil.which(args.converter)
     if not converter:
         parser.error(
@@ -105,7 +138,9 @@ def main() -> int:
 
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    han = compact_han_symbols()
+    han_points = set(compact_han_symbols())
+    han_points.update(chr(point) for point in catalog_han_symbols(args.catalog))
+    han = "".join(sorted(han_points))
     command = converter_command + [
         "--bpp",
         str(BPP),

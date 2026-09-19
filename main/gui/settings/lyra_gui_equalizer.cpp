@@ -66,6 +66,7 @@ void make_equalizer_preset_option(lv_obj_t *parent, int y, EqualizerPreset prese
                                 active ? kAccentSurface : kSurface, 6);
     lv_obj_t *label = make_label(row, equalizer_preset_name(preset),
                                  active ? kAccent : kTextPrimary);
+    make_marquee(label, 258);
     lv_obj_align(label, LV_ALIGN_LEFT_MID, 12, 0);
     if (active) {
         lv_obj_t *check = make_label(row, LV_SYMBOL_OK, kAccent);
@@ -103,6 +104,7 @@ void render_equalizer()
     lv_obj_t *preset = make_button(body, 8, 6, 304, 48, kSurface, 6);
     lv_obj_t *preset_name = make_label(preset, equalizer_preset_name(s_equalizer_preset),
                                        kTextPrimary);
+    make_marquee(preset_name, 270);
     lv_obj_align(preset_name, LV_ALIGN_LEFT_MID, 12, 0);
     lv_obj_t *arrow = make_label(preset, LV_SYMBOL_RIGHT, kTextMuted);
     lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -12, 0);
