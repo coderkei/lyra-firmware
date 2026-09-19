@@ -7,6 +7,23 @@
 
 namespace lyra::gui::internal {
 
+const char *smart_playlist_title(lyra::media::SmartPlaylistKind kind)
+{
+    switch (kind) {
+    case lyra::media::SmartPlaylistKind::RecentlyAdded:
+        return tr(lyra::i18n::StringId::RecentlyAdded);
+    case lyra::media::SmartPlaylistKind::RecentlyPlayed:
+        return tr(lyra::i18n::StringId::RecentlyPlayed);
+    case lyra::media::SmartPlaylistKind::MostPlayed:
+        return tr(lyra::i18n::StringId::MostPlayed);
+    case lyra::media::SmartPlaylistKind::NeverPlayed:
+        return tr(lyra::i18n::StringId::NeverPlayed);
+    case lyra::media::SmartPlaylistKind::Count:
+        break;
+    }
+    return tr(lyra::i18n::StringId::SmartPlaylists);
+}
+
 void open_track_list_cb(lv_event_t *event)
 {
     const size_t selected_group = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
@@ -427,6 +444,18 @@ void playlist_cb(lv_event_t *event)
 {
     push_navigation_state();
     s_selected_playlist = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
+    s_selected_playlist_is_smart = false;
+    s_list_page = 0;
+    s_playlist_manage_mode = false;
+    render(View::PlaylistDetail);
+}
+
+void smart_playlist_cb(lv_event_t *event)
+{
+    push_navigation_state();
+    s_selected_playlist_is_smart = true;
+    s_selected_smart_playlist = static_cast<lyra::media::SmartPlaylistKind>(
+        reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
     s_list_page = 0;
     s_playlist_manage_mode = false;
     render(View::PlaylistDetail);
@@ -558,28 +587,36 @@ void render_playlists(bool detail)
     // Returning to a playlist always ends the temporary library selection mode.
     s_playlist_add_mode = false;
     lyra::media::Playlist selected{};
-    if (detail) lyra::media::playlist_at(s_selected_playlist, &selected);
-    const char *title = detail ? selected.name : tr(lyra::i18n::StringId::Playlists);
+    const bool smart_detail = detail && s_selected_playlist_is_smart;
+    if (detail && !smart_detail && !lyra::media::playlist_at(s_selected_playlist, &selected)) {
+        return;
+    }
+    const char *title = !detail ? tr(lyra::i18n::StringId::Playlists) : smart_detail ?
+        smart_playlist_title(s_selected_smart_playlist) : selected.name;
     make_header(title, detail ? View::Playlists :
                 (s_playlists_from_library ? View::Library : View::Menu), true, "");
-    lv_obj_t *plus = make_button(s_screen, 220, 32, 44, 36, kBackground, 4);
-    lv_obj_t *plus_label = make_label(plus, LV_SYMBOL_PLUS, kAccent);
-    lv_obj_center(plus_label);
-    if (detail) {
-        lv_obj_add_event_cb(plus, open_playlist_add_cb, LV_EVENT_CLICKED, nullptr);
-    } else {
-        add_route(plus, View::PlaylistCreate);
+    if (!detail || !smart_detail) {
+        lv_obj_t *plus = make_button(s_screen, 220, 32, 44, 36, kBackground, 4);
+        lv_obj_t *plus_label = make_label(plus, LV_SYMBOL_PLUS, kAccent);
+        lv_obj_center(plus_label);
+        if (detail) {
+            lv_obj_add_event_cb(plus, open_playlist_add_cb, LV_EVENT_CLICKED, nullptr);
+        } else {
+            add_route(plus, View::PlaylistCreate);
+        }
     }
-    lv_obj_t *manage = make_button(s_screen, 270, 32, 44, 36, kBackground, 4);
-    lv_obj_t *manage_label = make_label(manage,
-                                        s_playlist_manage_mode ? LV_SYMBOL_CLOSE : LV_SYMBOL_EDIT,
-                                        s_playlist_manage_mode ? kTextSecondary : kAccent);
-    lv_obj_center(manage_label);
-    lv_obj_add_event_cb(manage, toggle_playlist_manage_cb, LV_EVENT_CLICKED, nullptr);
+    if (!detail) {
+        lv_obj_t *manage = make_button(s_screen, 270, 32, 44, 36, kBackground, 4);
+        lv_obj_t *manage_label = make_label(manage,
+                                            s_playlist_manage_mode ? LV_SYMBOL_CLOSE : LV_SYMBOL_EDIT,
+                                            s_playlist_manage_mode ? kTextSecondary : kAccent);
+        lv_obj_center(manage_label);
+        lv_obj_add_event_cb(manage, toggle_playlist_manage_cb, LV_EVENT_CLICKED, nullptr);
+    }
     lv_obj_t *list = make_scroll_body(72);
     if (!detail) {
-        const size_t count = lyra::media::playlist_count();
-        for (size_t i = 0; i < count; ++i) {
+        const size_t normal_count = lyra::media::playlist_count();
+        for (size_t i = 0; i < normal_count; ++i) {
             lyra::media::Playlist playlist{};
             if (!lyra::media::playlist_at(i, &playlist)) continue;
             char subtitle[28];
@@ -594,23 +631,53 @@ void render_playlists(bool detail)
                 lv_obj_add_event_cb(row, playlist_cb, LV_EVENT_CLICKED, reinterpret_cast<void *>(i));
             }
         }
-        if (count == 0) make_label(list, tr(lyra::i18n::StringId::NoPlaylistsYetCreate), kTextMuted);
+        if (normal_count == 0) {
+            lv_obj_t *empty = make_label(list, tr(lyra::i18n::StringId::NoPlaylistsYetCreate), kTextMuted);
+            lv_obj_set_pos(empty, 12, 0);
+        }
+
+        const int smart_header_y = normal_count == 0 ? 34 : static_cast<int>(normal_count) * 62;
+        lv_obj_t *smart_header = make_label(list, tr(lyra::i18n::StringId::SmartPlaylists), kTextMuted);
+        lv_obj_set_pos(smart_header, 12, smart_header_y + 6);
+        const size_t smart_count = lyra::media::smart_playlist_count();
+        for (size_t i = 0; i < smart_count; ++i) {
+            lyra::media::SmartPlaylist smart{};
+            if (!lyra::media::smart_playlist_at(i, &smart)) continue;
+            char subtitle[28];
+            format_count(lyra::i18n::StringId::SongCount,
+                         static_cast<uint32_t>(smart.track_count), subtitle, sizeof(subtitle));
+            const int y = smart_header_y + 30 + static_cast<int>(i) * 62;
+            lv_obj_t *row = make_row(list, y, nullptr, smart_playlist_title(smart.kind),
+                                     subtitle, View::PlaylistDetail, 58);
+            lv_obj_remove_event_cb(row, route_cb);
+            lv_obj_add_event_cb(row, smart_playlist_cb, LV_EVENT_CLICKED,
+                                reinterpret_cast<void *>(static_cast<uintptr_t>(smart.kind)));
+        }
     } else {
-        const size_t pages = (selected.track_count + lyra::media::kTrackPageSize - 1) /
+        const size_t total = smart_detail ?
+            lyra::media::smart_playlist_track_count(s_selected_smart_playlist) : selected.track_count;
+        const size_t pages = (total + lyra::media::kTrackPageSize - 1) /
                              lyra::media::kTrackPageSize;
         if (pages && s_list_page >= pages) s_list_page = pages - 1;
         size_t indices[lyra::media::kTrackPageSize];
-        const size_t count = lyra::media::playlist_tracks(s_selected_playlist,
-            s_list_page * lyra::media::kTrackPageSize, indices, lyra::media::kTrackPageSize);
+        const size_t count = smart_detail ?
+            lyra::media::smart_playlist_tracks(s_selected_smart_playlist,
+                s_list_page * lyra::media::kTrackPageSize, indices, lyra::media::kTrackPageSize) :
+            lyra::media::playlist_tracks(s_selected_playlist,
+                s_list_page * lyra::media::kTrackPageSize, indices, lyra::media::kTrackPageSize);
         for (size_t i = 0; i < count; ++i) {
-            if (s_playlist_manage_mode) {
+            if (!smart_detail && s_playlist_manage_mode) {
                 make_playlist_track_manage_row(list, static_cast<int>(i) * 58, indices[i]);
             } else {
-                make_song_row(list, static_cast<int>(i) * 58, indices[i], 54);
+                make_song_row(list, static_cast<int>(i) * 58, indices[i], 54, false,
+                              smart_detail && s_selected_smart_playlist ==
+                                  lyra::media::SmartPlaylistKind::MostPlayed);
             }
         }
-        make_page_controls(list, static_cast<int>(count) * 58 + 4, selected.track_count);
-        if (count == 0) make_label(list, tr(lyra::i18n::StringId::PlaylistEmptyAdd), kTextMuted);
+        make_page_controls(list, static_cast<int>(count) * 58 + 4, total);
+        if (count == 0) make_label(list, smart_detail ?
+            tr(lyra::i18n::StringId::SmartPlaylistEmpty) :
+            tr(lyra::i18n::StringId::PlaylistEmptyAdd), kTextMuted);
     }
 }
 

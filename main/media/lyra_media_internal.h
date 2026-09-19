@@ -51,6 +51,9 @@ constexpr const char *kDataDir = "/sdcard/.lyra";
 constexpr const char *kQueueSnapshotPath = "/sdcard/.lyra/queue-v1.m3u8";
 constexpr const char *kQueueSnapshotTempPath = "/sdcard/.lyra/queue-v1.tmp";
 constexpr const char *kQueueSnapshotBackupPath = "/sdcard/.lyra/queue-v1.bak";
+constexpr const char *kPlaybackStatsPath = "/sdcard/.lyra/play-stats-v1.bin";
+constexpr const char *kPlaybackStatsTempPath = "/sdcard/.lyra/play-stats-v1.tmp";
+constexpr const char *kPlaybackStatsBackupPath = "/sdcard/.lyra/play-stats-v1.bak";
 constexpr const char *kArtworkDir = "/sdcard/.lyra/covers";
 constexpr const char *kCatalogPath = "/sdcard/.lyra/catalog-v10.bin";
 constexpr const char *kCatalogTempPath = "/sdcard/.lyra/catalog-v10.tmp";
@@ -170,6 +173,13 @@ struct ArtworkRequest {
     ArtworkSize size;
 };
 
+struct PlaybackStat {
+    uint64_t path_hash;
+    uint32_t play_count;
+    uint32_t reserved;
+    uint64_t last_played;
+};
+
 struct Mp4Atom {
     uint64_t start;
     uint64_t data_start;
@@ -233,6 +243,13 @@ extern SearchCategory s_cached_search_category;
 extern char s_cached_search_query[48];
 extern bool s_nvs_ready;
 extern SortSetting s_sort_settings[3];
+extern PlaybackStat *s_playback_stats;
+extern size_t s_playback_stats_count;
+extern uint64_t s_playback_sequence;
+extern uint32_t *s_smart_playlist_orders[4];
+extern size_t s_smart_playlist_order_counts[4];
+extern uint32_t s_smart_playlist_order_generations[4];
+extern uint64_t s_smart_playlist_order_sequences[4];
 
 class Lock {
 public:
@@ -339,6 +356,11 @@ esp_err_t clear_artwork_cache_locked();
 esp_err_t clear_catalog_locked();
 bool load_catalog_file(const char *path, bool verify_checksum = true);
 void load_cached_state();
+void load_playback_stats();
+esp_err_t clear_playback_stats_locked();
+void clear_smart_playlist_cache_locked();
+const PlaybackStat *playback_stat_locked(uint64_t path_hash);
+bool save_playback_stats_locked();
 esp_err_t publish_catalog();
 bool duration_sort_requested_locked();
 void duration_task(void *);

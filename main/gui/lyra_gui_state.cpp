@@ -71,6 +71,9 @@ ArtistDetailTab s_artist_detail_tab = ArtistDetailTab::Songs;
 TrackInfoTab s_track_info_tab = TrackInfoTab::Song;
 size_t s_current_track = 0;
 size_t s_selected_playlist = 0;
+bool s_selected_playlist_is_smart = false;
+lyra::media::SmartPlaylistKind s_selected_smart_playlist =
+    lyra::media::SmartPlaylistKind::RecentlyAdded;
 size_t s_selected_group = 0;
 lyra::media::GroupKind s_selected_group_kind = lyra::media::GroupKind::Artist;
 size_t s_list_page = 0;
@@ -135,6 +138,8 @@ PlaybackScope s_playback_scope = PlaybackScope::Single;
 lyra::media::GroupKind s_playback_group_kind = lyra::media::GroupKind::Artist;
 size_t s_playback_group = 0;
 size_t s_playback_playlist = 0;
+lyra::media::SmartPlaylistKind s_playback_smart_playlist =
+    lyra::media::SmartPlaylistKind::RecentlyAdded;
 size_t *s_saved_queue = nullptr;
 size_t s_saved_queue_count = 0;
 bool s_saved_queue_pending = false;

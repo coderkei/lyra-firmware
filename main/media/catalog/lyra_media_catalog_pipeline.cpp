@@ -1326,6 +1326,7 @@ bool validate_catalog(FILE *file, CatalogHeader *header, bool verify_checksum)
 
 void clear_runtime_catalog()
 {
+    clear_smart_playlist_cache_locked();
     s_search_cancel_requested = true;
     s_duration_cancel_requested = true;
     s_sort_cancel_requested = true;

@@ -139,6 +139,19 @@ struct SearchStatus {
 
 enum class SearchCategory : uint8_t { Songs, Albums, Artists, Playlists };
 
+enum class SmartPlaylistKind : uint8_t {
+    RecentlyAdded,
+    RecentlyPlayed,
+    MostPlayed,
+    NeverPlayed,
+    Count,
+};
+
+struct SmartPlaylist {
+    SmartPlaylistKind kind;
+    size_t track_count;
+};
+
 // Search results are deliberately typed so the UI can route a result to the
 // correct overview/list and, for playlist matches, retain the playlist queue.
 // Only the field relevant to the result category is populated.
@@ -199,6 +212,16 @@ esp_err_t add_to_playlist(size_t playlist_index, size_t track_index);
 esp_err_t remove_from_playlist(size_t playlist_index, size_t track_index);
 // Deleting Favorites clears it; other playlists are removed from the card.
 esp_err_t delete_playlist(size_t playlist_index);
+
+// Smart playlists are generated from catalog metadata and playback statistics;
+// they are not stored as user-editable playlist files.
+size_t smart_playlist_count();
+bool smart_playlist_at(size_t index, SmartPlaylist *out);
+size_t smart_playlist_track_count(SmartPlaylistKind kind);
+size_t smart_playlist_tracks(SmartPlaylistKind kind, size_t offset,
+                             size_t *track_indices, size_t capacity);
+uint32_t track_play_count(size_t track_index);
+esp_err_t record_track_play(size_t track_index);
 
 // The active queue is kept separately from portable user playlists. Entries
 // are written as MicroSD-relative paths so a rebuilt catalog can restore the

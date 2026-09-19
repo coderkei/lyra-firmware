@@ -81,6 +81,8 @@ size_t playback_queue_count()
             return lyra::media::playlist_at(s_playback_playlist, &playlist) ?
                    playlist.track_count : 0;
         }
+        case PlaybackScope::SmartPlaylist:
+            return lyra::media::smart_playlist_track_count(s_playback_smart_playlist);
         case PlaybackScope::Folder: {
             size_t first = 0;
             size_t total = 0;
@@ -111,6 +113,9 @@ bool playback_queue_track_at(size_t position, size_t *track_index)
         case PlaybackScope::Playlist:
             return lyra::media::playlist_tracks(s_playback_playlist, position,
                                                  track_index, 1) == 1;
+        case PlaybackScope::SmartPlaylist:
+            return lyra::media::smart_playlist_tracks(s_playback_smart_playlist, position,
+                                                      track_index, 1) == 1;
         case PlaybackScope::Folder:
             return lyra::media::folder_tracks(s_playback_folder_path, position,
                                                track_index, 1) == 1;
@@ -251,7 +256,15 @@ esp_err_t start_track_audio(const lyra::media::Track &track)
     const esp_err_t replay_gain_result = lyra::audio::set_replay_gain_adjustment(
         s_replay_gain ? track.replay_gain_tenths_db : 0);
     if (replay_gain_result != ESP_OK) return replay_gain_result;
-    return lyra::audio::play(track.path);
+    const esp_err_t play_result = lyra::audio::play(track.path);
+    if (play_result == ESP_OK) {
+        const esp_err_t stats_result = lyra::media::record_track_play(s_current_track);
+        if (stats_result != ESP_OK) {
+            ESP_LOGW(kTag, "could not record playback for %s: %s", track.path,
+                     esp_err_to_name(stats_result));
+        }
+    }
+    return play_result;
 }
 
 void play_queue_position(size_t queue_position)

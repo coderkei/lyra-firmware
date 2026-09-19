@@ -65,6 +65,13 @@ SortSetting s_sort_settings[] = {
     {SortField::Title, SortDirection::Ascending},
     {SortField::Title, SortDirection::Ascending},
 };
+PlaybackStat *s_playback_stats;
+size_t s_playback_stats_count;
+uint64_t s_playback_sequence;
+uint32_t *s_smart_playlist_orders[4]{};
+size_t s_smart_playlist_order_counts[4]{};
+uint32_t s_smart_playlist_order_generations[4]{};
+uint64_t s_smart_playlist_order_sequences[4]{};
 
 
 } // namespace lyra::media::internal

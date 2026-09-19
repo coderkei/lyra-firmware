@@ -71,6 +71,9 @@ reported to the UI instead of preventing the system shell from starting.
   with a temporary file and backup so a failed scan retains the prior catalog.
 - User playlists are portable `.m3u` or `.m3u8` files under
   `/sdcard/Playlists`. The `Favorites` playlist is created as needed.
+- The Playlists screen includes generated Smart Playlists for Recently Added,
+  Recently Played, Most Played, and Never Played. Playback counts and recency
+  are persisted by track path in `/sdcard/.lyra/play-stats-v1.bin`.
 - The active queue is stored separately at `/sdcard/.lyra/queue-v1.m3u8`.
 - Settings, volume, equalizer preferences, sort choices, and artwork-cache
   choices use the `lyra` NVS namespace.

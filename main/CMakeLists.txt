@@ -34,6 +34,7 @@ idf_component_register(
         "media/catalog/lyra_media_catalog_pipeline.cpp"
         "media/metadata/lyra_media_metadata.cpp"
         "media/playlists/lyra_media_playlists_favorites.cpp"
+        "media/playlists/lyra_media_smart_playlists.cpp"
         "lyra_media_artwork.cpp"
         "lyra_sd.cpp"
         "lyra_progressive_jpeg.cpp"

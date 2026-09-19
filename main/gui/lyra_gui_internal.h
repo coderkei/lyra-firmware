@@ -103,7 +103,9 @@ enum class LibraryTab : uint8_t { Songs, Artists, Albums, Genres, Years };
 enum class ArtistDetailTab : uint8_t { Songs, Albums };
 enum class TrackInfoTab : uint8_t { Song, Media };
 enum class DebugTab : uint8_t { Info, Debug };
-enum class PlaybackScope : uint8_t { Single, AllSongs, Group, Playlist, Folder, Search, SavedQueue };
+enum class PlaybackScope : uint8_t {
+    Single, AllSongs, Group, Playlist, SmartPlaylist, Folder, Search, SavedQueue,
+};
 enum class RepeatMode : uint8_t { Off, All, Song };
 enum class EqualizerPreset : uint8_t {
     Custom, Flat, FullBass, FullTreble, BassAndTreble, Rock, Pop, Jazz, Classic, Count,
@@ -125,6 +127,8 @@ struct NavigationState {
     ArtistDetailTab artist_detail_tab;
     size_t list_page;
     size_t selected_playlist;
+    bool selected_playlist_is_smart;
+    lyra::media::SmartPlaylistKind selected_smart_playlist;
     size_t selected_group;
     lyra::media::GroupKind selected_group_kind;
     bool playlists_from_library;
@@ -191,6 +195,8 @@ extern ArtistDetailTab s_artist_detail_tab;
 extern TrackInfoTab s_track_info_tab;
 extern size_t s_current_track;
 extern size_t s_selected_playlist;
+extern bool s_selected_playlist_is_smart;
+extern lyra::media::SmartPlaylistKind s_selected_smart_playlist;
 extern size_t s_selected_group;
 extern lyra::media::GroupKind s_selected_group_kind;
 extern size_t s_list_page;
@@ -253,6 +259,7 @@ extern PlaybackScope s_playback_scope;
 extern lyra::media::GroupKind s_playback_group_kind;
 extern size_t s_playback_group;
 extern size_t s_playback_playlist;
+extern lyra::media::SmartPlaylistKind s_playback_smart_playlist;
 extern size_t *s_saved_queue;
 extern size_t s_saved_queue_count;
 extern bool s_saved_queue_pending;
@@ -358,7 +365,8 @@ void play_track_from_row(size_t track_index, bool force_single);
 void track_route_cb(lv_event_t *event);
 void single_track_route_cb(lv_event_t *event);
 void add_track_route(lv_obj_t *row, size_t track_index, bool force_single = false);
-void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height = 54, bool force_single = false);
+void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height = 54,
+                   bool force_single = false, bool show_play_count = false);
 void add_search_playlist_route(lv_obj_t *row, size_t track_index, size_t playlist_index);
 void make_search_playlist_row(lv_obj_t *parent, int y, const lyra::media::SearchResult &result);
 void search_album_result_cb(lv_event_t *event);

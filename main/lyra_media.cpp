@@ -39,6 +39,7 @@ esp_err_t init()
     if (result == ESP_OK) {
         if (ensure_directory(kDataDir)) remove_stale_jpeg_work_files();
         load_cached_state();
+        load_playback_stats();
         start_duration_indexing_if_needed();
         ESP_LOGI(kTag, "MicroSD mounted; library scan is user initiated");
     } else {
@@ -93,10 +94,12 @@ esp_err_t clear_all_databases()
         s_status.sorting_indexing ||
         s_status.artwork_busy || s_search_status.running) return ESP_ERR_INVALID_STATE;
     const esp_err_t playlists = clear_playlists_locked();
+    const esp_err_t playback_stats = clear_playback_stats_locked();
     const esp_err_t artwork = clear_artwork_cache_locked();
     const esp_err_t catalog = clear_catalog_locked();
     refresh_capacity();
-    return playlists == ESP_OK && artwork == ESP_OK && catalog == ESP_OK ? ESP_OK : ESP_FAIL;
+    return playlists == ESP_OK && playback_stats == ESP_OK &&
+                   artwork == ESP_OK && catalog == ESP_OK ? ESP_OK : ESP_FAIL;
 }
 
 esp_err_t set_artwork_sd_cache_enabled(bool enabled)

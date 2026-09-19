@@ -22,8 +22,13 @@ void play_track_from_row(size_t track_index, bool force_single)
             lyra::media::GroupKind::Album : s_selected_group_kind;
         s_playback_group = s_selected_group;
     } else if (s_view == View::PlaylistDetail) {
-        s_playback_scope = PlaybackScope::Playlist;
-        s_playback_playlist = s_selected_playlist;
+        if (s_selected_playlist_is_smart) {
+            s_playback_scope = PlaybackScope::SmartPlaylist;
+            s_playback_smart_playlist = s_selected_smart_playlist;
+        } else {
+            s_playback_scope = PlaybackScope::Playlist;
+            s_playback_playlist = s_selected_playlist;
+        }
     } else if (s_view == View::Folders || s_view == View::FolderDetail) {
         s_playback_scope = PlaybackScope::Folder;
         copy_ui_text(s_playback_folder_path, sizeof(s_playback_folder_path), s_folder_path);
@@ -66,7 +71,7 @@ void add_track_route(lv_obj_t *row, size_t track_index, bool force_single)
 }
 
 void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height,
-                   bool force_single)
+                   bool force_single, bool show_play_count)
 {
     lyra::media::Track track{};
     if (!lyra::media::track_at(track_index, &track)) return;
@@ -74,7 +79,15 @@ void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height,
     lv_obj_t *title = make_label(row, track.title, kTextPrimary);
     make_marquee(title, s_playlist_add_mode ? 244 : 282);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -9);
-    lv_obj_t *artist = make_label(row, track.artist, kTextSecondary);
+    char subtitle[lyra::media::kMaxName + 32];
+    if (show_play_count) {
+        format_text_u32(lyra::i18n::StringId::ArtistPlayCount, track.artist,
+                        lyra::media::track_play_count(track_index), subtitle,
+                        sizeof(subtitle));
+    } else {
+        copy_ui_text(subtitle, sizeof(subtitle), track.artist);
+    }
+    lv_obj_t *artist = make_label(row, subtitle, kTextSecondary);
     make_marquee(artist, s_playlist_add_mode ? 244 : 282);
     lv_obj_align(artist, LV_ALIGN_LEFT_MID, 12, 11);
     if (s_playlist_add_mode) {
