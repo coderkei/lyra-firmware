@@ -318,7 +318,7 @@ bool queue_snapshot_exists()
 }
 
 esp_err_t save_queue_snapshot(const size_t *track_indices, size_t track_count,
-                              size_t current_position)
+                              size_t current_position, uint32_t playback_position_ms)
 {
     if (!track_indices || track_count == 0 || track_count > kMaxTracks ||
         current_position >= track_count) return ESP_ERR_INVALID_ARG;
@@ -331,25 +331,38 @@ esp_err_t save_queue_snapshot(const size_t *track_indices, size_t track_count,
     std::remove(kQueueSnapshotTempPath);
     FILE *file = std::fopen(kQueueSnapshotTempPath, "w");
     if (!file) return ESP_FAIL;
-    bool written = std::fputs("#EXTM3U\n#LYRA_QUEUE_V1\n", file) >= 0 &&
+    auto *track = static_cast<Track *>(heap_caps_malloc(
+        sizeof(Track), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!track) {
+        track = static_cast<Track *>(heap_caps_malloc(
+            sizeof(Track), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    }
+    if (!track) {
+        std::fclose(file);
+        std::remove(kQueueSnapshotTempPath);
+        return ESP_ERR_NO_MEM;
+    }
+    bool written = std::fputs("#EXTM3U\n#LYRA_QUEUE_V2\n", file) >= 0 &&
                    std::fprintf(file, "#CURRENT=%u\n",
-                                static_cast<unsigned>(current_position)) > 0;
+                                static_cast<unsigned>(current_position)) > 0 &&
+                   std::fprintf(file, "#POSITION_MS=%u\n",
+                                static_cast<unsigned>(playback_position_ms)) > 0;
     for (size_t position = 0; written && position < track_count; ++position) {
-        Track track{};
         {
             Lock lock;
             if (!s_status.mounted || s_shutdown_requested ||
-                !track_at_locked(track_indices[position], &track)) {
+                !track_at_locked(track_indices[position], track)) {
                 written = false;
             }
         }
         if (!written) break;
-        const char *relative = std::strncmp(track.path, kMount, std::strlen(kMount)) == 0
-                                   ? track.path + std::strlen(kMount) : track.path;
+        const char *relative = std::strncmp(track->path, kMount, std::strlen(kMount)) == 0
+                                   ? track->path + std::strlen(kMount) : track->path;
         written = std::fprintf(file, "%s\n", relative) > 0;
     }
     written = written && std::fflush(file) == 0 && fsync(fileno(file)) == 0;
     const bool closed = std::fclose(file) == 0;
+    heap_caps_free(track);
     if (!written || !closed) {
         std::remove(kQueueSnapshotTempPath);
         return ESP_FAIL;
@@ -370,7 +383,7 @@ esp_err_t save_queue_snapshot(const size_t *track_indices, size_t track_count,
 }
 
 size_t load_queue_snapshot(size_t *track_indices, size_t capacity,
-                           size_t *current_position)
+                           size_t *current_position, uint32_t *playback_position_ms)
 {
     if (!track_indices || capacity == 0) return 0;
     if (!queue_snapshot_exists()) return 0;
@@ -379,7 +392,9 @@ size_t load_queue_snapshot(size_t *track_indices, size_t capacity,
 
     bool version_valid = false;
     bool current_valid = false;
+    bool playback_position_valid = false;
     size_t saved_current = 0;
+    uint32_t saved_playback_position_ms = 0;
     size_t saved_entry = 0;
     size_t restored_current = 0;
     bool restored_current_valid = false;
@@ -387,7 +402,8 @@ size_t load_queue_snapshot(size_t *track_indices, size_t capacity,
     char line[kMaxPath + 32];
     while (std::fgets(line, sizeof(line), file)) {
         line[std::strcspn(line, "\r\n")] = '\0';
-        if (std::strcmp(line, "#LYRA_QUEUE_V1") == 0) {
+        if (std::strcmp(line, "#LYRA_QUEUE_V1") == 0 ||
+            std::strcmp(line, "#LYRA_QUEUE_V2") == 0) {
             version_valid = true;
             continue;
         }
@@ -397,6 +413,15 @@ size_t load_queue_snapshot(size_t *track_indices, size_t capacity,
             if (end && *end == '\0' && parsed <= SIZE_MAX) {
                 saved_current = static_cast<size_t>(parsed);
                 current_valid = true;
+            }
+            continue;
+        }
+        if (std::strncmp(line, "#POSITION_MS=", 13) == 0) {
+            char *end = nullptr;
+            const unsigned long parsed = std::strtoul(line + 13, &end, 10);
+            if (end && *end == '\0' && parsed <= UINT32_MAX) {
+                saved_playback_position_ms = static_cast<uint32_t>(parsed);
+                playback_position_valid = true;
             }
             continue;
         }
@@ -422,6 +447,11 @@ size_t load_queue_snapshot(size_t *track_indices, size_t capacity,
     if (current_position) {
         *current_position = restored_current_valid ? restored_current :
                             (current_valid ? std::min(saved_current, restored - 1) : 0);
+    }
+    if (playback_position_ms) {
+        const bool current_entry_restored = !current_valid || restored_current_valid;
+        *playback_position_ms = playback_position_valid && current_entry_restored ?
+                                saved_playback_position_ms : 0;
     }
     return restored;
 }

@@ -174,6 +174,11 @@ esp_err_t init()
 
 esp_err_t play(const char *path)
 {
+    return play_from_position(path, 0, false);
+}
+
+esp_err_t play_from_position(const char *path, uint32_t position_ms, bool paused)
+{
     if (!s_initialized || s_state_mutex == nullptr) return ESP_ERR_INVALID_STATE;
     if (!has_sdcard_prefix(path)) return ESP_ERR_INVALID_ARG;
     AudioFormat format{};
@@ -183,18 +188,18 @@ esp_err_t play(const char *path)
     xSemaphoreTake(s_state_mutex, portMAX_DELAY);
     std::strncpy(s_requested_path, path, sizeof(s_requested_path) - 1);
     s_requested_path[sizeof(s_requested_path) - 1] = '\0';
-    s_requested_seek_ms = 0;
+    s_requested_seek_ms = position_ms;
     s_requested_pause_after_seek = false;
     ++s_request_generation;
     s_status.last_error = ESP_OK;
     s_status.playing = true;
     s_status.eof = false;
-    s_status.paused = false;
+    s_status.paused = paused;
     s_status.sample_rate = 0;
     s_status.channels = 0;
     s_status.bits_per_sample = 0;
     s_status.decoded_bytes = 0;
-    s_status.position_ms = 0;
+    s_status.position_ms = position_ms;
     s_status.duration_ms = 0;
     std::strncpy(s_status.path, path, sizeof(s_status.path) - 1);
     s_status.path[sizeof(s_status.path) - 1] = '\0';

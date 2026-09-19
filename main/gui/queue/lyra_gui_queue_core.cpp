@@ -25,6 +25,8 @@ void clear_saved_queue()
 void discard_pending_saved_queue()
 {
     s_saved_queue_pending = false;
+    s_saved_playback_position_ms = 0;
+    s_saved_playback_position_pending = false;
     if (s_playback_scope == PlaybackScope::SavedQueue) clear_saved_queue();
 }
 
@@ -47,8 +49,9 @@ bool restore_saved_queue_if_pending()
         return false;
     }
     size_t current = 0;
+    uint32_t playback_position_ms = 0;
     const size_t count = lyra::media::load_queue_snapshot(
-        queue, lyra::media::kMaxTracks, &current);
+        queue, lyra::media::kMaxTracks, &current, &playback_position_ms);
     if (count == 0) {
         heap_caps_free(queue);
         return false;
@@ -59,10 +62,38 @@ bool restore_saved_queue_if_pending()
     s_queue_position = std::min(current, count - 1);
     s_queue_position_valid = true;
     s_current_track = s_saved_queue[s_queue_position];
+    s_saved_playback_position_ms = playback_position_ms;
+    s_saved_playback_position_pending = true;
     s_shuffle = false;
     reset_shuffle_queue();
     s_audio_eof_seen = false;
     s_has_active_queue = true;
+    return true;
+}
+
+bool resume_saved_track_if_pending()
+{
+    if (!s_saved_playback_position_pending) return true;
+
+    lyra::media::Track track{};
+    if (!lyra::media::track_at(s_current_track, &track)) {
+        s_saved_playback_position_ms = 0;
+        s_saved_playback_position_pending = false;
+        return false;
+    }
+
+    uint32_t position_ms = s_saved_playback_position_ms;
+    if (track.duration_ms > 0 && position_ms >= track.duration_ms) {
+        position_ms = track.duration_ms > 250 ? track.duration_ms - 250 : 0;
+    }
+    const esp_err_t audio_ret = start_track_audio(track, position_ms, true, false);
+    s_saved_playback_position_ms = 0;
+    s_saved_playback_position_pending = false;
+    if (audio_ret != ESP_OK) {
+        ESP_LOGW(kTag, "cannot restore playback position for %s: %s", track.path,
+                 esp_err_to_name(audio_ret));
+        return false;
+    }
     return true;
 }
 
@@ -241,8 +272,13 @@ void apply_replay_gain_to_current_track()
     }
 }
 
-esp_err_t start_track_audio(const lyra::media::Track &track)
+esp_err_t start_track_audio(const lyra::media::Track &track,
+                            uint32_t start_position_ms,
+                            bool start_paused,
+                            bool record_play)
 {
+    s_saved_playback_position_ms = 0;
+    s_saved_playback_position_pending = false;
     s_pending_track_advance = false;
     s_pending_track_advance_us = 0;
     s_crossfade_fade_in_started_us = 0;
@@ -256,8 +292,9 @@ esp_err_t start_track_audio(const lyra::media::Track &track)
     const esp_err_t replay_gain_result = lyra::audio::set_replay_gain_adjustment(
         s_replay_gain ? track.replay_gain_tenths_db : 0);
     if (replay_gain_result != ESP_OK) return replay_gain_result;
-    const esp_err_t play_result = lyra::audio::play(track.path);
-    if (play_result == ESP_OK) {
+    const esp_err_t play_result = lyra::audio::play_from_position(
+        track.path, start_position_ms, start_paused);
+    if (play_result == ESP_OK && record_play) {
         const esp_err_t stats_result = lyra::media::record_track_play(s_current_track);
         if (stats_result != ESP_OK) {
             ESP_LOGW(kTag, "could not record playback for %s: %s", track.path,

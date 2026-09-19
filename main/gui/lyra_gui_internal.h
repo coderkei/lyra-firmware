@@ -263,6 +263,8 @@ extern lyra::media::SmartPlaylistKind s_playback_smart_playlist;
 extern size_t *s_saved_queue;
 extern size_t s_saved_queue_count;
 extern bool s_saved_queue_pending;
+extern uint32_t s_saved_playback_position_ms;
+extern bool s_saved_playback_position_pending;
 extern bool s_has_active_queue;
 extern size_t s_queue_position;
 extern bool s_queue_position_valid;
@@ -327,6 +329,7 @@ void reset_shuffle_queue();
 void clear_saved_queue();
 void discard_pending_saved_queue();
 bool restore_saved_queue_if_pending();
+bool resume_saved_track_if_pending();
 size_t playback_queue_count();
 bool playback_queue_track_at(size_t position, size_t *track_index);
 bool playback_queue_position(size_t track_index, size_t *position);
@@ -334,7 +337,10 @@ bool build_shuffle_queue();
 bool queue_track_at(size_t queue_position, size_t *track_index);
 bool current_queue_position(size_t *queue_position);
 void apply_replay_gain_to_current_track();
-esp_err_t start_track_audio(const lyra::media::Track &track);
+esp_err_t start_track_audio(const lyra::media::Track &track,
+                            uint32_t start_position_ms = 0,
+                            bool start_paused = false,
+                            bool record_play = true);
 void play_queue_position(size_t queue_position);
 bool move_in_playback_queue(int direction, bool automatic = false);
 bool can_move_in_playback_queue(int direction);

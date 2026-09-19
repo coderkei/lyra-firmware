@@ -29,6 +29,7 @@ bool show_now_playing()
                     tr(lyra::i18n::StringId::QueueEmptyNowPlaying));
         return false;
     }
+    resume_saved_track_if_pending();
     navigate_to(View::Player);
     return true;
 }

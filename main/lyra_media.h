@@ -225,12 +225,15 @@ esp_err_t record_track_play(size_t track_index);
 
 // The active queue is kept separately from portable user playlists. Entries
 // are written as MicroSD-relative paths so a rebuilt catalog can restore the
-// same order after a restart.
+// same order after a restart. The current entry's elapsed playback time is
+// stored alongside the queue in milliseconds.
 bool queue_snapshot_exists();
 esp_err_t save_queue_snapshot(const size_t *track_indices, size_t track_count,
-                              size_t current_position);
+                              size_t current_position,
+                              uint32_t playback_position_ms = 0);
 size_t load_queue_snapshot(size_t *track_indices, size_t capacity,
-                           size_t *current_position);
+                           size_t *current_position,
+                           uint32_t *playback_position_ms = nullptr);
 
 bool is_favorite(size_t track_index);
 esp_err_t set_favorite(size_t track_index, bool favorite);

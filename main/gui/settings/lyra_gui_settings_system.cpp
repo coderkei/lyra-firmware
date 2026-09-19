@@ -9,6 +9,12 @@ namespace lyra::gui::internal {
 
 namespace {
 
+// Power actions call through the media filesystem and audio persistence
+// layers, both of which have deeper call chains than the normal GUI event
+// handler. Keep the one-shot task large enough for queue serialization and
+// safe card unmounting.
+constexpr uint32_t kPowerActionTaskStack = 8 * 1024;
+
 const char *clock_date_format_name()
 {
     switch (s_date_format) {
@@ -887,6 +893,27 @@ void save_active_queue_snapshot()
     size_t current = 0;
     if (count == 0 || !current_queue_position(&current)) return;
 
+    uint32_t playback_position_ms = s_saved_playback_position_pending ?
+                                    s_saved_playback_position_ms : 0;
+    const lyra::audio::Status audio_status = lyra::audio::status();
+    if (!s_saved_playback_position_pending && audio_status.playing && !audio_status.eof &&
+        audio_status.last_error == ESP_OK) {
+        auto *current_track = static_cast<lyra::media::Track *>(heap_caps_malloc(
+            sizeof(lyra::media::Track), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (!current_track) {
+            current_track = static_cast<lyra::media::Track *>(heap_caps_malloc(
+                sizeof(lyra::media::Track), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        }
+        if (current_track && lyra::media::track_at(s_current_track, current_track) &&
+            std::strcmp(audio_status.path, current_track->path) == 0) {
+            playback_position_ms = audio_status.position_ms;
+            if (audio_status.duration_ms > 0 && playback_position_ms > audio_status.duration_ms) {
+                playback_position_ms = audio_status.duration_ms;
+            }
+        }
+        heap_caps_free(current_track);
+    }
+
     auto *tracks = static_cast<size_t *>(heap_caps_malloc(
         count * sizeof(size_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!tracks) {
@@ -905,7 +932,7 @@ void save_active_queue_snapshot()
         }
     }
     const esp_err_t result = complete ?
-        lyra::media::save_queue_snapshot(tracks, count, current) : ESP_FAIL;
+        lyra::media::save_queue_snapshot(tracks, count, current, playback_position_ms) : ESP_FAIL;
     heap_caps_free(tracks);
     if (result != ESP_OK) {
         ESP_LOGW(kTag, "could not save queue snapshot: %s", esp_err_to_name(result));
@@ -958,7 +985,7 @@ void confirm_power_action_cb(lv_event_t *event)
                                  tr(lyra::i18n::StringId::PoweringOff), kTextPrimary);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, -10);
-    if (xTaskCreatePinnedToCore(power_action_task, "lyra_power", 4096,
+    if (xTaskCreatePinnedToCore(power_action_task, "lyra_power", kPowerActionTaskStack,
                                 reinterpret_cast<void *>(static_cast<uintptr_t>(action)),
                                 3, nullptr, 0) != pdPASS) {
         ESP_LOGE(kTag, "could not create power action task");

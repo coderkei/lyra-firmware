@@ -74,6 +74,10 @@ esp_err_t init();
 // directly. Native esp_audio_codec handles MP3, FLAC, AAC, M4A/ALAC, WAV, OGG,
 // and Opus-in-Ogg; uncompressed AIFF/AIFC PCM is handled by Lyra.
 esp_err_t play(const char *path);
+// Starts playback from a decoded position. When paused is true, the decoder
+// is prepared at that position without producing audio until the caller
+// resumes it.
+esp_err_t play_from_position(const char *path, uint32_t position_ms, bool paused);
 esp_err_t stop();
 esp_err_t toggle_pause();
 esp_err_t seek(uint32_t position_ms);

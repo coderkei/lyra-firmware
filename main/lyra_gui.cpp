@@ -81,6 +81,8 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     s_playback_scope = PlaybackScope::Single;
     clear_saved_queue();
     s_saved_queue_pending = lyra::media::queue_snapshot_exists();
+    s_saved_playback_position_ms = 0;
+    s_saved_playback_position_pending = false;
     s_has_active_queue = false;
     s_queue_position = 0;
     s_queue_position_valid = false;
