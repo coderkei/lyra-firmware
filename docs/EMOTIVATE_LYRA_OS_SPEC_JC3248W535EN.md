@@ -17,7 +17,7 @@ board information in
 | Framework | ESP-IDF 6.0.2, FreeRTOS, C++, LVGL 9.4.0 |
 | Default resources | 16 MB flash and 8 MB octal PSRAM |
 | Managed components | LVGL, `esp_audio_codec`, libjpeg-turbo, and libpng |
-| Flash layout | NVS, OTA data, two 4 MB application slots, and a 7.875 MB data partition named `littlefs` (SPIFFS subtype) |
+| Flash layout | NVS, OTA data, two 7.4375 MB application slots, and a 1 MB data partition named `littlefs` (SPIFFS subtype) |
 
 `sdkconfig.defaults`, `partitions.csv`, `main/idf_component.yml`, and
 `components/lyra_board/idf_component.yml` define the build configuration.

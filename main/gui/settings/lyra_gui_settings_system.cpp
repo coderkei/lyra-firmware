@@ -767,8 +767,8 @@ void render_settings_page(View view)
         } else if (status.capacity_reached) {
             copy_ui_text(scan_status, sizeof(scan_status), tr(lyra::i18n::StringId::LibraryLimit));
         } else {
-            format_u32(lyra::i18n::StringId::IndexedTracks,
-                       static_cast<uint32_t>(status.track_count), scan_status, sizeof(scan_status));
+            format_count(lyra::i18n::StringId::IndexedTracks,
+                         static_cast<uint32_t>(status.track_count), scan_status, sizeof(scan_status));
         }
         lv_obj_t *scan = make_row(body, 66, LV_SYMBOL_REFRESH,
                                   tr(lyra::i18n::StringId::ScanMusicLibrary), scan_status,

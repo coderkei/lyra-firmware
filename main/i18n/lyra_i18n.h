@@ -25,15 +25,14 @@ enum class Language : uint8_t {
 };
 
 enum class StringId : uint16_t {
-#define LYRA_I18N_FALLBACK(id, text) id,
-#define LYRA_I18N_COUNT(id, one, few, many) id,
-#define LYRA_I18N_COUNT_RU(id, one, many, ru_one, ru_few, ru_many) id,
+#define LYRA_I18N_COUNT(id, en_one, en_many, fr_one, fr_many, de_one, de_many, \
+                       es_one, es_many, it_one, it_many, ja_one, ja_many, \
+                       ko_one, ko_many, ru_one, ru_few, ru_many, \
+                       zh_hans_one, zh_hans_many, zh_hant_one, zh_hant_many) id,
 #define LYRA_I18N_ENTRY(id, en, fr, de, es, it, ja, ko, ru, zh_hans, zh_hant) id,
 #include "../../tools/i18n/lyra_i18n_catalog.inc"
 #undef LYRA_I18N_ENTRY
 #undef LYRA_I18N_COUNT
-#undef LYRA_I18N_COUNT_RU
-#undef LYRA_I18N_FALLBACK
     Count,
 };
 

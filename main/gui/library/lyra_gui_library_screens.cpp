@@ -178,8 +178,8 @@ void render_track_list()
     lyra::media::Group group{};
     if (!lyra::media::group_at(s_selected_group_kind, s_selected_group, &group)) return;
     const size_t matches = group.track_count;
-    format_u32(lyra::i18n::StringId::TracksCount, static_cast<uint32_t>(matches),
-               count_label, sizeof(count_label));
+    format_count(lyra::i18n::StringId::TracksCount, static_cast<uint32_t>(matches),
+                 count_label, sizeof(count_label));
     make_header(s_track_list_title, library_section_view(s_library_tab), true, count_label);
     lv_obj_t *list = make_scroll_body(72);
     const size_t pages = (matches + lyra::media::kTrackPageSize - 1) / lyra::media::kTrackPageSize;

@@ -26,7 +26,7 @@ steps.
 **Status: Complete**
 
 The localisation foundation and GUI string extraction are implemented. The
-catalog completeness check passes with 317 `StringId` entries, and the GUI
+catalog completeness check passes with 318 `StringId` entries, and the GUI
 literal audit passes. Build, flash, and device validation remain the
 repository owner's responsibility as stated above.
 
@@ -118,12 +118,21 @@ active GUI without resetting playback, queue, or navigation state.
 
 ## Milestone 3 — Translation content
 
-The localisation foundation currently contains explicit English fallbacks so
-the firmware can be integrated before the translation set is complete. This
+**Status: Complete**
+
+The localisation foundation previously contained explicit English fallbacks so
+the firmware could be integrated before the translation set was complete. This
 milestone replaces those development fallbacks with reviewed content for all
 ten supported languages.
 
-### Work to do
+The catalog now contains explicit reviewed content for all 318 user-visible
+keys in English, French, German, Spanish, Italian, Japanese, Korean, Russian,
+Simplified Chinese, and Traditional Chinese. Count displays use locale-aware
+forms, including Russian one/few/many forms, and the catalog checker validates
+UTF-8, locale completeness, duplicate IDs, printf placeholders, line breaks,
+and development fallbacks.
+
+### Completed work
 
 1. Translate every user-visible catalog entry into French, German, Spanish,
    Italian, Japanese, Korean, Russian, Simplified Chinese, and Traditional

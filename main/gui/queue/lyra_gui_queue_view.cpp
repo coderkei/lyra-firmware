@@ -122,8 +122,8 @@ void render_queue()
 {
     const size_t count = s_has_active_queue ? playback_queue_count() : 0;
     char count_label[24];
-    format_u32(lyra::i18n::StringId::TracksCount, static_cast<uint32_t>(count),
-               count_label, sizeof(count_label));
+    format_count(lyra::i18n::StringId::TracksCount, static_cast<uint32_t>(count),
+                 count_label, sizeof(count_label));
     make_header(tr(lyra::i18n::StringId::Queue), View::Menu, true, count_label);
     lv_obj_t *list = make_scroll_body(72);
     if (count == 0) {

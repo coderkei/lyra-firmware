@@ -17,21 +17,18 @@ struct CatalogEntry {
     const char *many[kLanguageCount];
 };
 
-#define LYRA_I18N_FALLBACK(id, text) \
-    { {text, text, text, text, text, text, text, text, text, text}, \
-      {text, text, text, text, text, text, text, text, text, text}, \
-      {text, text, text, text, text, text, text, text, text, text}, \
-      {text, text, text, text, text, text, text, text, text, text} },
-#define LYRA_I18N_COUNT(id, one, few, many) \
-    { {one, one, one, one, one, one, one, one, one, one}, \
-      {one, one, one, one, one, one, one, one, one, one}, \
-      {few, few, few, few, few, few, few, few, few, few}, \
-      {many, many, many, many, many, many, many, many, many, many} },
-#define LYRA_I18N_COUNT_RU(id, one, many, ru_one, ru_few, ru_many) \
-    { {one, one, one, one, one, one, one, ru_one, one, one}, \
-      {one, one, one, one, one, one, one, ru_one, one, one}, \
-      {many, many, many, many, many, many, many, ru_few, many, many}, \
-      {many, many, many, many, many, many, many, ru_many, many, many} },
+#define LYRA_I18N_COUNT(id, en_one, en_many, fr_one, fr_many, de_one, de_many, \
+                        es_one, es_many, it_one, it_many, ja_one, ja_many, \
+                        ko_one, ko_many, ru_one, ru_few, ru_many, \
+                        zh_hans_one, zh_hans_many, zh_hant_one, zh_hant_many) \
+    { {en_one, fr_one, de_one, es_one, it_one, ja_one, ko_one, ru_one, \
+       zh_hans_one, zh_hant_one}, \
+      {en_one, fr_one, de_one, es_one, it_one, ja_one, ko_one, ru_one, \
+       zh_hans_one, zh_hant_one}, \
+      {en_many, fr_many, de_many, es_many, it_many, ja_many, ko_many, ru_few, \
+       zh_hans_many, zh_hant_many}, \
+      {en_many, fr_many, de_many, es_many, it_many, ja_many, ko_many, ru_many, \
+       zh_hans_many, zh_hant_many} },
 #define LYRA_I18N_ENTRY(id, en, fr, de, es, it, ja, ko, ru, zh_hans, zh_hant) \
     { {en, fr, de, es, it, ja, ko, ru, zh_hans, zh_hant}, \
       {en, fr, de, es, it, ja, ko, ru, zh_hans, zh_hant}, \
@@ -42,8 +39,6 @@ static const CatalogEntry kCatalog[] = {
 };
 #undef LYRA_I18N_ENTRY
 #undef LYRA_I18N_COUNT
-#undef LYRA_I18N_COUNT_RU
-#undef LYRA_I18N_FALLBACK
 
 Language s_language = Language::English;
 

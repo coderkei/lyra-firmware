@@ -5,13 +5,13 @@ It is an X-macro file so the `StringId` enum and the flash-resident lookup
 table are generated from the same list; an ID cannot be present in one and
 missing from the other.
 
-Milestone 1 uses `LYRA_I18N_FALLBACK` for untranslated locales. The fallback
-is intentional and explicit. Use `LYRA_I18N_ENTRY` for a row with separate
-English, French, German, Spanish, Italian, Japanese, Korean, Russian,
-Simplified Chinese, and Traditional Chinese values. Use `LYRA_I18N_COUNT` or
-`LYRA_I18N_COUNT_RU` for messages requiring one/few/many plural forms.
-`LYRA_I18N_COUNT_RU` demonstrates the Russian one/few/many forms while
-retaining explicit English fallback for the other locales.
+Each completed row uses `LYRA_I18N_ENTRY` with separate English, French,
+German, Spanish, Italian, Japanese, Korean, Russian, Simplified Chinese, and
+Traditional Chinese values. `LYRA_I18N_COUNT` is used for count messages and
+stores singular/plural forms for every locale plus Russian one/few/many forms.
+Technical identifiers, codec names, units, copyright notices, and product
+names are explicitly kept unchanged where translating them would be incorrect;
+those rows are documented in the catalog comments.
 
 Run the completeness check from the repository root:
 
@@ -19,10 +19,9 @@ Run the completeness check from the repository root:
 python tools/i18n/check_i18n.py
 ```
 
-The check also scans `main/gui/` for direct string literals passed to
-`make_label()`. Only fixed product/board identifiers, symbols, and display
-placeholders are allowlisted; new user-facing label text must be added to the
-catalog.
+The check scans `main/gui/` for direct string literals passed to `make_label()`
+and validates every catalog locale, placeholder signature, and line-break
+signature. New user-facing label text must be added to the catalog.
 
 The catalog is included in the application image at compile time. It is not
 loaded from MicroSD or any other runtime storage.
