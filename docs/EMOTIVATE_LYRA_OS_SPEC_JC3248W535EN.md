@@ -59,6 +59,10 @@ reported to the UI instead of preventing the system shell from starting.
   battery-backed RTC, a full power loss returns it to the fallback epoch.
 - The MicroSD card mounts at `/sdcard`. A user starts the library scan from
   `Settings > System > Scan music library`.
+- Library scans still walk the card to discover additions and removals, but
+  reuse catalog records whose path, size, and filesystem modification time are
+  unchanged. Changed files are reparsed and records for files no longer on the
+  card are omitted from the replacement catalog.
 - The recursive catalog accepts MP3, WAV, FLAC, AAC, M4A, OGG, Opus, AIFF,
   AIF, and AIFC files. The maximum catalog size is 10,000 tracks.
 - The catalog is stored at `/sdcard/.lyra/catalog-v10.bin` and is published

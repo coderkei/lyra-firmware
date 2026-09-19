@@ -304,7 +304,10 @@ void remove_stale_jpeg_work_files();
 void process_artwork_request(const ArtworkRequest &request);
 void artwork_task(void *);
 void search_task(void *);
-void scan_directory(const char *path, FILE *catalog, size_t *count, bool *capacity_reached, TickType_t *last_progress, size_t depth = 0);
+bool scan_directory(const char *path, FILE *catalog, size_t *count,
+                    bool *capacity_reached, TickType_t *last_progress,
+                    size_t *reused_count, size_t *rescanned_count,
+                    size_t *matched_existing_count, size_t depth = 0);
 size_t count_playlist_entries(const char *path);
 esp_err_t ensure_favorites_file();
 void load_playlists(Playlist *playlists, size_t *count);

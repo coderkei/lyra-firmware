@@ -11,10 +11,10 @@ The generated LVGL font uses 2-bit glyph data and LVGL font compression.
 application partition provides the required space.
 
 The primary font remains the broad multilingual Source Han Sans-derived face.
-The supplement is generated from the translated catalog with the Source Han
-Sans CJK SC face distributed in the LVGL dependency tree. It covers catalog
-code points absent from the primary subset, including the Simplified Chinese
-characters that previously rendered as boxes. Both fonts use the same 20 px
+The supplement is generated with the Source Han Sans CJK SC face distributed
+in the LVGL dependency tree. It covers common Japanese/Chinese Han code points
+absent from the primary subset, plus catalog code points, so music metadata is
+not limited to the translated UI vocabulary. Both fonts use the same 20 px
 line metrics at runtime.
 
 ## Coverage
@@ -45,8 +45,9 @@ an Apache-2.0 release. Please see
    py -3.12 tools/generate_lyra_unicode_font.py --font path/to/SourceHanSansKR-Normal.otf
    ```
 
-4. Generate the catalog-specific fallback from the LVGL-bundled open-source
-   Source Han Sans CJK SC face:
+4. Generate the fallback from the LVGL-bundled open-source Source Han Sans CJK
+   SC face. The generator compares the fallback repertoire with the generated
+   primary font and emits only missing glyphs:
 
    ```powershell
    py -3.12 tools/generate_lyra_cjk_font.py `

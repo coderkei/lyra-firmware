@@ -12,18 +12,22 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).parent / "i18n"))
 from check_i18n import decode_string_argument, macro_invocations, split_arguments
+from check_font_manifest import font_codepoints
+from generate_lyra_unicode_font import compact_han_symbols
 
 
 FONT_SIZE_PX = 16
 BPP = 2
 DEFAULT_CATALOG = Path("tools/i18n/lyra_i18n_catalog.inc")
 DEFAULT_OUTPUT = Path("main/lyra_cjk_16.c")
+DEFAULT_PRIMARY_FONT = Path("main/lyra_unicode_16.c")
 
 
 def catalog_han_symbols(catalog: Path) -> str:
@@ -40,6 +44,23 @@ def catalog_han_symbols(catalog: Path) -> str:
                           if 0x4E00 <= ord(character) <= 0x9FFF)
     if not points:
         raise RuntimeError(f"no Han characters found in {catalog}")
+    return "".join(chr(point) for point in sorted(points))
+
+
+def fallback_han_symbols(catalog: Path, primary_font: Path) -> str:
+    """Return common Han glyphs not actually present in the primary font.
+
+    The primary font is generated from a Korean Source Han face. Its requested
+    ranges cover a broad Asian repertoire, but the face does not contain every
+    Han glyph in those ranges. Keep the fallback compact by emitting only the
+    common legacy-charset repertoire and translated-catalog glyphs that the
+    primary font really lacks.
+    """
+    points = set(map(ord, compact_han_symbols()))
+    points.update(map(ord, catalog_han_symbols(catalog)))
+    points.difference_update(font_codepoints(primary_font))
+    if not points:
+        raise RuntimeError("no missing Han characters found for the CJK fallback")
     return "".join(chr(point) for point in sorted(points))
 
 
@@ -67,6 +88,10 @@ def main() -> int:
     )
     parser.add_argument("--catalog", type=Path, default=DEFAULT_CATALOG)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--primary-font", type=Path, default=DEFAULT_PRIMARY_FONT,
+        help="generated primary LVGL font used to remove duplicate glyphs",
+    )
     parser.add_argument("--converter", default="lv_font_conv")
     args = parser.parse_args()
 
@@ -74,8 +99,10 @@ def main() -> int:
         parser.error(f"font source not found: {args.font}")
     if not args.catalog.is_file():
         parser.error(f"catalog not found: {args.catalog}")
+    if not args.primary_font.is_file():
+        parser.error(f"primary font not found: {args.primary_font}")
 
-    symbols = catalog_han_symbols(args.catalog)
+    symbols = fallback_han_symbols(args.catalog, args.primary_font)
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     command = converter_command(args.converter) + [
@@ -90,7 +117,7 @@ def main() -> int:
         "--lv-font-name", "lyra_cjk_16",
         "--output", str(output),
     ]
-    print(f"Generating {output} with {len(symbols)} catalog Han ideographs.")
+    print(f"Generating {output} with {len(symbols)} fallback Han ideographs.")
     subprocess.run(command, check=True)
 
     generated = output.read_text(encoding="utf-8")
@@ -110,7 +137,8 @@ def main() -> int:
  *
  * Generated from Source Han Sans CJK SC by
  * tools/generate_lyra_cjk_font.py.  The source font is not shipped.
- * The glyph set is derived from tools/i18n/lyra_i18n_catalog.inc.
+ * The glyph set contains common Han repertoire absent from the primary font
+ * plus code points required by tools/i18n/lyra_i18n_catalog.inc.
  */
 
 """

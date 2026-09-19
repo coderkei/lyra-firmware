@@ -293,42 +293,129 @@ void search_task(void *)
     vTaskDelete(nullptr);
 }
 
-void scan_directory(const char *path, FILE *catalog, size_t *count,
-                    bool *capacity_reached, TickType_t *last_progress, size_t depth)
+enum class ScanRecordState : uint8_t {
+    Missing,
+    Changed,
+    Unchanged,
+};
+
+ScanRecordState read_cached_track_if_unchanged_locked(const char *path,
+                                                       const struct stat &info,
+                                                       Track *track)
 {
-    if (depth > 12) return;
+    if (!path || !track || !s_catalog || !s_path_index || !s_title_order) {
+        return ScanRecordState::Missing;
+    }
+
+    const uint64_t wanted = hash_path(path);
+    const PathIndex probe{wanted, 0, 0};
+    const PathIndex *candidate = std::lower_bound(
+        s_path_index, s_path_index + s_track_count, probe,
+        [](const PathIndex &left, const PathIndex &right) {
+            return left.hash < right.hash;
+        });
+    for (; candidate != s_path_index + s_track_count && candidate->hash == wanted;
+         ++candidate) {
+        const uint32_t logical = candidate->track_index;
+        if (logical >= s_track_count) continue;
+        const uint32_t physical = s_title_order[logical];
+        Track cached{};
+        if (!read_physical(s_catalog, s_catalog_header, physical, &cached) ||
+            std::strcmp(cached.path, path) != 0) {
+            continue;
+        }
+        // FAT cards can expose a zero timestamp. In that case size is the
+        // only stable filesystem signal available, so do not force a metadata
+        // re-read on every scan merely because the display-time fallback
+        // changes.
+        const bool timestamp_changed = info.st_mtime > 0 &&
+                                        cached.modified_time !=
+                                            static_cast<uint64_t>(info.st_mtime);
+        if (cached.size_bytes != static_cast<uint64_t>(info.st_size) ||
+            timestamp_changed) {
+            return ScanRecordState::Changed;
+        }
+        // Duration probing is lazy and may only exist in the resident cache.
+        // Carry a known value into the replacement catalog so an incremental
+        // scan does not make unchanged tracks pay that cost again.
+        apply_cached_duration_locked(physical, &cached);
+        *track = cached;
+        return ScanRecordState::Unchanged;
+    }
+    return ScanRecordState::Missing;
+}
+
+bool scan_directory(const char *path, FILE *catalog, size_t *count,
+                    bool *capacity_reached, TickType_t *last_progress,
+                    size_t *reused_count, size_t *rescanned_count,
+                    size_t *matched_existing_count, size_t depth)
+{
+    if (depth > 12) return true;
     DIR *directory = opendir(path);
     if (!directory) {
-        ESP_LOGW(kTag, "cannot open %s", path);
-        return;
+        if (errno != ENOENT) ESP_LOGW(kTag, "cannot open %s: %s", path, std::strerror(errno));
+        return errno == ENOENT;
     }
-    while (dirent *entry = readdir(directory)) {
+    bool success = true;
+    while (true) {
+        errno = 0;
+        dirent *entry = readdir(directory);
+        if (!entry) {
+            if (errno != 0) {
+                ESP_LOGW(kTag, "cannot read %s: %s", path, std::strerror(errno));
+                success = false;
+            }
+            break;
+        }
         if (*capacity_reached || std::ferror(catalog)) break;
         if (entry->d_name[0] == '.') continue;
         char child[kMaxPath];
         if (!join_path(child, sizeof(child), path, entry->d_name)) continue;
         struct stat info{};
-        if (stat(child, &info) != 0) continue;
+        if (stat(child, &info) != 0) {
+            if (errno != ENOENT) {
+                ESP_LOGW(kTag, "cannot stat %s: %s", child, std::strerror(errno));
+                success = false;
+            }
+            continue;
+        }
         if (S_ISDIR(info.st_mode)) {
             if (std::strcmp(child, kPlaylistDir) != 0 && std::strcmp(child, kDataDir) != 0) {
-                scan_directory(child, catalog, count, capacity_reached, last_progress, depth + 1);
+                if (!scan_directory(child, catalog, count, capacity_reached, last_progress,
+                                    reused_count, rescanned_count, matched_existing_count,
+                                    depth + 1)) {
+                    success = false;
+                }
             }
         } else if (S_ISREG(info.st_mode) && compatible_audio(child)) {
             if (*count >= kMaxTracks) {
                 *capacity_reached = true;
                 break;
             }
+            ScanRecordState state = ScanRecordState::Missing;
             Track track{};
-            copy_text(track.path, sizeof(track.path), child);
-            track.size_bytes = static_cast<uint64_t>(info.st_size);
-            track.modified_time = recorded_modified_time(info);
-            metadata_from_path(&track);
-            // Read only compact text-tag blocks. Embedded pictures remain
-            // deferred to the low-priority artwork worker so art-heavy cards
-            // do not make the initial scan decode or copy megabytes per song.
-            read_fast_metadata(&track);
-            if (!track.album_artist[0]) {
-                copy_text(track.album_artist, sizeof(track.album_artist), track.artist);
+            {
+                Lock lock;
+                state = read_cached_track_if_unchanged_locked(child, info, &track);
+            }
+            if (state == ScanRecordState::Missing || state == ScanRecordState::Changed) {
+                copy_text(track.path, sizeof(track.path), child);
+                track.size_bytes = static_cast<uint64_t>(info.st_size);
+                track.modified_time = recorded_modified_time(info);
+                metadata_from_path(&track);
+                // Read only compact text-tag blocks. Embedded pictures remain
+                // deferred to the low-priority artwork worker so art-heavy cards
+                // do not make the initial scan decode or copy megabytes per song.
+                read_fast_metadata(&track);
+                if (!track.album_artist[0]) {
+                    copy_text(track.album_artist, sizeof(track.album_artist), track.artist);
+                }
+                if (rescanned_count) ++(*rescanned_count);
+            } else if (reused_count) {
+                ++(*reused_count);
+            }
+            if (state != ScanRecordState::Missing && matched_existing_count) {
+                ++(*matched_existing_count);
             }
             if (std::fwrite(&track, sizeof(track), 1, catalog) != 1) {
                 ESP_LOGE(kTag, "catalog record write failed at track %u", static_cast<unsigned>(*count));
@@ -344,6 +431,7 @@ void scan_directory(const char *path, FILE *catalog, size_t *count,
         }
     }
     closedir(directory);
+    return success && !std::ferror(catalog);
 }
 
 size_t count_playlist_entries(const char *path)
@@ -1600,6 +1688,14 @@ void scan_task(void *)
     FILE *file = result == ESP_OK ? std::fopen(kCatalogTempPath, "wb+") : nullptr;
     if (result == ESP_OK && !file) result = ESP_FAIL;
     CatalogHeader header{};
+    size_t reused_count = 0;
+    size_t rescanned_count = 0;
+    size_t matched_existing_count = 0;
+    size_t previous_track_count = 0;
+    {
+        Lock lock;
+        previous_track_count = s_track_count;
+    }
     std::memcpy(header.magic, kCatalogMagic, sizeof(header.magic));
     header.version = kCatalogVersion;
     header.header_size = sizeof(CatalogHeader);
@@ -1613,7 +1709,11 @@ void scan_task(void *)
         } else {
             closedir(root);
             TickType_t last_progress = xTaskGetTickCount();
-            scan_directory(kMount, file, &track_count, &capacity_reached, &last_progress);
+            if (!scan_directory(kMount, file, &track_count, &capacity_reached,
+                                &last_progress, &reused_count, &rescanned_count,
+                                &matched_existing_count)) {
+                result = ESP_FAIL;
+            }
             discovery_finished = xTaskGetTickCount();
             {
                 Lock lock;
@@ -1652,8 +1752,13 @@ void scan_task(void *)
     heap_caps_free(keys);
     std::free(playlists);
     if (result == ESP_OK) {
-        ESP_LOGI(kTag, "scan complete: %u tracks%s, %u playlists; discovery=%u ms total=%u ms; stack margin %u bytes",
+        const size_t removed_count = previous_track_count > matched_existing_count ?
+                                     previous_track_count - matched_existing_count : 0;
+        ESP_LOGI(kTag, "scan complete: %u tracks%s, %u reused, %u rescanned, %u removed, %u playlists; discovery=%u ms total=%u ms; stack margin %u bytes",
                  static_cast<unsigned>(track_count), capacity_reached ? " (10,000 limit reached)" : "",
+                 static_cast<unsigned>(reused_count),
+                 static_cast<unsigned>(rescanned_count),
+                 static_cast<unsigned>(removed_count),
                  static_cast<unsigned>(playlist_count),
                  static_cast<unsigned>((discovery_finished - scan_started) * portTICK_PERIOD_MS),
                  static_cast<unsigned>((xTaskGetTickCount() - scan_started) * portTICK_PERIOD_MS),
