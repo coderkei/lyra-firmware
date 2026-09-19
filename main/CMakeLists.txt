@@ -42,6 +42,7 @@ idf_component_register(
         "lyra_unicode_16.c"
     INCLUDE_DIRS
         "."
+        "i18n"
     EMBED_FILES
         "../graphics/boot.png"
     REQUIRES

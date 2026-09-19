@@ -78,6 +78,13 @@ repository owner's responsibility as stated above.
 
 ## Milestone 2 — Persisted language selection
 
+**Status: Complete**
+
+Language selection is persisted in the existing `lyra` NVS namespace, safely
+defaults to English for missing or invalid values, and is available from a
+native-name picker under System settings. Selecting a language rerenders the
+active GUI without resetting playback, queue, or navigation state.
+
 ### Work to do
 
 1. Extend `lyra::gui_settings::Values` and its NVS load/save implementation
@@ -109,7 +116,55 @@ repository owner's responsibility as stated above.
 - Existing NVS settings continue to load and save correctly.
 - Returning to a previous screen does not restore stale English labels.
 
-## Milestone 3 — Font, layout, input, and localisation QA
+## Milestone 3 — Translation content
+
+The localisation foundation currently contains explicit English fallbacks so
+the firmware can be integrated before the translation set is complete. This
+milestone replaces those development fallbacks with reviewed content for all
+ten supported languages.
+
+### Work to do
+
+1. Translate every user-visible catalog entry into French, German, Spanish,
+   Italian, Japanese, Korean, Russian, Simplified Chinese, and Traditional
+   Chinese, while retaining English as the source language.
+
+2. Keep product names, hardware identifiers, file formats, paths, technical
+   identifiers, and user-provided media content unchanged unless a catalog
+   entry explicitly requires a translated presentation.
+
+3. Provide complete locale-specific plural forms for every count message.
+   Include Russian one/few/many forms and verify that formatted values remain
+   in the correct grammatical position for each language.
+
+4. Review every placeholder, newline, and intentional line break in translated
+   messages. Formatting arguments must remain type-compatible and must not be
+   reordered by sentence construction in the renderers.
+
+5. Replace development fallbacks in the source-of-truth catalog with reviewed
+   translations, documenting any deliberately unchanged technical text or
+   locale-specific fallback.
+
+6. Extend the catalog checks to report untranslated development fallbacks,
+   missing locale entries, duplicate keys, malformed format arguments, and
+   invalid UTF-8 before the translated catalog is used by firmware.
+
+### Acceptance criteria
+
+- Every supported language has reviewed content for every user-visible
+  translation key.
+- No user-visible language switch leaves the GUI on development English
+  fallback text unless the unchanged text is explicitly documented.
+- All plural messages are correct in English, Russian, and the other supported
+  locales where their grammar differs.
+- Every translated format string preserves the required arguments, line
+  breaks, and display-safe UTF-8 text.
+- User-provided titles, artists, albums, playlists, folders, and paths remain
+  separate from the translation catalog.
+- Selecting a supported language produces a visibly translated GUI without a
+  firmware rebuild or MicroSD dependency at runtime.
+
+## Milestone 4 — Font, layout, input, and localisation QA
 
 ### Work to do
 

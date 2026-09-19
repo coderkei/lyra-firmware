@@ -56,6 +56,7 @@ void render(View view)
         case View::SoundSettings:
         case View::DisplaySettings:
         case View::SystemSettings: render_settings_page(view); break;
+        case View::LanguageOptions: render_language_options(); break;
         case View::CrossfadeOptions: render_crossfade_options(); break;
         case View::SleepTimerOptions: render_sleep_timer_options(); break;
         case View::DatabaseStorage: render_database_storage(); break;

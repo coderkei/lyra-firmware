@@ -93,7 +93,7 @@ enum class View : uintptr_t {
     Playlists, PlaylistDetail, PlaylistCreate, PlaylistAdd, Equalizer,
     EqualizerPresets, Search, Settings, SortingSettings, SortingOptions,
     PlaybackSettings, CrossfadeOptions, SleepTimerOptions, SoundSettings,
-    DisplaySettings, SystemSettings, DatabaseStorage, About, DebugMenu,
+    DisplaySettings, SystemSettings, LanguageOptions, DatabaseStorage, About, DebugMenu,
     Licenses, TrackList,
 };
 enum class LibraryTab : uint8_t { Songs, Artists, Albums, Genres, Years };
@@ -494,6 +494,7 @@ void sorting_option_cb(lv_event_t *event);
 void render_sorting_settings();
 void make_sorting_option_row(lv_obj_t *parent, int y, lyra::media::SortField field, lyra::media::SortDirection direction, const lyra::media::SortSetting &selected);
 void render_sorting_options();
+void render_language_options();
 void make_playback_option_row(lv_obj_t *parent, int y, const char *title, bool active, lv_event_cb_t callback, uintptr_t value);
 void crossfade_option_cb(lv_event_t *event);
 void sleep_timer_option_cb(lv_event_t *event);

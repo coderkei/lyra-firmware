@@ -132,6 +132,7 @@ void save_user_settings()
         s_brightness_percent,
         s_dark_mode,
         s_accent_colour,
+        lyra::i18n::current_language(),
         s_speaker_output_enabled,
         static_cast<uint8_t>(s_equalizer_preset),
         {},
@@ -150,6 +151,7 @@ void load_user_settings()
         s_brightness_percent,
         s_dark_mode,
         s_accent_colour,
+        lyra::i18n::Language::English,
         s_speaker_output_enabled,
         static_cast<uint8_t>(s_equalizer_preset),
         {},
@@ -164,6 +166,7 @@ void load_user_settings()
     s_brightness_percent = values.brightness_percent;
     s_dark_mode = values.dark_mode;
     s_accent_colour = values.accent_colour;
+    lyra::i18n::set_language(values.language);
     s_speaker_output_enabled = values.speaker_output_enabled;
     s_equalizer_preset = static_cast<EqualizerPreset>(values.equalizer_preset);
     std::memcpy(s_equalizer_custom_bands, values.equalizer_custom_bands,
@@ -435,6 +438,7 @@ View back_view(View view)
         case View::DisplaySettings:
         case View::SystemSettings:
         case View::SortingSettings: return View::Settings;
+        case View::LanguageOptions: return View::SystemSettings;
         case View::SortingOptions: return View::SortingSettings;
         case View::CrossfadeOptions:
         case View::SleepTimerOptions: return View::PlaybackSettings;

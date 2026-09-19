@@ -344,6 +344,38 @@ void render_sorting_options()
     }
 }
 
+void language_option_cb(lv_event_t *event)
+{
+    const uint8_t value = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(
+        lv_event_get_user_data(event)));
+    if (!lyra::i18n::is_valid_language(value)) return;
+
+    const auto language = static_cast<lyra::i18n::Language>(value);
+    if (language == lyra::i18n::current_language()) return;
+
+    lyra::i18n::set_language(language);
+    // These buffers contain translated status messages rather than user data.
+    // Drop them so a later render cannot display text from the previous locale.
+    s_search_error[0] = '\0';
+    s_database_status[0] = '\0';
+    s_debug_status[0] = '\0';
+    save_user_settings();
+    render(s_view);
+}
+
+void render_language_options()
+{
+    make_header(tr(lyra::i18n::StringId::Language), View::SystemSettings, true);
+    lv_obj_t *body = make_scroll_body(72);
+    for (size_t index = 0; index < lyra::i18n::kLanguageCount; ++index) {
+        const auto language = static_cast<lyra::i18n::Language>(index);
+        make_playback_option_row(body, static_cast<int>(index) * 58,
+                                 lyra::i18n::language_name(language),
+                                 language == lyra::i18n::current_language(),
+                                 language_option_cb, static_cast<uintptr_t>(index));
+    }
+}
+
 void make_playback_option_row(lv_obj_t *parent, int y, const char *title, bool active,
                               lv_event_cb_t callback, uintptr_t value)
 {
@@ -753,13 +785,16 @@ void render_settings_page(View view)
                                     tr(lyra::i18n::StringId::AlbumArt240WhenDisabled),
                                     status.artwork_size == lyra::media::kLargeArtworkSize,
                                     ArtworkSetting::Size320);
-        lv_obj_t *reboot = make_row(body, 330, LV_SYMBOL_REFRESH,
+        make_row(body, 330, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::Language),
+                 lyra::i18n::language_name(lyra::i18n::current_language()),
+                 View::LanguageOptions, 62);
+        lv_obj_t *reboot = make_row(body, 396, LV_SYMBOL_REFRESH,
                                     tr(lyra::i18n::StringId::Reboot),
                                     tr(lyra::i18n::StringId::SafelyRestartLyra),
                                     View::SystemSettings, 62);
         lv_obj_remove_event_cb(reboot, route_cb);
         lv_obj_add_event_cb(reboot, reboot_cb, LV_EVENT_CLICKED, nullptr);
-        lv_obj_t *power_off = make_row(body, 396, LV_SYMBOL_POWER,
+        lv_obj_t *power_off = make_row(body, 462, LV_SYMBOL_POWER,
                                        tr(lyra::i18n::StringId::PowerOff),
                                        tr(lyra::i18n::StringId::SafelyUnmountAndSleep),
                                        View::SystemSettings, 62);

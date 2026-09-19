@@ -19,6 +19,7 @@ constexpr const char *kCrossfadeKey = "crossfade";
 constexpr const char *kBrightnessKey = "brightness";
 constexpr const char *kDarkModeKey = "dark_mode";
 constexpr const char *kAccentColorKey = "accent_color";
+constexpr const char *kLanguageKey = "language";
 constexpr const char *kSpeakerOutputKey = "speaker_output";
 constexpr const char *kEqualizerPresetKey = "eq_preset";
 constexpr const char *kEqualizerBandKeys[kEqualizerBandCount] = {
@@ -35,6 +36,11 @@ bool valid_crossfade(uint8_t value)
 void load(Values *values, size_t accent_palette_count, uint8_t equalizer_preset_count)
 {
     if (!values) return;
+
+    // Language is intentionally reset before opening NVS. This gives first
+    // boot, an absent key, a corrupt key, and an unavailable NVS partition
+    // the same safe English default without disturbing other caller defaults.
+    values->language = lyra::i18n::Language::English;
 
     nvs_handle_t handle;
     if (nvs_open(kSettingsNamespace, NVS_READONLY, &handle) != ESP_OK) return;
@@ -58,6 +64,10 @@ void load(Values *values, size_t accent_palette_count, uint8_t equalizer_preset_
     if (nvs_get_u8(handle, kAccentColorKey, &value) == ESP_OK &&
         static_cast<size_t>(value) < accent_palette_count) {
         values->accent_colour = value;
+    }
+    if (nvs_get_u8(handle, kLanguageKey, &value) == ESP_OK &&
+        lyra::i18n::is_valid_language(value)) {
+        values->language = static_cast<lyra::i18n::Language>(value);
     }
     if (nvs_get_u8(handle, kSpeakerOutputKey, &value) == ESP_OK && value <= 1) {
         values->speaker_output_enabled = value != 0;
@@ -92,6 +102,12 @@ esp_err_t save(const Values &values)
     if (result == ESP_OK) result = nvs_set_u8(handle, kBrightnessKey, values.brightness_percent);
     if (result == ESP_OK) result = nvs_set_u8(handle, kDarkModeKey, values.dark_mode ? 1 : 0);
     if (result == ESP_OK) result = nvs_set_u8(handle, kAccentColorKey, values.accent_colour);
+    if (result == ESP_OK) {
+        const uint8_t language = lyra::i18n::is_valid_language(
+            static_cast<uint8_t>(values.language)) ? static_cast<uint8_t>(values.language) :
+            static_cast<uint8_t>(lyra::i18n::Language::English);
+        result = nvs_set_u8(handle, kLanguageKey, language);
+    }
     if (result == ESP_OK) {
         result = nvs_set_u8(handle, kSpeakerOutputKey, values.speaker_output_enabled ? 1 : 0);
     }
