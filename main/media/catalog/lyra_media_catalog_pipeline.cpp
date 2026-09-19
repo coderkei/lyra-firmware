@@ -1457,9 +1457,12 @@ bool load_catalog_file(const char *path, bool verify_checksum)
         header.track_count, sizeof(uint8_t), MALLOC_CAP_SPIRAM));
     auto *album_for_logical = static_cast<uint32_t *>(heap_caps_malloc(
         header.track_count * sizeof(uint32_t), MALLOC_CAP_SPIRAM));
+    auto *album_groups = static_cast<GroupRecord *>(heap_caps_malloc(
+        header.album_group_count * sizeof(GroupRecord), MALLOC_CAP_SPIRAM));
     const bool allocated = header.track_count == 0 ||
                            (order && inverse && paths && duration_cache && duration_ready &&
-                            album_for_logical);
+                            album_for_logical &&
+                            (!header.album_group_count || album_groups));
     bool read = allocated &&
         (header.track_count == 0 ||
          (std::fseek(file, header.title_order_offset, SEEK_SET) == 0 &&
@@ -1483,16 +1486,27 @@ bool load_catalog_file(const char *path, bool verify_checksum)
         if (read) {
             std::memset(album_for_logical, 0xFF,
                         header.track_count * sizeof(uint32_t));
+            const uint64_t album_groups_end = static_cast<uint64_t>(
+                header.album_group_offset) +
+                static_cast<uint64_t>(header.album_group_count) * sizeof(GroupRecord);
+            const uint64_t album_members_start = album_groups_end;
+            if (header.album_group_count &&
+                (album_groups_end > header.file_size ||
+                 std::fseek(file, header.album_group_offset, SEEK_SET) != 0 ||
+                 std::fread(album_groups, sizeof(GroupRecord),
+                            header.album_group_count, file) != header.album_group_count ||
+                 std::fseek(file, static_cast<long>(album_members_start), SEEK_SET) != 0)) {
+                read = false;
+            }
+            uint64_t member_cursor = album_members_start;
             for (uint32_t album_index = 0;
                  read && album_index < header.album_group_count; ++album_index) {
-                GroupRecord album{};
-                if (std::fseek(file, header.album_group_offset +
-                                      album_index * sizeof(GroupRecord), SEEK_SET) != 0 ||
-                    std::fread(&album, sizeof(album), 1, file) != 1 ||
-                    static_cast<uint64_t>(album.members_offset) +
-                        static_cast<uint64_t>(album.track_count) * sizeof(uint32_t) >
-                        header.file_size ||
-                    std::fseek(file, album.members_offset, SEEK_SET) != 0) {
+                const GroupRecord &album = album_groups[album_index];
+                const uint64_t album_members_end = member_cursor +
+                    static_cast<uint64_t>(album.track_count) * sizeof(uint32_t);
+                if (album.members_offset != member_cursor ||
+                    album_members_end < member_cursor ||
+                    album_members_end > header.file_size) {
                     read = false;
                     break;
                 }
@@ -1505,6 +1519,7 @@ bool load_catalog_file(const char *path, bool verify_checksum)
                     }
                     album_for_logical[logical_index] = album_index;
                 }
+                member_cursor = album_members_end;
             }
         }
     }
@@ -1515,9 +1530,11 @@ bool load_catalog_file(const char *path, bool verify_checksum)
         heap_caps_free(duration_cache);
         heap_caps_free(duration_ready);
         heap_caps_free(album_for_logical);
+        heap_caps_free(album_groups);
         std::fclose(file);
         return false;
     }
+    heap_caps_free(album_groups);
     clear_runtime_catalog();
     s_catalog = file;
     copy_text(s_catalog_path, sizeof(s_catalog_path), path);
@@ -1729,10 +1746,11 @@ void scan_task(void *)
     if (result == ESP_OK) {
         load_playlists(playlists, &playlist_count);
         result = publish_catalog();
-        if (result == ESP_OK) {
-            Lock lock;
-            warm_sort_caches_locked();
-        }
+        // Do not synchronously warm non-default sort caches here. Their
+        // builders hold the media mutex while reading and sorting the full
+        // catalog, which would block LVGL's status poll and make the scan
+        // spinner appear frozen. The existing background sort indexer builds
+        // each cache on demand with visible progress when that view is opened.
     } else {
         std::remove(kCatalogTempPath);
     }

@@ -243,8 +243,6 @@ public:
 void refresh_capacity();
 void start_duration_indexing_if_needed();
 void start_sort_cache_indexing_locked(SortSection section);
-bool build_song_sort_order_locked();
-bool build_group_sort_order_locked(SortSection section);
 
 esp_err_t mount_sd_card();
 esp_err_t ensure_nvs_ready();
@@ -258,7 +256,6 @@ SortSetting current_sort_setting(SortSection section);
 const char *sort_cache_path(SortSection section);
 bool load_sort_cache_locked(SortSection section, uint8_t sort_code, uint32_t item_count, uint32_t **order_slot);
 void save_sort_cache_locked(SortSection section, SortSetting setting, const uint32_t *order, uint32_t item_count);
-void warm_sort_caches_locked();
 void copy_text(char *destination, size_t capacity, const char *source);
 bool join_path(char *destination, size_t capacity, const char *parent, const char *child);
 bool equals_ci(const char *left, const char *right);

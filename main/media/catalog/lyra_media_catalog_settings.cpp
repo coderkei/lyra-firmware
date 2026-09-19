@@ -10,8 +10,6 @@ namespace lyra::media::internal {
 void refresh_capacity();
 void start_duration_indexing_if_needed();
 void start_sort_cache_indexing_locked(SortSection section);
-bool build_song_sort_order_locked();
-bool build_group_sort_order_locked(SortSection section);
 
 esp_err_t mount_sd_card()
 {
@@ -228,25 +226,6 @@ void save_sort_cache_locked(SortSection section, SortSetting setting,
     }
     std::remove(path);
     if (std::rename(temporary, path) != 0) std::remove(temporary);
-}
-
-void warm_sort_caches_locked()
-{
-    const SortSetting songs = current_sort_setting(SortSection::Songs);
-    const SortSetting albums = current_sort_setting(SortSection::Albums);
-    const SortSetting artists = current_sort_setting(SortSection::Artists);
-    if (songs.field != SortField::Duration &&
-        (songs.field != SortField::Title || songs.direction != SortDirection::Ascending)) {
-        build_song_sort_order_locked();
-    }
-    if (albums.field != SortField::Duration &&
-        (albums.field != SortField::Title || albums.direction != SortDirection::Ascending)) {
-        build_group_sort_order_locked(SortSection::Albums);
-    }
-    if (artists.field != SortField::Duration &&
-        (artists.field != SortField::Title || artists.direction != SortDirection::Ascending)) {
-        build_group_sort_order_locked(SortSection::Artists);
-    }
 }
 
 } // namespace lyra::media::internal
