@@ -23,7 +23,7 @@ void format_mac_address(const uint8_t mac[6], char *output, size_t capacity)
 {
     if (!output || capacity == 0) return;
     if (!mac) {
-        copy_ui_text(output, capacity, "Unavailable");
+        copy_ui_text(output, capacity, tr(lyra::i18n::StringId::Unavailable));
         return;
     }
     std::snprintf(output, capacity, "%02X:%02X:%02X:%02X:%02X:%02X",
@@ -32,7 +32,7 @@ void format_mac_address(const uint8_t mac[6], char *output, size_t capacity)
 
 const char *debug_partition_type(const esp_partition_t *partition)
 {
-    if (!partition) return "Unknown";
+    if (!partition) return tr(lyra::i18n::StringId::Unknown);
     if (partition->type == ESP_PARTITION_TYPE_APP) {
         switch (partition->subtype) {
             case ESP_PARTITION_SUBTYPE_APP_FACTORY: return "app/factory";
@@ -98,10 +98,10 @@ void append_debug_partition(char *info, size_t capacity, const esp_partition_t *
     format_file_size(partition->size, total, sizeof(total));
     const bool is_running = partition == running ||
                             (running && partition->address == running->address);
-    append_debug_text(info, capacity, "%s%s @ 0x%06X\n",
+    append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugPartitionAddress),
                       partition->label, is_running ? " [BOOTED]" : "",
                       static_cast<unsigned>(partition->address));
-    append_debug_text(info, capacity, "  Type: %s | Total: %s\n",
+    append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugPartitionTypeTotal),
                       debug_partition_type(partition), total);
 
     if (partition->type == ESP_PARTITION_TYPE_APP) {
@@ -111,9 +111,9 @@ void append_debug_partition(char *info, size_t capacity, const esp_partition_t *
             char free_space[24];
             format_file_size(image_size, used, sizeof(used));
             format_file_size(partition->size - image_size, free_space, sizeof(free_space));
-            append_debug_text(info, capacity, "  Image: %s | Free: %s\n", used, free_space);
+            append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugImageFree), used, free_space);
         } else {
-            append_debug_text(info, capacity, "  Image: unavailable | Free: unavailable\n");
+            append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugImageUnavailable));
         }
     } else if (partition->subtype == ESP_PARTITION_SUBTYPE_DATA_NVS) {
         nvs_stats_t stats{};
@@ -121,13 +121,13 @@ void append_debug_partition(char *info, size_t capacity, const esp_partition_t *
             char free_entries[24];
             format_file_size(static_cast<uint64_t>(stats.free_entries) * 32u,
                              free_entries, sizeof(free_entries));
-            append_debug_text(info, capacity, "  Free NVS entries: %u (~%s)\n",
+            append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugFreeNvs),
                               static_cast<unsigned>(stats.free_entries), free_entries);
         } else {
-            append_debug_text(info, capacity, "  Free: unavailable\n");
+            append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugFreeUnavailable));
         }
     } else {
-        append_debug_text(info, capacity, "  Free: unavailable (raw data partition)\n");
+        append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugFreeRaw));
     }
 }
 
@@ -137,15 +137,15 @@ void build_debug_info(char *info, size_t capacity)
     info[0] = '\0';
 
     const esp_partition_t *running = esp_ota_get_running_partition();
-    append_debug_text(info, capacity, "BOOT PARTITION\n");
+    append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugBootPartition));
     if (running) {
         char size[24];
         format_file_size(running->size, size, sizeof(size));
-        append_debug_text(info, capacity, "%s (%s)\nAddress: 0x%06X | Size: %s\n\n",
+        append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugRunningPartition),
                           running->label, debug_partition_type(running),
                           static_cast<unsigned>(running->address), size);
     } else {
-        append_debug_text(info, capacity, "Unavailable\n\n");
+        append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugUnavailableBlock));
     }
 
     esp_chip_info_t chip{};
@@ -154,13 +154,12 @@ void build_debug_info(char *info, size_t capacity)
     char mac_text[24];
     format_mac_address(esp_read_mac(mac, ESP_MAC_EFUSE_FACTORY) == ESP_OK ? mac : nullptr,
                        mac_text, sizeof(mac_text));
-    append_debug_text(info, capacity, "HARDWARE ID\nBoard: JC3248W535EN\n"
-                      "Chip: %s rev %d | Cores: %d\n",
+    append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugHardwareIdReport),
                       "ESP32-S3", chip.revision, chip.cores);
-    append_debug_text(info, capacity, "Factory MAC: %s\nIDF: %s\nCompile time: %s %s\n\n",
+    append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugFactoryMac),
                       mac_text, esp_get_idf_version(), __DATE__, __TIME__);
 
-    append_debug_text(info, capacity, "FLASH PARTITIONS\n");
+    append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugFlashPartitions));
     esp_partition_iterator_t iterator = esp_partition_find(
         ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, nullptr);
     while (iterator) {
@@ -177,15 +176,15 @@ void build_debug_info(char *info, size_t capacity)
     char psram_total_text[24];
     format_file_size(psram_used, psram_used_text, sizeof(psram_used_text));
     format_file_size(psram_total, psram_total_text, sizeof(psram_total_text));
-    append_debug_text(info, capacity, "\nPSRAM\nUsed: %s | Total: %s\n\n",
+    append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugPsram),
                       psram_used_text, psram_total_text);
 
     const lyra::media::Status media_status = lyra::media::status();
     lyra::media::CardInfo card{};
     const bool card_available = lyra::media::card_info(&card);
-    append_debug_text(info, capacity, "MICROSD\n");
+    append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugMicroSd));
     if (!media_status.mounted || !card_available) {
-        append_debug_text(info, capacity, "Not mounted\n");
+        append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugNotMounted));
     } else {
         const uint64_t card_capacity = card.capacity_bytes != 0 ? card.capacity_bytes :
                                        media_status.total_bytes;
@@ -197,12 +196,9 @@ void build_debug_info(char *info, size_t capacity)
         format_file_size(media_status.total_bytes, total_text, sizeof(total_text));
         char card_name[9]{};
         std::memcpy(card_name, card.name, sizeof(card.name));
-        append_debug_text(info, capacity, "Capacity: %s\nFilesystem free/total: %s / %s\n",
+        append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugCardCapacity),
                           capacity_text, free_text, total_text);
-        append_debug_text(info, capacity,
-                          "CID fields (decoded; raw 128-bit CID unavailable):\n"
-                          "MID: 0x%02X (%d) | OEM ID: 0x%04X | Product: %s\n"
-                          "Revision: %d | Serial: %d | Date code: %d\n",
+        append_debug_text(info, capacity, tr(lyra::i18n::StringId::DebugCidFields),
                           static_cast<unsigned>(card.manufacturer_id) & 0xFFu,
                           card.manufacturer_id, static_cast<unsigned>(card.oem_id) & 0xFFFFu,
                           card_name, card.revision, card.serial, card.date);
@@ -220,7 +216,7 @@ bool dump_debug_info_to_sd()
     FILE *file = lyra::sd::open(path, "wb", lyra::sd::Client::Filesystem);
     if (!file) {
         copy_ui_text(s_debug_status, sizeof(s_debug_status),
-                     "Could not open the MicroSD root");
+                     tr(lyra::i18n::StringId::CouldNotOpenMicroSdRoot));
         return false;
     }
 
@@ -231,12 +227,12 @@ bool dump_debug_info_to_sd()
     if (!written || !closed) {
         lyra::sd::remove(path, lyra::sd::Client::Filesystem);
         copy_ui_text(s_debug_status, sizeof(s_debug_status),
-                     "Could not write debug info to the MicroSD root");
+                     tr(lyra::i18n::StringId::CouldNotWriteMicroSdRoot));
         return false;
     }
 
-    std::snprintf(s_debug_status, sizeof(s_debug_status),
-                  "Debug info saved to %s", path);
+    format_text(lyra::i18n::StringId::DebugInfoSaved, path,
+                s_debug_status, sizeof(s_debug_status));
     return true;
 }
 
@@ -277,7 +273,7 @@ void make_maximum_volume_control(lv_obj_t *parent, int y)
 {
     const uint8_t maximum = lyra::audio::maximum_volume_percent();
     lv_obj_t *card = make_box(parent, 7, y, 306, 84, kSurface, 6);
-    lv_obj_t *title = make_label(card, "Max volume override", kTextPrimary);
+    lv_obj_t *title = make_label(card, tr(lyra::i18n::StringId::MaxVolumeOverride), kTextPrimary);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 12, 10);
     char value_text[16];
     std::snprintf(value_text, sizeof(value_text), "%u%%", static_cast<unsigned>(maximum));
@@ -440,9 +436,10 @@ void take_screenshot_cb(lv_event_t *)
     const bool saved = copy && save_screenshot_bmp(copy, captured_stride, captured_width,
                                                    captured_height, captured_format);
     heap_caps_free(copy);
-    show_notice(saved ? "Screenshot saved" : "Screenshot failed",
-                saved ? "Saved to the MicroSD root." :
-                        "Could not capture or write the display.");
+    show_notice(saved ? tr(lyra::i18n::StringId::ScreenshotSaved) :
+                       tr(lyra::i18n::StringId::ScreenshotFailed),
+                 saved ? tr(lyra::i18n::StringId::ScreenshotSavedMessage) :
+                         tr(lyra::i18n::StringId::ScreenshotFailedMessage));
 }
 
 void screenshot_button_pressed_cb(lv_event_t *)
@@ -499,10 +496,10 @@ void confirm_clear_nvs_cb(lv_event_t *event)
     if (result == ESP_ERR_INVALID_STATE) result = ESP_OK;
     if (result == ESP_OK) {
         copy_ui_text(s_debug_status, sizeof(s_debug_status),
-                     "NVS cleared; reboot to apply defaults");
+                     tr(lyra::i18n::StringId::NvsCleared));
     } else {
-        std::snprintf(s_debug_status, sizeof(s_debug_status), "NVS clear failed: %s",
-                      esp_err_to_name(result));
+        format_text(lyra::i18n::StringId::NvsClearFailed, esp_err_to_name(result),
+                    s_debug_status, sizeof(s_debug_status));
     }
     if (overlay) lv_obj_delete(overlay);
     render(View::DebugMenu);
@@ -514,21 +511,18 @@ void show_clear_nvs_confirmation()
     lv_obj_set_style_bg_opa(overlay, LV_OPA_90, 0);
     lv_obj_move_foreground(overlay);
     lv_obj_t *dialog = make_box(overlay, 20, 126, 280, 228, kSurfaceRaised, 12);
-    lv_obj_t *title = make_label(dialog, "Clear NVS?", kTextPrimary);
+    lv_obj_t *title = make_label(dialog, tr(lyra::i18n::StringId::ClearNvsQuestion), kTextPrimary);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 22);
-    lv_obj_t *message = make_label(dialog,
-                                   "This erases the default NVS partition.\n"
-                                   "Saved Lyra settings and debug boot state\n"
-                                   "will reset after reboot.",
+    lv_obj_t *message = make_label(dialog, tr(lyra::i18n::StringId::ClearNvsMessage),
                                    kTextSecondary);
     lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(message, LV_ALIGN_CENTER, 0, -14);
     lv_obj_t *cancel = make_button(dialog, 14, 164, 116, 48, kSurface, 7);
-    lv_obj_t *cancel_label = make_label(cancel, "CANCEL", kTextSecondary);
+    lv_obj_t *cancel_label = make_label(cancel, tr(lyra::i18n::StringId::Cancel), kTextSecondary);
     lv_obj_center(cancel_label);
     lv_obj_add_event_cb(cancel, cancel_power_action_cb, LV_EVENT_CLICKED, overlay);
     lv_obj_t *confirm = make_button(dialog, 150, 164, 116, 48, lv_color_hex(0x991B1B), 7);
-    lv_obj_t *confirm_label = make_label(confirm, "CLEAR", kTextOnAccent);
+    lv_obj_t *confirm_label = make_label(confirm, tr(lyra::i18n::StringId::Clear), kTextOnAccent);
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm, confirm_clear_nvs_cb, LV_EVENT_CLICKED, overlay);
 }
@@ -542,7 +536,7 @@ void firmware_update_failure_async_cb(void *context)
     auto *failure = static_cast<FirmwareUpdateFailure *>(context);
     if (failure) {
         render(View::About);
-        show_notice("Firmware update failed", failure->message);
+        show_notice(tr(lyra::i18n::StringId::FirmwareUpdateFailed), failure->message);
         heap_caps_free(failure);
     }
     s_firmware_update_in_progress = false;
@@ -557,7 +551,8 @@ void post_firmware_update_failure(const char *message)
         s_firmware_update_in_progress = false;
         return;
     }
-    std::strncpy(failure->message, message ? message : "Firmware update failed.",
+    std::strncpy(failure->message, message ? message :
+                 tr(lyra::i18n::StringId::FirmwareUpdateDefaultError),
                  sizeof(failure->message) - 1);
     failure->message[sizeof(failure->message) - 1] = '\0';
     lv_async_call(firmware_update_failure_async_cb, failure);
@@ -596,7 +591,7 @@ void firmware_update_task(void *)
     constexpr size_t kTransferBufferSize = 8192;
     FILE *file = lyra::sd::open(kUpdatePath, "rb", lyra::sd::Client::Filesystem);
     if (!file) {
-        post_firmware_update_failure("update.bin was not found on the SD card.");
+        post_firmware_update_failure(tr(lyra::i18n::StringId::UpdateFileMissing));
         vTaskDelete(nullptr);
         return;
     }
@@ -607,7 +602,7 @@ void firmware_update_task(void *)
     const esp_err_t stop_result = lyra::audio::stop();
     if (stop_result != ESP_OK && stop_result != ESP_ERR_INVALID_STATE) {
         lyra::sd::close(file, lyra::sd::Client::Filesystem);
-        post_firmware_update_failure("Could not stop audio before the firmware update.");
+        post_firmware_update_failure(tr(lyra::i18n::StringId::CouldNotStopAudio));
         vTaskDelete(nullptr);
         return;
     }
@@ -617,7 +612,7 @@ void firmware_update_task(void *)
     }
     if (lyra::audio::status().playing || !firmware_update_media_idle()) {
         lyra::sd::close(file, lyra::sd::Client::Filesystem);
-        post_firmware_update_failure("The SD card is busy. Please try again.");
+        post_firmware_update_failure(tr(lyra::i18n::StringId::SdCardBusy));
         vTaskDelete(nullptr);
         return;
     }
@@ -625,7 +620,7 @@ void firmware_update_task(void *)
     size_t file_size = 0;
     if (!firmware_update_file_size(file, &file_size)) {
         lyra::sd::close(file, lyra::sd::Client::Filesystem);
-        post_firmware_update_failure("Could not read update.bin from the SD card.");
+        post_firmware_update_failure(tr(lyra::i18n::StringId::CouldNotReadUpdate));
         vTaskDelete(nullptr);
         return;
     }
@@ -639,7 +634,7 @@ void firmware_update_task(void *)
                                             lyra::sd::Client::Filesystem) == sizeof(image_header);
     if (!header_read || image_header[0] != 0xE9 || image_header[1] == 0 || image_header[1] > 16) {
         lyra::sd::close(file, lyra::sd::Client::Filesystem);
-        post_firmware_update_failure("update.bin is not a valid firmware update.");
+        post_firmware_update_failure(tr(lyra::i18n::StringId::InvalidFirmwareUpdate));
         vTaskDelete(nullptr);
         return;
     }
@@ -648,7 +643,7 @@ void firmware_update_task(void *)
     const esp_partition_t *target = esp_ota_get_next_update_partition(running);
     if (!target || target == running || file_size > target->size) {
         lyra::sd::close(file, lyra::sd::Client::Filesystem);
-        post_firmware_update_failure("update.bin is too large or no inactive OTA partition is available.");
+        post_firmware_update_failure(tr(lyra::i18n::StringId::UpdateTooLarge));
         vTaskDelete(nullptr);
         return;
     }
@@ -658,8 +653,8 @@ void firmware_update_task(void *)
     if (result != ESP_OK) {
         lyra::sd::close(file, lyra::sd::Client::Filesystem);
         char message[176];
-        std::snprintf(message, sizeof(message), "Could not prepare the OTA partition (%s).",
-                      esp_err_to_name(result));
+        format_text(lyra::i18n::StringId::CouldNotPrepareOta, esp_err_to_name(result),
+                    message, sizeof(message));
         post_firmware_update_failure(message);
         vTaskDelete(nullptr);
         return;
@@ -669,7 +664,7 @@ void firmware_update_task(void *)
     if (!buffer) {
         esp_ota_abort(ota_handle);
         lyra::sd::close(file, lyra::sd::Client::Filesystem);
-        post_firmware_update_failure("Not enough memory to install the firmware update.");
+        post_firmware_update_failure(tr(lyra::i18n::StringId::NotEnoughMemoryUpdate));
         vTaskDelete(nullptr);
         return;
     }
@@ -698,7 +693,7 @@ void firmware_update_task(void *)
 
     if (!transfer_succeeded) {
         esp_ota_abort(ota_handle);
-        post_firmware_update_failure("Could not read or write the firmware update.");
+        post_firmware_update_failure(tr(lyra::i18n::StringId::CouldNotReadWriteUpdate));
         vTaskDelete(nullptr);
         return;
     }
@@ -709,8 +704,8 @@ void firmware_update_task(void *)
     result = esp_ota_end(ota_handle);
     if (result != ESP_OK) {
         char message[176];
-        std::snprintf(message, sizeof(message), "update.bin is not a valid firmware update (%s).",
-                      esp_err_to_name(result));
+        format_text(lyra::i18n::StringId::InvalidFirmwareUpdateDetail,
+                    esp_err_to_name(result), message, sizeof(message));
         post_firmware_update_failure(message);
         vTaskDelete(nullptr);
         return;
@@ -719,8 +714,8 @@ void firmware_update_task(void *)
     result = esp_ota_set_boot_partition(target);
     if (result != ESP_OK) {
         char message[176];
-        std::snprintf(message, sizeof(message), "Could not select the new firmware for boot (%s).",
-                      esp_err_to_name(result));
+        format_text(lyra::i18n::StringId::CouldNotSelectFirmware,
+                    esp_err_to_name(result), message, sizeof(message));
         post_firmware_update_failure(message);
         vTaskDelete(nullptr);
         return;
@@ -731,7 +726,7 @@ void firmware_update_task(void *)
     // boot target across the restart.
     const esp_err_t shutdown_result = lyra::media::shutdown();
     if (shutdown_result != ESP_OK) {
-        post_firmware_update_failure("The SD card could not be safely unmounted.");
+        post_firmware_update_failure(tr(lyra::i18n::StringId::SdUnmountFailed));
         vTaskDelete(nullptr);
         return;
     }
@@ -747,7 +742,7 @@ void start_firmware_update()
     if (s_firmware_update_in_progress) return;
     s_firmware_update_in_progress = true;
     style_root();
-    lv_obj_t *label = make_label(s_screen, "UPDATING FIRMWARE\n\nChecking update.bin...",
+    lv_obj_t *label = make_label(s_screen, tr(lyra::i18n::StringId::UpdatingFirmware),
                                  kTextPrimary);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, -10);
@@ -756,7 +751,8 @@ void start_firmware_update()
                                 3, nullptr, 0) != pdPASS) {
         s_firmware_update_in_progress = false;
         render(View::About);
-        show_notice("Firmware update failed", "Could not start the update task.");
+        show_notice(tr(lyra::i18n::StringId::FirmwareUpdateFailed),
+                    tr(lyra::i18n::StringId::CouldNotStartUpdateTask));
     }
 }
 
@@ -773,21 +769,19 @@ void show_firmware_update_confirmation()
     lv_obj_set_style_bg_opa(overlay, LV_OPA_90, 0);
     lv_obj_move_foreground(overlay);
     lv_obj_t *dialog = make_box(overlay, 20, 124, 280, 232, kSurfaceRaised, 12);
-    lv_obj_t *title = make_label(dialog, "Update firmware?", kTextPrimary);
+    lv_obj_t *title = make_label(dialog, tr(lyra::i18n::StringId::UpdateFirmwareQuestion), kTextPrimary);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 22);
-    lv_obj_t *message = make_label(dialog,
-                                   "Install update.bin from the SD card?\n"
-                                   "Lyra will reboot after the update.",
+    lv_obj_t *message = make_label(dialog, tr(lyra::i18n::StringId::InstallUpdateMessage),
                                    kTextSecondary);
     lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(message, LV_ALIGN_CENTER, 0, -12);
 
     lv_obj_t *cancel = make_button(dialog, 14, 164, 116, 48, kSurface, 7);
-    lv_obj_t *cancel_label = make_label(cancel, "CANCEL", kTextSecondary);
+    lv_obj_t *cancel_label = make_label(cancel, tr(lyra::i18n::StringId::Cancel), kTextSecondary);
     lv_obj_center(cancel_label);
     lv_obj_add_event_cb(cancel, cancel_power_action_cb, LV_EVENT_CLICKED, overlay);
     lv_obj_t *confirm = make_button(dialog, 150, 164, 116, 48, kAccentDark, 7);
-    lv_obj_t *confirm_label = make_label(confirm, "UPDATE", kTextOnAccent);
+    lv_obj_t *confirm_label = make_label(confirm, tr(lyra::i18n::StringId::Update), kTextOnAccent);
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm, confirm_firmware_update_cb, LV_EVENT_CLICKED, overlay);
 }
@@ -816,9 +810,10 @@ void run_force_boot_test(uint8_t ota_slot)
     if (result != ESP_OK) {
         if (was_mounted) lyra::media::init();
         char message[96];
-        std::snprintf(message, sizeof(message), "OTA %u boot test failed: %s",
-                      static_cast<unsigned>(ota_slot), esp_err_to_name(result));
-        show_notice("Boot test failed", message);
+        format_u32_text(lyra::i18n::StringId::BootTestFailed,
+                        static_cast<uint32_t>(ota_slot), esp_err_to_name(result),
+                        message, sizeof(message));
+        show_notice(tr(lyra::i18n::StringId::BootTestFailedTitle), message);
     }
 }
 
@@ -832,7 +827,7 @@ void confirm_force_boot_test_cb(lv_event_t *event)
     if (overlay) lv_obj_delete(overlay);
 
     style_root();
-    lv_obj_t *label = make_label(s_screen, "REBOOTING\n\nTesting the selected OTA image...",
+    lv_obj_t *label = make_label(s_screen, tr(lyra::i18n::StringId::RebootingOta),
                                  kTextPrimary);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, -10);
@@ -847,24 +842,21 @@ void show_force_boot_confirmation(uint8_t ota_slot)
     lv_obj_move_foreground(overlay);
     lv_obj_t *dialog = make_box(overlay, 20, 116, 280, 252, kSurfaceRaised, 12);
     char title_text[32];
-    std::snprintf(title_text, sizeof(title_text), "Boot OTA %u?",
-                  static_cast<unsigned>(ota_slot));
+    format_u32(lyra::i18n::StringId::BootOtaQuestion,
+               static_cast<uint32_t>(ota_slot), title_text, sizeof(title_text));
     lv_obj_t *title = make_label(dialog, title_text, kTextPrimary);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 22);
-    lv_obj_t *message = make_label(dialog,
-                                   "A valid firmware image was found.\n"
-                                   "Lyra will reboot for a one-shot\n"
-                                   "test and restore the current slot.",
+    lv_obj_t *message = make_label(dialog, tr(lyra::i18n::StringId::ValidFirmwareFound),
                                    kTextSecondary);
     lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(message, LV_ALIGN_CENTER, 0, -12);
 
     lv_obj_t *cancel = make_button(dialog, 14, 188, 116, 48, kSurface, 7);
-    lv_obj_t *cancel_label = make_label(cancel, "CANCEL", kTextSecondary);
+    lv_obj_t *cancel_label = make_label(cancel, tr(lyra::i18n::StringId::Cancel), kTextSecondary);
     lv_obj_center(cancel_label);
     lv_obj_add_event_cb(cancel, cancel_power_action_cb, LV_EVENT_CLICKED, overlay);
     lv_obj_t *confirm = make_button(dialog, 150, 188, 116, 48, kAccentDark, 7);
-    lv_obj_t *confirm_label = make_label(confirm, "REBOOT", kTextOnAccent);
+    lv_obj_t *confirm_label = make_label(confirm, tr(lyra::i18n::StringId::Reboot), kTextOnAccent);
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm, confirm_force_boot_test_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(ota_slot)));
@@ -878,14 +870,13 @@ void force_boot_test_cb(lv_event_t *event)
     if (result != ESP_OK) {
         char message[112];
         if (result == ESP_ERR_NOT_FOUND) {
-            std::snprintf(message, sizeof(message), "OTA %u is not present in the partition table.",
-                          static_cast<unsigned>(ota_slot));
+            format_u32(lyra::i18n::StringId::OtaNotInPartitionTable,
+                       static_cast<uint32_t>(ota_slot), message, sizeof(message));
         } else {
-            std::snprintf(message, sizeof(message),
-                          "OTA %u does not contain a valid bootable firmware image.",
-                          static_cast<unsigned>(ota_slot));
+            format_u32(lyra::i18n::StringId::OtaInvalidImage,
+                       static_cast<uint32_t>(ota_slot), message, sizeof(message));
         }
-        show_notice("OTA unavailable", message);
+        show_notice(tr(lyra::i18n::StringId::BootTestUnavailable), message);
         return;
     }
     show_force_boot_confirmation(ota_slot);
@@ -899,13 +890,15 @@ void dump_debug_info_cb(lv_event_t *)
 
 void render_debug_menu()
 {
-    make_header("Debug", View::About, true);
+    make_header(tr(lyra::i18n::StringId::Debug), View::About, true);
     lv_obj_t *body = make_scroll_body(72);
     for (size_t index = 0; index < 2; ++index) {
         const DebugTab tab = static_cast<DebugTab>(index);
         lv_obj_t *button = make_button(body, 7 + static_cast<int>(index) * 153, 4, 150, 36,
                                        s_debug_tab == tab ? kAccentDark : kSurfaceRaised, 6);
-        lv_obj_t *label = make_label(button, tab == DebugTab::Info ? "Info" : "Debug",
+        lv_obj_t *label = make_label(button, tab == DebugTab::Info ?
+                                     tr(lyra::i18n::StringId::Info) :
+                                     tr(lyra::i18n::StringId::Debug),
                                      s_debug_tab == tab ? kTextOnAccent : kTextSecondary);
         lv_obj_center(label);
         lv_obj_add_event_cb(button, debug_tab_cb, LV_EVENT_CLICKED,
@@ -923,34 +916,39 @@ void render_debug_menu()
         return;
     }
 
-    lv_obj_t *dump = make_row(body, 48, LV_SYMBOL_SAVE, "Dump info to SD card",
-                              "Save the Info tab to a TXT file in the SD root",
+    lv_obj_t *dump = make_row(body, 48, LV_SYMBOL_SAVE,
+                              tr(lyra::i18n::StringId::DumpInfoToSd),
+                              tr(lyra::i18n::StringId::SaveInfoToSdRoot),
                               View::DebugMenu, 62);
     lv_obj_remove_event_cb(dump, route_cb);
     lv_obj_add_event_cb(dump, dump_debug_info_cb, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *screenshot = make_row(body, 114, LV_SYMBOL_IMAGE, "Screenshot button",
-                                    s_screenshot_button ? "Tap to hide floating button" :
-                                                          "Show movable floating button",
+    lv_obj_t *screenshot = make_row(body, 114, LV_SYMBOL_IMAGE,
+                                    tr(lyra::i18n::StringId::ScreenshotButton),
+                                    s_screenshot_button ? tr(lyra::i18n::StringId::TapToHideFloating) :
+                                                          tr(lyra::i18n::StringId::ShowMovableFloating),
                                     View::DebugMenu, 62);
     lv_obj_remove_event_cb(screenshot, route_cb);
     lv_obj_add_event_cb(screenshot, toggle_screenshot_button_cb, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *ota0 = make_row(body, 180, LV_SYMBOL_REFRESH, "Force boot OTA 0",
-                              "Validate first, then confirm one-shot test",
+    lv_obj_t *ota0 = make_row(body, 180, LV_SYMBOL_REFRESH,
+                              tr(lyra::i18n::StringId::ForceBootOta0),
+                              tr(lyra::i18n::StringId::ValidateConfirmTest),
                               View::DebugMenu, 62);
     lv_obj_remove_event_cb(ota0, route_cb);
     lv_obj_add_event_cb(ota0, force_boot_test_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(0)));
-    lv_obj_t *ota1 = make_row(body, 246, LV_SYMBOL_REFRESH, "Force boot OTA 1",
-                              "Validate first, then confirm one-shot test",
+    lv_obj_t *ota1 = make_row(body, 246, LV_SYMBOL_REFRESH,
+                              tr(lyra::i18n::StringId::ForceBootOta1),
+                              tr(lyra::i18n::StringId::ValidateConfirmTest),
                               View::DebugMenu, 62);
     lv_obj_remove_event_cb(ota1, route_cb);
     lv_obj_add_event_cb(ota1, force_boot_test_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(1)));
 
-    lv_obj_t *clear = make_row(body, 312, LV_SYMBOL_CLOSE, "Clear NVS",
-                               "Remove saved settings (confirmation required)",
+    lv_obj_t *clear = make_row(body, 312, LV_SYMBOL_CLOSE,
+                               tr(lyra::i18n::StringId::ClearNvs),
+                               tr(lyra::i18n::StringId::RemoveSavedSettings),
                                View::DebugMenu, 62);
     lv_obj_remove_event_cb(clear, route_cb);
     lv_obj_add_event_cb(clear, [](lv_event_t *) { show_clear_nvs_confirmation(); },

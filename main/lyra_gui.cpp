@@ -109,6 +109,8 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     s_crossfade_transition_direction = 0;
     s_crossfade_pause_pending = false;
     load_user_settings();
+    copy_ui_text(s_track_list_title, sizeof(s_track_list_title),
+                 lyra::i18n::tr(lyra::i18n::StringId::AllSongs));
     apply_theme_palette();
     const esp_err_t speaker_output_result =
         lyra::audio::set_speaker_output_enabled(s_speaker_output_enabled);

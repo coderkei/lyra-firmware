@@ -11,14 +11,14 @@ void format_file_date(uint64_t modified_time, char *output, size_t capacity)
 {
     if (!output || capacity == 0) return;
     if (modified_time == 0) {
-        copy_ui_text(output, capacity, "Unavailable");
+        copy_ui_text(output, capacity, tr(lyra::i18n::StringId::Unavailable));
         return;
     }
     const std::time_t timestamp = static_cast<std::time_t>(modified_time);
     std::tm local{};
     if (localtime_r(&timestamp, &local) == nullptr ||
         std::strftime(output, capacity, "%Y-%m-%d %H:%M", &local) == 0) {
-        copy_ui_text(output, capacity, "Unavailable");
+        copy_ui_text(output, capacity, tr(lyra::i18n::StringId::Unavailable));
     }
 }
 
@@ -28,37 +28,39 @@ void format_track_format(const lyra::media::Track &track, char *output, size_t c
     for (char *character = output; *character; ++character) {
         *character = static_cast<char>(std::toupper(static_cast<unsigned char>(*character)));
     }
-    if (!output[0]) copy_ui_text(output, capacity, "Unknown");
+    if (!output[0]) copy_ui_text(output, capacity, tr(lyra::i18n::StringId::Unknown));
 }
 
 const char *track_encoding(const lyra::media::Track &track)
 {
-    if (text_equals_ci(track.format, "mp3")) return "MPEG Layer III";
-    if (text_equals_ci(track.format, "flac")) return "FLAC lossless";
-    if (text_equals_ci(track.format, "aac")) return "Advanced Audio Coding";
+    if (text_equals_ci(track.format, "mp3")) return tr(lyra::i18n::StringId::EncodingMpegLayer3);
+    if (text_equals_ci(track.format, "flac")) return tr(lyra::i18n::StringId::EncodingFlac);
+    if (text_equals_ci(track.format, "aac")) return tr(lyra::i18n::StringId::EncodingAac);
     if (text_equals_ci(track.format, "m4a") || text_equals_ci(track.format, "mp4")) {
-        return "MPEG-4 audio";
+        return tr(lyra::i18n::StringId::EncodingMpeg4);
     }
-    if (text_equals_ci(track.format, "ogg")) return "Vorbis / Opus";
-    if (text_equals_ci(track.format, "opus")) return "Opus";
+    if (text_equals_ci(track.format, "ogg")) return tr(lyra::i18n::StringId::EncodingVorbisOpus);
+    if (text_equals_ci(track.format, "opus")) return tr(lyra::i18n::StringId::EncodingOpus);
     if (text_equals_ci(track.format, "wav") || text_equals_ci(track.format, "aiff") ||
-        text_equals_ci(track.format, "aif") || text_equals_ci(track.format, "aifc")) return "PCM";
-    return "Unknown";
+        text_equals_ci(track.format, "aif") || text_equals_ci(track.format, "aifc")) {
+        return tr(lyra::i18n::StringId::EncodingPcm);
+    }
+    return tr(lyra::i18n::StringId::Unknown);
 }
 
 void render_track_info()
 {
     lyra::media::Track track{};
     if (!lyra::media::track_at(s_current_track, &track)) {
-        make_header("Track Info", View::Player, true);
-        lv_obj_t *empty = make_label(s_screen, "No track selected.", kTextMuted);
+        make_header(tr(lyra::i18n::StringId::TrackInfo), View::Player, true);
+        lv_obj_t *empty = make_label(s_screen, tr(lyra::i18n::StringId::NoTrackSelectedPeriod), kTextMuted);
         lv_obj_align(empty, LV_ALIGN_CENTER, 0, -20);
         return;
     }
 
-    make_header("Track Info", View::Player, true);
-    make_track_info_tab_button(s_screen, 8, "Song Info", TrackInfoTab::Song);
-    make_track_info_tab_button(s_screen, 162, "Media Info", TrackInfoTab::Media);
+    make_header(tr(lyra::i18n::StringId::TrackInfo), View::Player, true);
+    make_track_info_tab_button(s_screen, 8, tr(lyra::i18n::StringId::SongInfo), TrackInfoTab::Song);
+    make_track_info_tab_button(s_screen, 162, tr(lyra::i18n::StringId::MediaInfo), TrackInfoTab::Media);
     lv_obj_t *body = make_scroll_body(118);
 
     if (s_track_info_tab == TrackInfoTab::Song) {
@@ -68,31 +70,31 @@ void render_track_info()
         lv_obj_t *art_hit = make_button(body, art_x, 8, kArtSize, kArtSize, kBackground, 13, false);
         lv_obj_set_style_bg_opa(art_hit, LV_OPA_TRANSP, 0);
         add_route(art_hit, View::FullscreenInfoArt);
-        lv_obj_t *hint = make_label(body, "Tap album art for full screen", kTextMuted);
+        lv_obj_t *hint = make_label(body, tr(lyra::i18n::StringId::TapAlbumArt), kTextMuted);
         lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 128);
 
         int y = 150;
-        make_track_info_row(body, y, "Title", track.title); y += 56;
-        lv_obj_t *album = make_track_info_row(body, y, "Album", track.album, true);
+        make_track_info_row(body, y, tr(lyra::i18n::StringId::Title), track.title); y += 56;
+        lv_obj_t *album = make_track_info_row(body, y, tr(lyra::i18n::StringId::Album), track.album, true);
         lv_obj_add_event_cb(album, open_current_track_group_cb, LV_EVENT_CLICKED,
                             reinterpret_cast<void *>(static_cast<uintptr_t>(lyra::media::GroupKind::Album)));
         y += 56;
-        lv_obj_t *artist = make_track_info_row(body, y, "Artist", track.artist, true);
+        lv_obj_t *artist = make_track_info_row(body, y, tr(lyra::i18n::StringId::Artist), track.artist, true);
         lv_obj_add_event_cb(artist, open_current_track_group_cb, LV_EVENT_CLICKED,
                             reinterpret_cast<void *>(static_cast<uintptr_t>(lyra::media::GroupKind::Artist)));
         y += 56;
-        make_track_info_row(body, y, "Album artist", track.album_artist); y += 56;
-        make_track_info_row(body, y, "Composer", track.composer); y += 56;
-        lv_obj_t *genre = make_track_info_row(body, y, "Genre", track.genre, true);
+        make_track_info_row(body, y, tr(lyra::i18n::StringId::AlbumArtist), track.album_artist); y += 56;
+        make_track_info_row(body, y, tr(lyra::i18n::StringId::Composer), track.composer); y += 56;
+        lv_obj_t *genre = make_track_info_row(body, y, tr(lyra::i18n::StringId::Genre), track.genre, true);
         lv_obj_add_event_cb(genre, open_current_track_group_cb, LV_EVENT_CLICKED,
                             reinterpret_cast<void *>(static_cast<uintptr_t>(lyra::media::GroupKind::Genre)));
         y += 56;
         char number[16];
         format_track_number(track.track_number, number, sizeof(number));
-        make_track_info_row(body, y, "Track number", number); y += 56;
+        make_track_info_row(body, y, tr(lyra::i18n::StringId::TrackNumber), number); y += 56;
         format_track_number(track.disc_number, number, sizeof(number));
-        make_track_info_row(body, y, "Disc number", number); y += 56;
-        lv_obj_t *year = make_track_info_row(body, y, "Year", track.year, true);
+        make_track_info_row(body, y, tr(lyra::i18n::StringId::DiscNumber), number); y += 56;
+        lv_obj_t *year = make_track_info_row(body, y, tr(lyra::i18n::StringId::Year), track.year, true);
         lv_obj_add_event_cb(year, open_current_track_group_cb, LV_EVENT_CLICKED,
                             reinterpret_cast<void *>(static_cast<uintptr_t>(lyra::media::GroupKind::Year)));
         return;
@@ -108,26 +110,32 @@ void render_track_info()
     char duration[16];
     format_playback_time(duration_ms, duration_ms == 0, duration, sizeof(duration));
     char bitrate[24];
-    if (duration_ms == 0 || track.size_bytes == 0) copy_ui_text(bitrate, sizeof(bitrate), "Unavailable");
-    else std::snprintf(bitrate, sizeof(bitrate), "%llu kbps (average)",
-                       static_cast<unsigned long long>((track.size_bytes * 8u + duration_ms / 2u) /
-                                                       duration_ms));
+    if (duration_ms == 0 || track.size_bytes == 0) {
+        copy_ui_text(bitrate, sizeof(bitrate), tr(lyra::i18n::StringId::Unavailable));
+    } else {
+        format_u64(lyra::i18n::StringId::BitrateAverage,
+                   (track.size_bytes * 8u + duration_ms / 2u) / duration_ms,
+                   bitrate, sizeof(bitrate));
+    }
     char sample_rate[24];
     if (current_audio && audio_status.sample_rate > 0) {
-        std::snprintf(sample_rate, sizeof(sample_rate), "%u Hz",
-                      static_cast<unsigned>(audio_status.sample_rate));
-    } else copy_ui_text(sample_rate, sizeof(sample_rate), "Unavailable");
+        format_u32(lyra::i18n::StringId::SampleRateValue,
+                   static_cast<uint32_t>(audio_status.sample_rate), sample_rate, sizeof(sample_rate));
+    } else copy_ui_text(sample_rate, sizeof(sample_rate), tr(lyra::i18n::StringId::Unavailable));
     char bits_per_sample[16];
     if (current_audio && audio_status.bits_per_sample > 0) {
-        std::snprintf(bits_per_sample, sizeof(bits_per_sample), "%u-bit",
-                      static_cast<unsigned>(audio_status.bits_per_sample));
-    } else copy_ui_text(bits_per_sample, sizeof(bits_per_sample), "Unavailable");
+        format_u32(lyra::i18n::StringId::BitsPerSampleValue,
+                   static_cast<uint32_t>(audio_status.bits_per_sample),
+                   bits_per_sample, sizeof(bits_per_sample));
+    } else copy_ui_text(bits_per_sample, sizeof(bits_per_sample), tr(lyra::i18n::StringId::Unavailable));
     char channels[24];
     if (current_audio && audio_status.channels > 0) {
-        std::snprintf(channels, sizeof(channels), "%u (%s)",
-                      static_cast<unsigned>(audio_status.channels),
-                      audio_status.channels == 1 ? "mono" : audio_status.channels == 2 ? "stereo" : "multichannel");
-    } else copy_ui_text(channels, sizeof(channels), "Unavailable");
+        format_u32_text(lyra::i18n::StringId::ChannelValue,
+                        static_cast<uint32_t>(audio_status.channels),
+                        audio_status.channels == 1 ? tr(lyra::i18n::StringId::Mono) :
+                        audio_status.channels == 2 ? tr(lyra::i18n::StringId::Stereo) :
+                        tr(lyra::i18n::StringId::Multichannel), channels, sizeof(channels));
+    } else copy_ui_text(channels, sizeof(channels), tr(lyra::i18n::StringId::Unavailable));
     char size[24];
     format_file_size(track.size_bytes, size, sizeof(size));
     char file_date[32];
@@ -136,17 +144,17 @@ void render_track_info()
     format_track_format(track, format, sizeof(format));
 
     int y = 8;
-    make_track_info_row(body, y, "Filename", filename); y += 56;
-    make_track_info_row(body, y, "File path", track.path); y += 56;
-    make_track_info_row(body, y, "Duration", duration); y += 56;
-    make_track_info_row(body, y, "Bitrate", bitrate); y += 56;
-    make_track_info_row(body, y, "Sample rate", sample_rate); y += 56;
-    make_track_info_row(body, y, "Bits per sample", bits_per_sample); y += 56;
-    make_track_info_row(body, y, "Format", format); y += 56;
-    make_track_info_row(body, y, "Encoding", track_encoding(track)); y += 56;
-    make_track_info_row(body, y, "Channels", channels); y += 56;
-    make_track_info_row(body, y, "File size", size); y += 56;
-    make_track_info_row(body, y, "File date info", file_date);
+    make_track_info_row(body, y, tr(lyra::i18n::StringId::Filename), filename); y += 56;
+    make_track_info_row(body, y, tr(lyra::i18n::StringId::FilePath), track.path); y += 56;
+    make_track_info_row(body, y, tr(lyra::i18n::StringId::Duration), duration); y += 56;
+    make_track_info_row(body, y, tr(lyra::i18n::StringId::Bitrate), bitrate); y += 56;
+    make_track_info_row(body, y, tr(lyra::i18n::StringId::SampleRate), sample_rate); y += 56;
+    make_track_info_row(body, y, tr(lyra::i18n::StringId::BitsPerSample), bits_per_sample); y += 56;
+    make_track_info_row(body, y, tr(lyra::i18n::StringId::Format), format); y += 56;
+    make_track_info_row(body, y, tr(lyra::i18n::StringId::Encoding), track_encoding(track)); y += 56;
+    make_track_info_row(body, y, tr(lyra::i18n::StringId::Channels), channels); y += 56;
+    make_track_info_row(body, y, tr(lyra::i18n::StringId::FileSize), size); y += 56;
+    make_track_info_row(body, y, tr(lyra::i18n::StringId::FileDateInfo), file_date);
 }
 
 void render_fullscreen_info_art()

@@ -77,7 +77,7 @@ void make_equalizer_preset_option(lv_obj_t *parent, int y, EqualizerPreset prese
 
 void render_equalizer_presets()
 {
-    make_header("EQ Preset", View::Equalizer, true);
+    make_header(tr(lyra::i18n::StringId::EqPreset), View::Equalizer, true);
     lv_obj_t *body = make_scroll_body(72);
     constexpr EqualizerPreset presets[] = {
         EqualizerPreset::Custom,
@@ -97,7 +97,8 @@ void render_equalizer_presets()
 
 void render_equalizer()
 {
-    make_header("Equalizer", View::Menu, true, "ON");
+    make_header(tr(lyra::i18n::StringId::Equalizer), View::Menu, true,
+                tr(lyra::i18n::StringId::On));
     lv_obj_t *body = make_box(s_screen, 0, 72, kScreenWidth, content_height(72), kBackground);
     lv_obj_t *preset = make_button(body, 8, 6, 304, 48, kSurface, 6);
     lv_obj_t *preset_name = make_label(preset, equalizer_preset_name(s_equalizer_preset),

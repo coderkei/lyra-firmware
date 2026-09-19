@@ -12,30 +12,32 @@ void update_search_label()
     if (s_search_label == nullptr) return;
     const bool creating = s_view == View::PlaylistCreate;
     const char *text = creating ? s_playlist_name : s_search_query;
-    lv_label_set_text(s_search_label, text[0] == '\0' ? (creating ? "Playlist name..." : "Search music...") : text);
+    lv_label_set_text(s_search_label, text[0] == '\0' ?
+                      (creating ? tr(lyra::i18n::StringId::PlaylistNamePlaceholder) :
+                                   tr(lyra::i18n::StringId::SearchMusicPlaceholder)) : text);
     lv_obj_set_style_text_color(s_search_label, text[0] == '\0' ? kTextMuted : kTextPrimary, 0);
 }
 
 const char *search_category_name(lyra::media::SearchCategory category)
 {
     switch (category) {
-        case lyra::media::SearchCategory::Songs: return "Songs";
-        case lyra::media::SearchCategory::Albums: return "Albums";
-        case lyra::media::SearchCategory::Artists: return "Artists";
-        case lyra::media::SearchCategory::Playlists: return "Playlists";
+        case lyra::media::SearchCategory::Songs: return tr(lyra::i18n::StringId::Songs);
+        case lyra::media::SearchCategory::Albums: return tr(lyra::i18n::StringId::Albums);
+        case lyra::media::SearchCategory::Artists: return tr(lyra::i18n::StringId::Artists);
+        case lyra::media::SearchCategory::Playlists: return tr(lyra::i18n::StringId::Playlists);
     }
-    return "Songs";
+    return tr(lyra::i18n::StringId::Songs);
 }
 
 const char *search_empty_message(lyra::media::SearchCategory category)
 {
     switch (category) {
-        case lyra::media::SearchCategory::Songs: return "No matching songs.";
-        case lyra::media::SearchCategory::Albums: return "No matching albums.";
-        case lyra::media::SearchCategory::Artists: return "No matching artists.";
-        case lyra::media::SearchCategory::Playlists: return "No playlist songs match.";
+        case lyra::media::SearchCategory::Songs: return tr(lyra::i18n::StringId::NoMatchingSongs);
+        case lyra::media::SearchCategory::Albums: return tr(lyra::i18n::StringId::NoMatchingAlbums);
+        case lyra::media::SearchCategory::Artists: return tr(lyra::i18n::StringId::NoMatchingArtists);
+        case lyra::media::SearchCategory::Playlists: return tr(lyra::i18n::StringId::NoPlaylistSongsMatch);
     }
-    return "No matches.";
+    return tr(lyra::i18n::StringId::NoMatches);
 }
 
 void populate_search_results()
@@ -43,7 +45,7 @@ void populate_search_results()
     if (!s_search_results) return;
     lv_obj_clean(s_search_results);
     if (!s_search_query[0]) {
-        make_label(s_search_results, "Type a search term, then tap SEARCH.", kTextMuted);
+        make_label(s_search_results, tr(lyra::i18n::StringId::TypeSearchThenTap), kTextMuted);
         return;
     }
     const lyra::media::SearchStatus status = lyra::media::search_status();
@@ -55,8 +57,9 @@ void populate_search_results()
         lv_obj_set_style_arc_color(spinner, kDivider, LV_PART_MAIN);
         lv_obj_set_style_arc_color(spinner, kAccent, LV_PART_INDICATOR);
         char progress[48];
-        std::snprintf(progress, sizeof(progress), "Searching %u / %u",
-                      static_cast<unsigned>(status.processed), static_cast<unsigned>(status.total));
+        format_u32_u32(lyra::i18n::StringId::SearchingProgress,
+                       static_cast<uint32_t>(status.processed),
+                       static_cast<uint32_t>(status.total), progress, sizeof(progress));
         s_search_progress_label = make_label(s_search_results, progress, kTextSecondary);
         lv_obj_align(s_search_progress_label, LV_ALIGN_TOP_MID, 0, 72);
         return;
@@ -68,8 +71,8 @@ void populate_search_results()
     if (!status.ready || std::strcmp(s_submitted_search_query, s_search_query) != 0 ||
         s_submitted_search_category != s_search_category) {
         char prompt[64];
-        std::snprintf(prompt, sizeof(prompt), "Tap SEARCH to find matching %s.",
-                      search_category_name(s_search_category));
+        format_text(lyra::i18n::StringId::TapSearchToFind,
+                    search_category_name(s_search_category), prompt, sizeof(prompt));
         make_label(s_search_results, prompt, kTextMuted);
         return;
     }
@@ -96,8 +99,8 @@ void populate_search_results()
             lyra::media::Group group{};
             if (!lyra::media::group_at(kind, result.group_index, &group)) continue;
             char subtitle[32];
-            std::snprintf(subtitle, sizeof(subtitle), group.track_count == 1 ? "1 song" : "%u songs",
-                          static_cast<unsigned>(group.track_count));
+            format_count(lyra::i18n::StringId::SongCount,
+                         static_cast<uint32_t>(group.track_count), subtitle, sizeof(subtitle));
             const View target = kind == lyra::media::GroupKind::Album ?
                                 View::AlbumDetail : View::TrackList;
             lv_obj_t *row = make_row(s_search_results, y, nullptr, group.name,
@@ -127,7 +130,8 @@ void search_category_cb(lv_event_t *event)
             copy_ui_text(s_submitted_search_query, sizeof(s_submitted_search_query), s_search_query);
             s_submitted_search_category = s_search_category;
         } else {
-            copy_ui_text(s_search_error, sizeof(s_search_error), "Search is busy - try again shortly");
+            copy_ui_text(s_search_error, sizeof(s_search_error),
+                         tr(lyra::i18n::StringId::SearchBusy));
         }
     }
     render(View::Search);
@@ -139,7 +143,7 @@ void keyboard_cb(lv_event_t *event)
     char *text = s_view == View::PlaylistCreate ? s_playlist_name : s_search_query;
     const size_t capacity = s_view == View::PlaylistCreate ? sizeof(s_playlist_name) : sizeof(s_search_query);
     size_t length = std::strlen(text);
-    if (std::strcmp(key, "SEARCH") == 0) {
+    if (std::strcmp(key, tr(lyra::i18n::StringId::SearchKey)) == 0) {
         s_list_page = 0;
         s_search_error[0] = '\0';
         const esp_err_t result = lyra::media::start_search(s_search_category, s_search_query);
@@ -147,11 +151,12 @@ void keyboard_cb(lv_event_t *event)
             copy_ui_text(s_submitted_search_query, sizeof(s_submitted_search_query), s_search_query);
             s_submitted_search_category = s_search_category;
         }
-        else copy_ui_text(s_search_error, sizeof(s_search_error), "Search is busy - try again shortly");
+        else copy_ui_text(s_search_error, sizeof(s_search_error),
+                          tr(lyra::i18n::StringId::SearchBusy));
         render(View::Search);
         return;
     }
-    if (std::strcmp(key, "SAVE") == 0) {
+    if (std::strcmp(key, tr(lyra::i18n::StringId::SaveKey)) == 0) {
         size_t created = 0;
         if (lyra::media::create_playlist(s_playlist_name, &created) == ESP_OK) {
             s_selected_playlist = created;
@@ -160,14 +165,15 @@ void keyboard_cb(lv_event_t *event)
         }
         return;
     }
-    if (std::strcmp(key, "123") == 0 || std::strcmp(key, "ABC") == 0) {
+    if (std::strcmp(key, tr(lyra::i18n::StringId::NumbersKey)) == 0 ||
+        std::strcmp(key, tr(lyra::i18n::StringId::LettersKey)) == 0) {
         s_library_keyboard_symbols = !s_library_keyboard_symbols;
         render(s_view);
         return;
     }
     if (std::strcmp(key, "<") == 0) {
         if (length > 0) text[length - 1] = '\0';
-    } else if (std::strcmp(key, "SPACE") == 0) {
+    } else if (std::strcmp(key, tr(lyra::i18n::StringId::SpaceKey)) == 0) {
         if (length + 1 < capacity) {
             text[length] = ' ';
             text[length + 1] = '\0';
@@ -189,11 +195,11 @@ void toggle_search_keyboard_cb(lv_event_t *)
         lv_obj_remove_flag(s_search_keyboard, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_height(s_search_results,
                           content_height(kStatusHeight) - library_keyboard_height() - 84);
-        lv_label_set_text(s_search_keyboard_toggle, "HIDE");
+        lv_label_set_text(s_search_keyboard_toggle, tr(lyra::i18n::StringId::HideKeyboard));
     } else {
         lv_obj_add_flag(s_search_keyboard, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_height(s_search_results, content_height(kStatusHeight) - 84);
-        lv_label_set_text(s_search_keyboard_toggle, "KEYS");
+        lv_label_set_text(s_search_keyboard_toggle, tr(lyra::i18n::StringId::ShowKeyboard));
     }
     lv_obj_invalidate(s_search_results);
 }
@@ -220,7 +226,9 @@ void make_library_keyboard(lv_obj_t *keyboard, const char *action)
     const char *symbols_row1[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"};
     const char *symbols_row2[] = {"@", "#", "$", "_", "&", "-", "+", "(", ")"};
     const char *symbols_row3[] = {".", ",", "?", "!", "'", "\"", "=", "<"};
-    const char *row4[] = {s_library_keyboard_symbols ? "ABC" : "123", "SPACE", action};
+    const char *row4[] = {s_library_keyboard_symbols ? tr(lyra::i18n::StringId::LettersKey) :
+                                                         tr(lyra::i18n::StringId::NumbersKey),
+                          tr(lyra::i18n::StringId::SpaceKey), action};
     const char **keys_row1 = s_library_keyboard_symbols ? symbols_row1 : letters_row1;
     const char **keys_row2 = s_library_keyboard_symbols ? symbols_row2 : letters_row2;
     const char **keys_row3 = s_library_keyboard_symbols ? symbols_row3 : letters_row3;
@@ -251,7 +259,9 @@ void render_search()
     lv_obj_align(s_search_label, LV_ALIGN_LEFT_MID, 37, 0);
     update_search_label();
     lv_obj_t *toggle = make_button(body, 248, 4, 63, 43, kSurfaceRaised, 7);
-    s_search_keyboard_toggle = make_label(toggle, s_search_keyboard_visible ? "HIDE" : "KEYS", kAccent);
+    s_search_keyboard_toggle = make_label(toggle, s_search_keyboard_visible ?
+                                          tr(lyra::i18n::StringId::HideKeyboard) :
+                                          tr(lyra::i18n::StringId::ShowKeyboard), kAccent);
     lv_obj_center(s_search_keyboard_toggle);
     lv_obj_add_event_cb(toggle, toggle_search_keyboard_cb, LV_EVENT_CLICKED, nullptr);
     constexpr lyra::media::SearchCategory categories[] = {
@@ -260,8 +270,11 @@ void render_search()
         lyra::media::SearchCategory::Artists,
         lyra::media::SearchCategory::Playlists,
     };
-    constexpr const char *labels[] = {"Songs", "Albums", "Artists", "Playlists"};
     for (size_t i = 0; i < sizeof(categories) / sizeof(categories[0]); ++i) {
+        const char *labels[] = {tr(lyra::i18n::StringId::Songs),
+                                tr(lyra::i18n::StringId::Albums),
+                                tr(lyra::i18n::StringId::Artists),
+                                tr(lyra::i18n::StringId::Playlists)};
         lv_obj_t *tab = make_button(body, 7 + static_cast<int>(i) * 77, 52, 72, 28,
                                     categories[i] == s_search_category ? kAccentDark : kSurfaceRaised, 5);
         lv_obj_t *tab_label = make_label(tab, labels[i],
@@ -279,13 +292,13 @@ void render_search()
     populate_search_results();
     s_search_keyboard = make_box(body, 0, keyboard_y, 320, keyboard_height, kKeyboardSurface);
     lv_obj_t *keyboard = s_search_keyboard;
-    make_library_keyboard(keyboard, "SEARCH");
+    make_library_keyboard(keyboard, tr(lyra::i18n::StringId::SearchKey));
     if (!s_search_keyboard_visible) lv_obj_add_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
 }
 
 void render_playlist_create()
 {
-    make_header("New Playlist", View::Playlists, true);
+    make_header(tr(lyra::i18n::StringId::NewPlaylist), View::Playlists, true);
     lv_obj_t *body = make_box(s_screen, 0, 72, 320, content_height(72), kBackground);
     lv_obj_t *input = make_box(body, 9, 8, 302, 43, kSurfaceRaised, 7);
     s_search_label = make_label(input, "", kTextMuted);
@@ -294,7 +307,7 @@ void render_playlist_create()
     const int keyboard_height = library_keyboard_height();
     const int keyboard_y = content_height(72) - keyboard_height;
     lv_obj_t *keyboard = make_box(body, 0, keyboard_y, 320, keyboard_height, kKeyboardSurface);
-    make_library_keyboard(keyboard, "SAVE");
+    make_library_keyboard(keyboard, tr(lyra::i18n::StringId::SaveKey));
 }
 
 void add_playlist_track_cb(lv_event_t *event)

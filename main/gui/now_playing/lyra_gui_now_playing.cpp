@@ -110,8 +110,8 @@ void render_player(bool fullscreen)
 {
     lyra::media::Track track{};
     if (!lyra::media::track_at(s_current_track, &track)) {
-        make_header("Now Playing", View::Menu, true);
-        lv_obj_t *empty = make_label(s_screen, "No track selected\n\nScan a MicroSD card, then choose a song.", kTextMuted);
+        make_header(tr(lyra::i18n::StringId::NowPlaying), View::Menu, true);
+        lv_obj_t *empty = make_label(s_screen, tr(lyra::i18n::StringId::NoTrackSelectedAndScan), kTextMuted);
         lv_obj_align(empty, LV_ALIGN_CENTER, 0, -20);
         return;
     }

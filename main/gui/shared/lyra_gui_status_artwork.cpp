@@ -75,7 +75,7 @@ void show_notice(const char *title_text, const char *message_text)
     lv_label_set_long_mode(message, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(message, LV_ALIGN_CENTER, 0, -3);
     lv_obj_t *close = make_button(dialog, 78, 134, 116, 44, kAccentDark, 7);
-    lv_obj_t *close_label = make_label(close, "OK", kTextOnAccent);
+    lv_obj_t *close_label = make_label(close, tr(lyra::i18n::StringId::Ok), kTextOnAccent);
     lv_obj_center(close_label);
     lv_obj_add_event_cb(close, dismiss_overlay_cb, LV_EVENT_CLICKED, overlay);
 }

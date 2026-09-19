@@ -508,7 +508,7 @@ void show_volume_popup_cb(lv_event_t *)
     lv_obj_set_style_shadow_opa(s_volume_popup, LV_OPA_40, 0);
     lv_obj_move_foreground(s_volume_popup);
 
-    lv_obj_t *title = make_label(s_volume_popup, "Volume", kTextPrimary);
+    lv_obj_t *title = make_label(s_volume_popup, tr(lyra::i18n::StringId::Volume), kTextPrimary);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, 12);
     char value_text[16];
     std::snprintf(value_text, sizeof(value_text), "%u%%",

@@ -72,7 +72,7 @@ void accent_colour_cb(lv_event_t *event)
 void make_accent_selector(lv_obj_t *parent, int y)
 {
     lv_obj_t *card = make_box(parent, 7, y, 306, 110, kSurface, 6);
-    lv_obj_t *title = make_label(card, "Accent colour", kTextPrimary);
+    lv_obj_t *title = make_label(card, tr(lyra::i18n::StringId::AccentColour), kTextPrimary);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 12, 9);
 
     for (size_t index = 0; index < kAccentPaletteCount; ++index) {
@@ -147,7 +147,7 @@ void make_volume_control(lv_obj_t *parent, int y)
 {
     const lyra::audio::Status audio_status = lyra::audio::status();
     lv_obj_t *card = make_box(parent, 7, y, 306, 84, kSurface, 6);
-    lv_obj_t *title = make_label(card, "Volume", kTextPrimary);
+    lv_obj_t *title = make_label(card, tr(lyra::i18n::StringId::Volume), kTextPrimary);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 12, 10);
     char value_text[32];
     std::snprintf(value_text, sizeof(value_text), "%u%%",
@@ -195,7 +195,7 @@ void brightness_slider_released_cb(lv_event_t *)
 void make_brightness_control(lv_obj_t *parent, int y)
 {
     lv_obj_t *card = make_box(parent, 7, y, 306, 84, kSurface, 6);
-    lv_obj_t *title = make_label(card, "Brightness", kTextPrimary);
+    lv_obj_t *title = make_label(card, tr(lyra::i18n::StringId::Brightness), kTextPrimary);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 12, 10);
     char value_text[16];
     std::snprintf(value_text, sizeof(value_text), "%u%%", static_cast<unsigned>(s_brightness_percent));
@@ -221,29 +221,30 @@ void make_brightness_control(lv_obj_t *parent, int y)
 const char *sort_section_name(lyra::media::SortSection section)
 {
     switch (section) {
-    case lyra::media::SortSection::Songs: return "Songs";
-    case lyra::media::SortSection::Albums: return "Albums";
-    case lyra::media::SortSection::Artists: return "Artists";
+    case lyra::media::SortSection::Songs: return tr(lyra::i18n::StringId::Songs);
+    case lyra::media::SortSection::Albums: return tr(lyra::i18n::StringId::Albums);
+    case lyra::media::SortSection::Artists: return tr(lyra::i18n::StringId::Artists);
     }
-    return "Songs";
+    return tr(lyra::i18n::StringId::Songs);
 }
 
 const char *sort_field_name(lyra::media::SortField field)
 {
     switch (field) {
-    case lyra::media::SortField::Title: return "Title";
-    case lyra::media::SortField::Album: return "Album";
-    case lyra::media::SortField::TrackNumber: return "Track Number";
-    case lyra::media::SortField::Duration: return "Duration";
-    case lyra::media::SortField::Artist: return "Artist";
-    case lyra::media::SortField::DateModified: return "Date Modified";
+    case lyra::media::SortField::Title: return tr(lyra::i18n::StringId::SortTitle);
+    case lyra::media::SortField::Album: return tr(lyra::i18n::StringId::SortAlbum);
+    case lyra::media::SortField::TrackNumber: return tr(lyra::i18n::StringId::SortTrackNumber);
+    case lyra::media::SortField::Duration: return tr(lyra::i18n::StringId::SortDuration);
+    case lyra::media::SortField::Artist: return tr(lyra::i18n::StringId::SortArtist);
+    case lyra::media::SortField::DateModified: return tr(lyra::i18n::StringId::SortDateModified);
     }
-    return "Title";
+    return tr(lyra::i18n::StringId::SortTitle);
 }
 
 const char *sort_direction_name(lyra::media::SortDirection direction)
 {
-    return direction == lyra::media::SortDirection::Ascending ? "Ascending" : "Descending";
+    return direction == lyra::media::SortDirection::Ascending ?
+        tr(lyra::i18n::StringId::Ascending) : tr(lyra::i18n::StringId::Descending);
 }
 
 void sorting_section_cb(lv_event_t *event)
@@ -268,17 +269,17 @@ void sorting_option_cb(lv_event_t *event)
 
 void render_sorting_settings()
 {
-    make_header("Sorting", View::Settings, true);
+    make_header(tr(lyra::i18n::StringId::Sorting), View::Settings, true);
     lv_obj_t *body = make_scroll_body(72);
     constexpr lyra::media::SortSection sections[] = {
         lyra::media::SortSection::Songs,
         lyra::media::SortSection::Albums,
         lyra::media::SortSection::Artists,
     };
-    constexpr const char *subtitles[] = {
-        "Choose the order of every song",
-        "Choose the order of album rows",
-        "Choose the order of artist rows",
+    const char *subtitles[] = {
+        tr(lyra::i18n::StringId::ChooseSongOrder),
+        tr(lyra::i18n::StringId::ChooseAlbumOrder),
+        tr(lyra::i18n::StringId::ChooseArtistOrder),
     };
     for (size_t index = 0; index < 3; ++index) {
         lv_obj_t *row = make_row(body, static_cast<int>(index) * 58, LV_SYMBOL_LIST,
@@ -298,8 +299,9 @@ void make_sorting_option_row(lv_obj_t *parent, int y, lyra::media::SortField fie
     lv_obj_t *row = make_button(parent, 7, y, 306, 54,
                                 active ? kAccentSurface : kSurface, 6);
     char title[64];
-    std::snprintf(title, sizeof(title), "%s / %s", sort_field_name(field),
-                  sort_direction_name(direction));
+    format_text_text(lyra::i18n::StringId::SortFieldDirection,
+                     sort_field_name(field), sort_direction_name(direction),
+                     title, sizeof(title));
     lv_obj_t *label = make_label(row, title, active ? kAccent : kTextPrimary);
     make_marquee(label, 232);
     lv_obj_align(label, LV_ALIGN_LEFT_MID, 12, 0);
@@ -316,7 +318,8 @@ void make_sorting_option_row(lv_obj_t *parent, int y, lyra::media::SortField fie
 void render_sorting_options()
 {
     char title[32];
-    std::snprintf(title, sizeof(title), "Sort %s", sort_section_name(s_sort_section));
+    format_text(lyra::i18n::StringId::SortBy, sort_section_name(s_sort_section),
+                title, sizeof(title));
     make_header(title, View::SortingSettings, true);
     lv_obj_t *body = make_scroll_body(72);
     const lyra::media::SortSetting selected = lyra::media::sort_setting(s_sort_section);
@@ -382,10 +385,14 @@ void sleep_timer_option_cb(lv_event_t *event)
 
 void render_crossfade_options()
 {
-    make_header("Crossfade", View::PlaybackSettings, true);
+    make_header(tr(lyra::i18n::StringId::Crossfade), View::PlaybackSettings, true);
     lv_obj_t *body = make_scroll_body(72);
     constexpr uint8_t values[] = {0, 1, 2, 4, 6};
-    constexpr const char *labels[] = {"Off", "1 second", "2 seconds", "4 seconds", "6 seconds"};
+    const char *labels[] = {tr(lyra::i18n::StringId::Off),
+                            tr(lyra::i18n::StringId::OneSecond),
+                            tr(lyra::i18n::StringId::TwoSeconds),
+                            tr(lyra::i18n::StringId::FourSeconds),
+                            tr(lyra::i18n::StringId::SixSeconds)};
     for (size_t index = 0; index < sizeof(values) / sizeof(values[0]); ++index) {
         make_playback_option_row(body, static_cast<int>(index) * 58, labels[index],
                                  s_crossfade_seconds == values[index], crossfade_option_cb,
@@ -395,10 +402,14 @@ void render_crossfade_options()
 
 void render_sleep_timer_options()
 {
-    make_header("Sleep timer", View::PlaybackSettings, true);
+    make_header(tr(lyra::i18n::StringId::SleepTimer), View::PlaybackSettings, true);
     lv_obj_t *body = make_scroll_body(72);
     constexpr uint16_t values[] = {0, 15, 30, 45, 60};
-    constexpr const char *labels[] = {"Off", "15 minutes", "30 minutes", "45 minutes", "60 minutes"};
+    const char *labels[] = {tr(lyra::i18n::StringId::Off),
+                            tr(lyra::i18n::StringId::FifteenMinutes),
+                            tr(lyra::i18n::StringId::ThirtyMinutes),
+                            tr(lyra::i18n::StringId::FortyFiveMinutes),
+                            tr(lyra::i18n::StringId::SixtyMinutes)};
     for (size_t index = 0; index < sizeof(values) / sizeof(values[0]); ++index) {
         make_playback_option_row(body, static_cast<int>(index) * 58, labels[index],
                                  s_sleep_timer_minutes == values[index], sleep_timer_option_cb,
@@ -408,14 +419,14 @@ void render_sleep_timer_options()
 
 void render_settings_menu()
 {
-    make_header("Settings", View::Menu, true);
+    make_header(tr(lyra::i18n::StringId::Settings), View::Menu, true);
     lv_obj_t *body = make_scroll_body(72);
-    make_row(body, 0, LV_SYMBOL_PLAY, "Playback", nullptr, View::PlaybackSettings, 54);
-    make_row(body, 58, LV_SYMBOL_VOLUME_MID, "Sound", nullptr, View::SoundSettings, 54);
-    make_row(body, 116, LV_SYMBOL_IMAGE, "Display", nullptr, View::DisplaySettings, 54);
-    make_row(body, 174, LV_SYMBOL_LIST, "Sorting", nullptr, View::SortingSettings, 54);
-    make_row(body, 232, LV_SYMBOL_SETTINGS, "System", nullptr, View::SystemSettings, 54);
-    make_row(body, 290, LV_SYMBOL_WARNING, "About", nullptr, View::About, 54);
+    make_row(body, 0, LV_SYMBOL_PLAY, tr(lyra::i18n::StringId::Playback), nullptr, View::PlaybackSettings, 54);
+    make_row(body, 58, LV_SYMBOL_VOLUME_MID, tr(lyra::i18n::StringId::Sound), nullptr, View::SoundSettings, 54);
+    make_row(body, 116, LV_SYMBOL_IMAGE, tr(lyra::i18n::StringId::Display), nullptr, View::DisplaySettings, 54);
+    make_row(body, 174, LV_SYMBOL_LIST, tr(lyra::i18n::StringId::Sorting), nullptr, View::SortingSettings, 54);
+    make_row(body, 232, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::System), nullptr, View::SystemSettings, 54);
+    make_row(body, 290, LV_SYMBOL_WARNING, tr(lyra::i18n::StringId::About), nullptr, View::About, 54);
 }
 
 void scan_library_cb(lv_event_t *)
@@ -438,11 +449,14 @@ void scan_library_cb(lv_event_t *)
     lv_obj_set_style_arc_color(spinner, kAccent, LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(spinner, 6, LV_PART_MAIN);
     lv_obj_set_style_arc_width(spinner, 6, LV_PART_INDICATOR);
-    lv_obj_t *title = make_label(dialog, "SCANNING MUSIC LIBRARY", kTextPrimary);
+    lv_obj_t *title = make_label(dialog, tr(lyra::i18n::StringId::ScanningMusicLibrary), kTextPrimary);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 105);
-    s_scan_count_label = make_label(dialog, "0 songs found", kAccent);
+    char initial_count[32];
+    format_count(lyra::i18n::StringId::ScanSongsFound, 0,
+                 initial_count, sizeof(initial_count));
+    s_scan_count_label = make_label(dialog, initial_count, kAccent);
     lv_obj_align(s_scan_count_label, LV_ALIGN_TOP_MID, 0, 137);
-    s_scan_phase_label = make_label(dialog, "Reading MicroSD folders...", kTextSecondary);
+    s_scan_phase_label = make_label(dialog, tr(lyra::i18n::StringId::ReadingMicroSdFolders), kTextSecondary);
     lv_obj_align(s_scan_phase_label, LV_ALIGN_TOP_MID, 0, 169);
 }
 
@@ -519,9 +533,9 @@ void confirm_power_action_cb(lv_event_t *event)
         reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
     style_root();
     lv_obj_t *label = make_label(s_screen,
-                                 action == PowerAction::Reboot ? "REBOOTING\n\nSafely unmounting MicroSD..."
-                                                                : "POWERING OFF\n\nSafely unmounting MicroSD...",
-                                 kTextPrimary);
+                                 action == PowerAction::Reboot ?
+                                 tr(lyra::i18n::StringId::Rebooting) :
+                                 tr(lyra::i18n::StringId::PoweringOff), kTextPrimary);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, -10);
     if (xTaskCreatePinnedToCore(power_action_task, "lyra_power", 4096,
@@ -544,26 +558,28 @@ void show_power_confirmation(PowerAction action)
     lv_obj_set_style_bg_opa(overlay, LV_OPA_90, 0);
     lv_obj_move_foreground(overlay);
     lv_obj_t *dialog = make_box(overlay, 20, 132, 280, 216, kSurfaceRaised, 12);
-    lv_obj_t *title = make_label(dialog, action == PowerAction::Reboot ? "Reboot Lyra?" : "Power off Lyra?",
-                                 kTextPrimary);
+    lv_obj_t *title = make_label(dialog, action == PowerAction::Reboot ?
+                                 tr(lyra::i18n::StringId::RebootLyraQuestion) :
+                                 tr(lyra::i18n::StringId::PowerOffLyraQuestion), kTextPrimary);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 22);
     lv_obj_t *message = make_label(dialog,
-                                   action == PowerAction::Reboot
-                                       ? "The MicroSD card will be safely\nunmounted before restarting."
-                                       : "The MicroSD card will be safely\nunmounted before deep sleep.",
+                                   action == PowerAction::Reboot ?
+                                       tr(lyra::i18n::StringId::RebootMessage) :
+                                       tr(lyra::i18n::StringId::PowerOffMessage),
                                    kTextSecondary);
     lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(message, LV_ALIGN_CENTER, 0, -15);
 
     lv_obj_t *cancel = make_button(dialog, 14, 152, 116, 48, kSurface, 7);
-    lv_obj_t *cancel_label = make_label(cancel, "CANCEL", kTextSecondary);
+    lv_obj_t *cancel_label = make_label(cancel, tr(lyra::i18n::StringId::Cancel), kTextSecondary);
     lv_obj_center(cancel_label);
     lv_obj_add_event_cb(cancel, cancel_power_action_cb, LV_EVENT_CLICKED, overlay);
 
     lv_obj_t *confirm = make_button(dialog, 150, 152, 116, 48,
                                     action == PowerAction::Reboot ? kAccentDark : lv_color_hex(0x991B1B), 7);
-    lv_obj_t *confirm_label = make_label(confirm, action == PowerAction::Reboot ? "REBOOT" : "POWER OFF",
-                                         kTextOnAccent);
+    lv_obj_t *confirm_label = make_label(confirm, action == PowerAction::Reboot ?
+                                         tr(lyra::i18n::StringId::Reboot) :
+                                         tr(lyra::i18n::StringId::PowerOffButton), kTextOnAccent);
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm, confirm_power_action_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(action)));
@@ -581,13 +597,15 @@ void confirm_database_action_cb(lv_event_t *event)
                                                                  lyra::media::clear_all_databases();
     if (result == ESP_OK) {
         copy_ui_text(s_database_status, sizeof(s_database_status),
-                     action == DatabaseAction::Playlists ? "Playlists cleared" :
-                     action == DatabaseAction::Artwork ? "Album art cache cleared" :
-                                                          "Databases cleared - rescan required");
+                     action == DatabaseAction::Playlists ? tr(lyra::i18n::StringId::PlaylistsCleared) :
+                     action == DatabaseAction::Artwork ? tr(lyra::i18n::StringId::AlbumArtCacheCleared) :
+                     tr(lyra::i18n::StringId::DatabasesClearedRescan));
     } else if (result == ESP_ERR_INVALID_STATE) {
-        copy_ui_text(s_database_status, sizeof(s_database_status), "Storage busy - try again shortly");
+        copy_ui_text(s_database_status, sizeof(s_database_status),
+                     tr(lyra::i18n::StringId::StorageBusy));
     } else {
-        copy_ui_text(s_database_status, sizeof(s_database_status), "Could not clear storage");
+        copy_ui_text(s_database_status, sizeof(s_database_status),
+                     tr(lyra::i18n::StringId::CouldNotClearStorage));
     }
     render(View::DatabaseStorage);
 }
@@ -598,14 +616,16 @@ void show_database_confirmation(DatabaseAction action)
     lv_obj_set_style_bg_opa(overlay, LV_OPA_90, 0);
     lv_obj_move_foreground(overlay);
     lv_obj_t *dialog = make_box(overlay, 20, 118, 280, 244, kSurfaceRaised, 12);
-    const char *title_text = action == DatabaseAction::Playlists ? "Clear playlists?" :
-                             action == DatabaseAction::Artwork ? "Clear album art cache?" :
-                                                                 "Clear all databases?";
+    const char *title_text = action == DatabaseAction::Playlists ?
+                             tr(lyra::i18n::StringId::ClearPlaylistsQuestion) :
+                             action == DatabaseAction::Artwork ?
+                             tr(lyra::i18n::StringId::ClearAlbumArtQuestion) :
+                             tr(lyra::i18n::StringId::ClearAllDatabasesQuestion);
     const char *message_text = action == DatabaseAction::Playlists ?
-        "Every saved playlist and favorite\nwill be removed." :
+        tr(lyra::i18n::StringId::ClearPlaylistsMessage) :
         action == DatabaseAction::Artwork ?
-        "Large decoded covers will be removed.\nThey regenerate when needed." :
-        "Library index, playlists, and artwork\ncache will be removed. Music files stay.\nA rescan is required.";
+        tr(lyra::i18n::StringId::ClearAlbumArtMessage) :
+        tr(lyra::i18n::StringId::ClearAllDatabasesMessage);
     lv_obj_t *title = make_label(dialog, title_text, kTextPrimary);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 22);
     lv_obj_t *message = make_label(dialog, message_text, kTextSecondary);
@@ -614,11 +634,11 @@ void show_database_confirmation(DatabaseAction action)
     lv_label_set_long_mode(message, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(message, LV_ALIGN_CENTER, 0, -17);
     lv_obj_t *cancel = make_button(dialog, 14, 180, 116, 48, kSurface, 7);
-    lv_obj_t *cancel_label = make_label(cancel, "CANCEL", kTextSecondary);
+    lv_obj_t *cancel_label = make_label(cancel, tr(lyra::i18n::StringId::Cancel), kTextSecondary);
     lv_obj_center(cancel_label);
     lv_obj_add_event_cb(cancel, cancel_power_action_cb, LV_EVENT_CLICKED, overlay);
     lv_obj_t *confirm = make_button(dialog, 150, 180, 116, 48, lv_color_hex(0x991B1B), 7);
-    lv_obj_t *confirm_label = make_label(confirm, "CLEAR", kTextOnAccent);
+    lv_obj_t *confirm_label = make_label(confirm, tr(lyra::i18n::StringId::Clear), kTextOnAccent);
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm, confirm_database_action_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(action)));
@@ -632,20 +652,25 @@ void database_action_cb(lv_event_t *event)
 
 void render_database_storage()
 {
-    make_header("Database Storage", View::SystemSettings, true);
+    make_header(tr(lyra::i18n::StringId::DatabaseStorage), View::SystemSettings, true);
     lv_obj_t *body = make_scroll_body(72);
-    lv_obj_t *playlists = make_row(body, 0, LV_SYMBOL_LIST, "Clear Playlists",
-                                   "Remove playlists and favorites", View::DatabaseStorage, 62);
+    lv_obj_t *playlists = make_row(body, 0, LV_SYMBOL_LIST,
+                                   tr(lyra::i18n::StringId::ClearPlaylists),
+                                   tr(lyra::i18n::StringId::RemovePlaylistsFavorites),
+                                   View::DatabaseStorage, 62);
     lv_obj_remove_event_cb(playlists, route_cb);
     lv_obj_add_event_cb(playlists, database_action_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(DatabaseAction::Playlists)));
-    lv_obj_t *artwork = make_row(body, 66, LV_SYMBOL_IMAGE, "Clear Album Art Cache",
-                                 "Remove large decoded covers", View::DatabaseStorage, 62);
+    lv_obj_t *artwork = make_row(body, 66, LV_SYMBOL_IMAGE,
+                                 tr(lyra::i18n::StringId::ClearAlbumArtCache),
+                                 tr(lyra::i18n::StringId::RemoveLargeDecodedCovers),
+                                 View::DatabaseStorage, 62);
     lv_obj_remove_event_cb(artwork, route_cb);
     lv_obj_add_event_cb(artwork, database_action_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(DatabaseAction::Artwork)));
-    lv_obj_t *all = make_row(body, 132, LV_SYMBOL_WARNING, "Clear All Databases",
-                             "Music library rescan required", View::DatabaseStorage, 62);
+    lv_obj_t *all = make_row(body, 132, LV_SYMBOL_WARNING,
+                             tr(lyra::i18n::StringId::ClearAllDatabases),
+                             tr(lyra::i18n::StringId::RescanRequired), View::DatabaseStorage, 62);
     lv_obj_set_style_bg_color(all, kDangerSurface, 0);
     lv_obj_remove_event_cb(all, route_cb);
     lv_obj_add_event_cb(all, database_action_cb, LV_EVENT_CLICKED,
@@ -658,32 +683,36 @@ void render_database_storage()
 
 void render_settings_page(View view)
 {
-    const char *title = view == View::PlaybackSettings ? "Playback" :
-                        view == View::SoundSettings ? "Sound" :
-                        view == View::DisplaySettings ? "Display" : "System";
+    const char *title = view == View::PlaybackSettings ? tr(lyra::i18n::StringId::Playback) :
+                        view == View::SoundSettings ? tr(lyra::i18n::StringId::Sound) :
+                        view == View::DisplaySettings ? tr(lyra::i18n::StringId::Display) :
+                        tr(lyra::i18n::StringId::System);
     make_header(title, View::Settings, true);
     lv_obj_t *body = make_scroll_body(72);
     if (view == View::PlaybackSettings) {
-        make_setting_toggle(body, 0, "Gapless playback", nullptr, &s_gapless);
-        make_setting_toggle(body, 66, "ReplayGain", nullptr, &s_replay_gain);
-        make_row(body, 132, LV_SYMBOL_LOOP, "Crossfade", nullptr, View::CrossfadeOptions, 54);
-        make_row(body, 190, LV_SYMBOL_WARNING, "Sleep timer", nullptr, View::SleepTimerOptions, 54);
+        make_setting_toggle(body, 0, tr(lyra::i18n::StringId::GaplessPlayback), nullptr, &s_gapless);
+        make_setting_toggle(body, 66, tr(lyra::i18n::StringId::ReplayGain), nullptr, &s_replay_gain);
+        make_row(body, 132, LV_SYMBOL_LOOP, tr(lyra::i18n::StringId::Crossfade), nullptr, View::CrossfadeOptions, 54);
+        make_row(body, 190, LV_SYMBOL_WARNING, tr(lyra::i18n::StringId::SleepTimer), nullptr, View::SleepTimerOptions, 54);
     } else if (view == View::SoundSettings) {
         make_volume_control(body, 0);
-        make_setting_toggle(body, 92, "On-board speaker",
-                            "Also play through the built-in speaker",
+        make_setting_toggle(body, 92, tr(lyra::i18n::StringId::OnBoardSpeaker),
+                            tr(lyra::i18n::StringId::AlsoBuiltInSpeaker),
                             &s_speaker_output_enabled);
-        make_row(body, 158, LV_SYMBOL_SETTINGS, "EQ preset",
+        make_row(body, 158, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::EqPreset),
                  equalizer_preset_name(s_equalizer_preset), View::Equalizer, 62);
     } else if (view == View::DisplaySettings) {
-        make_setting_toggle(body, 0, "Dark mode",
-                            s_dark_mode ? "Dark colours for the interface" :
-                                          "Light colours for the interface",
+        make_setting_toggle(body, 0, tr(lyra::i18n::StringId::DarkMode),
+                            s_dark_mode ? tr(lyra::i18n::StringId::DarkColours) :
+                                          tr(lyra::i18n::StringId::LightColours),
                             &s_dark_mode);
         make_accent_selector(body, 66);
-        make_setting_toggle(body, 182, "Virtual controls", "Show bottom navigation bar", &s_show_nav);
+        make_setting_toggle(body, 182, tr(lyra::i18n::StringId::VirtualControls),
+                            tr(lyra::i18n::StringId::ShowBottomNavigation), &s_show_nav);
         make_brightness_control(body, 248);
-        lv_obj_t *screen_timeout = make_row(body, 340, LV_SYMBOL_POWER, "Screen timeout", "Coming soon",
+        lv_obj_t *screen_timeout = make_row(body, 340, LV_SYMBOL_POWER,
+                                             tr(lyra::i18n::StringId::ScreenTimeout),
+                                             tr(lyra::i18n::StringId::ComingSoon),
                                              View::DisplaySettings, 62);
         lv_obj_remove_event_cb(screen_timeout, route_cb);
         lv_obj_set_style_opa(screen_timeout, LV_OPA_60, 0);
@@ -691,41 +720,48 @@ void render_settings_page(View view)
         const lyra::media::Status status = lyra::media::status();
         char sd_status[64];
         if (status.mounted) {
-            std::snprintf(sd_status, sizeof(sd_status), "Mounted / %.1f GB free",
-                          static_cast<double>(status.free_bytes) / (1024.0 * 1024.0 * 1024.0));
+            format_float(lyra::i18n::StringId::MountedFree,
+                         static_cast<double>(status.free_bytes) / (1024.0 * 1024.0 * 1024.0),
+                         sd_status, sizeof(sd_status));
         } else {
-            copy_ui_text(sd_status, sizeof(sd_status), "Not mounted (");
-            append_ui_text(sd_status, sizeof(sd_status), esp_err_to_name(status.last_error));
-            append_ui_text(sd_status, sizeof(sd_status), ")");
+            format_text(lyra::i18n::StringId::NotMounted,
+                        esp_err_to_name(status.last_error), sd_status, sizeof(sd_status));
         }
-        make_row(body, 0, LV_SYMBOL_SD_CARD, "MicroSD card", sd_status, View::SystemSettings, 62);
+        make_row(body, 0, LV_SYMBOL_SD_CARD, tr(lyra::i18n::StringId::MicroSdCard),
+                 sd_status, View::SystemSettings, 62);
         char scan_status[48];
         if (status.scanning) {
-            copy_ui_text(scan_status, sizeof(scan_status), "Scanning MicroSD...");
+            copy_ui_text(scan_status, sizeof(scan_status), tr(lyra::i18n::StringId::ScanningMicroSd));
         } else if (status.capacity_reached) {
-            copy_ui_text(scan_status, sizeof(scan_status), "10,000 tracks (library limit)");
+            copy_ui_text(scan_status, sizeof(scan_status), tr(lyra::i18n::StringId::LibraryLimit));
         } else {
-            std::snprintf(scan_status, sizeof(scan_status), "%u tracks indexed",
-                          static_cast<unsigned>(status.track_count));
+            format_u32(lyra::i18n::StringId::IndexedTracks,
+                       static_cast<uint32_t>(status.track_count), scan_status, sizeof(scan_status));
         }
-        lv_obj_t *scan = make_row(body, 66, LV_SYMBOL_REFRESH, "Scan music library", scan_status,
+        lv_obj_t *scan = make_row(body, 66, LV_SYMBOL_REFRESH,
+                                  tr(lyra::i18n::StringId::ScanMusicLibrary), scan_status,
                                   View::SystemSettings, 62);
         lv_obj_remove_event_cb(scan, route_cb);
         lv_obj_add_event_cb(scan, scan_library_cb, LV_EVENT_CLICKED, nullptr);
-        make_row(body, 132, LV_SYMBOL_DRIVE, "Database Storage", "Manage playlists and library data",
+        make_row(body, 132, LV_SYMBOL_DRIVE, tr(lyra::i18n::StringId::DatabaseStorage),
+                 tr(lyra::i18n::StringId::ManagePlaylistsLibrary),
                  View::DatabaseStorage, 62);
-        make_artwork_setting_toggle(body, 198, "SD album art cache",
-                                    "Allow oversized JPEG decoding",
+        make_artwork_setting_toggle(body, 198, tr(lyra::i18n::StringId::SdAlbumArtCache),
+                                    tr(lyra::i18n::StringId::AllowOversizedJpeg),
                                     status.artwork_sd_cache_enabled, ArtworkSetting::SdCache);
-        make_artwork_setting_toggle(body, 264, "320 x 320 album art",
-                                    "Use 240 x 240 when disabled",
+        make_artwork_setting_toggle(body, 264, tr(lyra::i18n::StringId::AlbumArt320),
+                                    tr(lyra::i18n::StringId::AlbumArt240WhenDisabled),
                                     status.artwork_size == lyra::media::kLargeArtworkSize,
                                     ArtworkSetting::Size320);
-        lv_obj_t *reboot = make_row(body, 330, LV_SYMBOL_REFRESH, "Reboot", "Safely restart Lyra",
+        lv_obj_t *reboot = make_row(body, 330, LV_SYMBOL_REFRESH,
+                                    tr(lyra::i18n::StringId::Reboot),
+                                    tr(lyra::i18n::StringId::SafelyRestartLyra),
                                     View::SystemSettings, 62);
         lv_obj_remove_event_cb(reboot, route_cb);
         lv_obj_add_event_cb(reboot, reboot_cb, LV_EVENT_CLICKED, nullptr);
-        lv_obj_t *power_off = make_row(body, 396, LV_SYMBOL_POWER, "Power off", "Safely unmount and sleep",
+        lv_obj_t *power_off = make_row(body, 396, LV_SYMBOL_POWER,
+                                       tr(lyra::i18n::StringId::PowerOff),
+                                       tr(lyra::i18n::StringId::SafelyUnmountAndSleep),
                                        View::SystemSettings, 62);
         lv_obj_remove_event_cb(power_off, route_cb);
         lv_obj_add_event_cb(power_off, power_off_cb, LV_EVENT_CLICKED, nullptr);
@@ -734,7 +770,7 @@ void render_settings_page(View view)
 
 void render_about()
 {
-    make_header("About", View::Settings, true);
+    make_header(tr(lyra::i18n::StringId::About), View::Settings, true);
     lv_obj_t *body = make_scroll_body(72);
     if (load_brand_logo()) {
         lv_obj_t *logo = lv_image_create(body);
@@ -754,47 +790,29 @@ void render_about()
             navigate_to(View::DebugMenu);
         }, LV_EVENT_LONG_PRESSED, nullptr);
     }
-    lv_obj_t *firmware_heading = make_label(body, "FIRMWARE VERSION", kTextMuted);
+    lv_obj_t *firmware_heading = make_label(body, tr(lyra::i18n::StringId::FirmwareVersion), kTextMuted);
     lv_obj_align(firmware_heading, LV_ALIGN_TOP_MID, 0, 112);
     lv_obj_t *firmware_version = make_label(body, "1.0.1", kTextPrimary);
     lv_obj_align(firmware_version, LV_ALIGN_TOP_MID, 0, 138);
-    lv_obj_t *hardware_heading = make_label(body, "HARDWARE ID", kTextMuted);
+    lv_obj_t *hardware_heading = make_label(body, tr(lyra::i18n::StringId::HardwareId), kTextMuted);
     lv_obj_align(hardware_heading, LV_ALIGN_TOP_MID, 0, 190);
     lv_obj_t *hardware_id = make_label(body, "JC3248W535EN", kTextPrimary);
     lv_obj_align(hardware_id, LV_ALIGN_TOP_MID, 0, 216);
     lv_obj_t *update = make_button(body, 36, 270, 248, 48, kSurface, 7, true);
-    lv_obj_t *update_label = make_label(update, "FIRMWARE UPDATE", kTextPrimary);
+    lv_obj_t *update_label = make_label(update, tr(lyra::i18n::StringId::FirmwareUpdate), kTextPrimary);
     lv_obj_center(update_label);
     lv_obj_add_event_cb(update, firmware_update_cb, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *licenses = make_button(body, 36, 326, 248, 48, kSurface, 7, true);
-    lv_obj_t *licenses_label = make_label(licenses, "LICENSES", kTextPrimary);
+    lv_obj_t *licenses_label = make_label(licenses, tr(lyra::i18n::StringId::Licenses), kTextPrimary);
     lv_obj_center(licenses_label);
     add_route(licenses, View::Licenses);
 }
 
 void render_licenses()
 {
-    make_header("Licenses", View::Settings, true);
+    make_header(tr(lyra::i18n::StringId::Licenses), View::Settings, true);
     lv_obj_t *body = make_scroll_body(72);
-    constexpr const char *notices =
-        "License notices for software included in this firmware.\n\n"
-        "Lyra firmware\nCopyright 2026 Emotivate Lyra contributors\nApache License 2.0\n\n"
-        "ESP-IDF\nCopyright Espressif Systems (Shanghai) Co., Ltd.\nApache License 2.0\n\n"
-        "LVGL\nCopyright 2025 LVGL Kft\nMIT License\n\n"
-        "Source Han Sans glyph data\nCopyright 2014 Adobe Systems Incorporated\n"
-        "Apache License 2.0\n\n"
-        "ESP Audio Codec\nCopyright 2025 Espressif Systems (Shanghai) Co., Ltd.\n"
-        "Espressif Modified MIT License\n\n"
-        "libjpeg-turbo\nCopyright 2009-2025 D. R. Commander\n"
-        "Copyright 2015 Viktor Szathmáry\nIJG, BSD-3-Clause, and zlib licenses\n\n"
-        "libpng\nCopyright 1995-2019 The PNG Reference Library Authors\n"
-        "Copyright 2018-2019 Cosmin Truta\n"
-        "Copyright 2000-2002, 2004, 2006-2018 Glenn Randers-Pehrson\n"
-        "Copyright 1996-1997 Andreas Dilger\n"
-        "Copyright 1995-1996 Guy Eric Schalnat, Group 42, Inc.\n"
-        "PNG Reference Library License\n\n"
-        "zlib\nCopyright 1995-2022 Jean-loup Gailly and Mark Adler\n"
-        "zlib License";
+    const char *notices = tr(lyra::i18n::StringId::LicenseNotices);
     lv_obj_t *text = make_label(body, notices, kTextSecondary);
     lv_obj_set_pos(text, 14, 14);
     lv_obj_set_width(text, 292);

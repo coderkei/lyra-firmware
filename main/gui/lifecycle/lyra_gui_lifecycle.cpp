@@ -171,7 +171,8 @@ void player_progress_poll_cb(lv_timer_t *)
         s_crossfade_pause_pending = false;
         lyra::audio::set_transition_gain(100);
         lyra::audio::stop();
-        show_notice("Sleep timer", "Playback stopped.");
+        show_notice(tr(lyra::i18n::StringId::SleepTimer),
+                    tr(lyra::i18n::StringId::PlaybackStopped));
     } else if (!audio_status.eof) {
         s_audio_eof_seen = false;
         s_pending_track_advance = false;
@@ -216,14 +217,14 @@ void show_sorting_overlay(const lyra::media::Status &status)
     lv_obj_set_style_arc_color(spinner, kAccent, LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(spinner, 6, LV_PART_MAIN);
     lv_obj_set_style_arc_width(spinner, 6, LV_PART_INDICATOR);
-    lv_obj_t *title = make_label(dialog, "PREPARING LIBRARY SORT", kTextPrimary);
+    lv_obj_t *title = make_label(dialog, tr(lyra::i18n::StringId::PreparingLibrarySort), kTextPrimary);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 105);
-    s_sort_progress_label = make_label(dialog, "Building sort cache...", kAccent);
+    s_sort_progress_label = make_label(dialog, tr(lyra::i18n::StringId::BuildingSortCache), kAccent);
     lv_obj_align(s_sort_progress_label, LV_ALIGN_TOP_MID, 0, 137);
     lv_obj_t *section = make_label(dialog,
         status.sorting_section == static_cast<uint8_t>(lyra::media::SortSection::Songs) ?
-            "Songs" : status.sorting_section == static_cast<uint8_t>(lyra::media::SortSection::Albums) ?
-            "Albums" : "Artists", kTextSecondary);
+            tr(lyra::i18n::StringId::Songs) : status.sorting_section == static_cast<uint8_t>(lyra::media::SortSection::Albums) ?
+            tr(lyra::i18n::StringId::Albums) : tr(lyra::i18n::StringId::Artists), kTextSecondary);
     lv_obj_align(section, LV_ALIGN_TOP_MID, 0, 169);
 }
 
@@ -231,9 +232,9 @@ void update_sorting_overlay(const lyra::media::Status &status)
 {
     if (!s_sort_progress_label) return;
     char progress[48];
-    std::snprintf(progress, sizeof(progress), "Preparing %u / %u",
-                  static_cast<unsigned>(status.sorting_indexed),
-                  static_cast<unsigned>(status.sorting_total));
+    format_u32_u32(lyra::i18n::StringId::PreparingProgress,
+                   static_cast<uint32_t>(status.sorting_indexed),
+                   static_cast<uint32_t>(status.sorting_total), progress, sizeof(progress));
     lv_label_set_text(s_sort_progress_label, progress);
 }
 
@@ -254,14 +255,17 @@ void catalog_poll_cb(lv_timer_t *)
     if (s_view == View::Search) {
         if (search.running && s_search_progress_label) {
             char progress[48];
-            std::snprintf(progress, sizeof(progress), "Searching %u / %u",
-                          static_cast<unsigned>(search.processed), static_cast<unsigned>(search.total));
+            format_u32_u32(lyra::i18n::StringId::SearchingProgress,
+                           static_cast<uint32_t>(search.processed),
+                           static_cast<uint32_t>(search.total), progress, sizeof(progress));
             lv_label_set_text(s_search_progress_label, progress);
         }
         if (search.generation != s_seen_search_generation) {
             s_seen_search_generation = search.generation;
             if (!search.running) {
-                if (search.result != ESP_OK) copy_ui_text(s_search_error, sizeof(s_search_error), "Search could not be completed");
+                if (search.result != ESP_OK) copy_ui_text(
+                    s_search_error, sizeof(s_search_error),
+                    tr(lyra::i18n::StringId::SearchCouldNotComplete));
                 render(View::Search);
                 return;
             }
@@ -271,12 +275,13 @@ void catalog_poll_cb(lv_timer_t *)
     }
     if (s_scan_overlay) {
         char count[48];
-        std::snprintf(count, sizeof(count), status.scan_found == 1 ? "%u song found" : "%u songs found",
-                      static_cast<unsigned>(status.scan_found));
+        format_count(lyra::i18n::StringId::ScanSongsFound,
+                     static_cast<uint32_t>(status.scan_found), count, sizeof(count));
         if (s_scan_count_label) lv_label_set_text(s_scan_count_label, count);
         if (s_scan_phase_label) {
             lv_label_set_text(s_scan_phase_label,
-                              status.scan_indexing ? "Building fast library indexes..." : "Reading MicroSD folders...");
+                              status.scan_indexing ? tr(lyra::i18n::StringId::BuildingLibraryIndexes) :
+                              tr(lyra::i18n::StringId::ReadingMicroSdFolders));
         }
         if (!status.scanning) render(View::SystemSettings);
         return;

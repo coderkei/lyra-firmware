@@ -11,7 +11,8 @@ void open_queue_cb(lv_event_t *)
 {
     if (s_view == View::Queue) return;
     if (!s_has_active_queue && !restore_saved_queue_if_pending()) {
-        show_notice("Queue empty", "Select a song to begin playback\nand build a queue.");
+        show_notice(tr(lyra::i18n::StringId::QueueEmpty),
+                    tr(lyra::i18n::StringId::QueueEmptyBuild));
         return;
     }
     push_navigation_state();
@@ -24,7 +25,8 @@ void open_queue_cb(lv_event_t *)
 bool show_now_playing()
 {
     if (!s_has_active_queue && !restore_saved_queue_if_pending()) {
-        show_notice("Queue empty", "Select a song to begin playback\nbefore opening Now Playing.");
+        show_notice(tr(lyra::i18n::StringId::QueueEmpty),
+                    tr(lyra::i18n::StringId::QueueEmptyNowPlaying));
         return false;
     }
     navigate_to(View::Player);
@@ -35,9 +37,11 @@ void open_library_cb(lv_event_t *)
 {
     const lyra::media::Status status = lyra::media::status();
     if (!status.mounted) {
-        show_notice("No MicroSD card", "Insert a MicroSD card to use\nthe music library.");
+        show_notice(tr(lyra::i18n::StringId::NoMicroSdCard),
+                    tr(lyra::i18n::StringId::InsertMicroSdLibrary));
     } else if (status.track_count == 0) {
-        show_notice("No scanned songs", "Use Settings > System > Scan\nmusic library first.");
+        show_notice(tr(lyra::i18n::StringId::NoScannedSongsTitle),
+                    tr(lyra::i18n::StringId::NoMusicScanned));
     } else {
         navigate_to(View::Library);
     }
@@ -46,7 +50,8 @@ void open_library_cb(lv_event_t *)
 void open_folders_cb(lv_event_t *)
 {
     if (!lyra::media::status().mounted) {
-        show_notice("No MicroSD card", "Insert a MicroSD card to browse\nits folders.");
+        show_notice(tr(lyra::i18n::StringId::NoMicroSdCard),
+                    tr(lyra::i18n::StringId::InsertMicroSdFolders));
     } else {
         navigate_to(View::Folders);
     }
@@ -54,17 +59,17 @@ void open_folders_cb(lv_event_t *)
 
 void render_menu()
 {
-    make_header("Menu", View::Menu);
+    make_header(tr(lyra::i18n::StringId::Menu), View::Menu);
     lv_obj_t *body = make_scroll_body(72);
     struct MenuItem { const char *icon; const char *label; View view; };
-    constexpr MenuItem items[] = {
-        {LV_SYMBOL_AUDIO, "Now Playing", View::Player},
-        {LV_SYMBOL_LIST, "Music Library", View::Library},
-        {LV_SYMBOL_DIRECTORY, "Browse Folders", View::Folders},
-        {LV_SYMBOL_LIST, "Queue", View::Queue},
-        {LV_SYMBOL_SETTINGS, "Equalizer", View::Equalizer},
-        {LV_SYMBOL_EDIT, "Search", View::Search},
-        {LV_SYMBOL_SETTINGS, "Settings", View::Settings},
+    const MenuItem items[] = {
+        {LV_SYMBOL_AUDIO, tr(lyra::i18n::StringId::NowPlaying), View::Player},
+        {LV_SYMBOL_LIST, tr(lyra::i18n::StringId::MusicLibrary), View::Library},
+        {LV_SYMBOL_DIRECTORY, tr(lyra::i18n::StringId::BrowseFolders), View::Folders},
+        {LV_SYMBOL_LIST, tr(lyra::i18n::StringId::Queue), View::Queue},
+        {LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::Equalizer), View::Equalizer},
+        {LV_SYMBOL_EDIT, tr(lyra::i18n::StringId::Search), View::Search},
+        {LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::Settings), View::Settings},
     };
     for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
         lv_obj_t *row = make_row(body, static_cast<int>(i) * 56, items[i].icon, items[i].label,
@@ -117,11 +122,12 @@ void render_queue()
 {
     const size_t count = s_has_active_queue ? playback_queue_count() : 0;
     char count_label[24];
-    std::snprintf(count_label, sizeof(count_label), "%u TRACKS", static_cast<unsigned>(count));
-    make_header("Queue", View::Menu, true, count_label);
+    format_u32(lyra::i18n::StringId::TracksCount, static_cast<uint32_t>(count),
+               count_label, sizeof(count_label));
+    make_header(tr(lyra::i18n::StringId::Queue), View::Menu, true, count_label);
     lv_obj_t *list = make_scroll_body(72);
     if (count == 0) {
-        make_label(list, "No active queue. Select a song to begin playback.", kTextMuted);
+        make_label(list, tr(lyra::i18n::StringId::NoActiveQueue), kTextMuted);
         return;
     }
 

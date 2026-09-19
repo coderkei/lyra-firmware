@@ -113,7 +113,7 @@ lyra::media::SearchCategory s_search_category = lyra::media::SearchCategory::Son
 lyra::media::SearchCategory s_submitted_search_category = lyra::media::SearchCategory::Songs;
 char s_search_error[48] = "";
 char s_playlist_name[lyra::media::kMaxName] = "";
-char s_track_list_title[lyra::media::kMaxName] = "All Songs";
+char s_track_list_title[lyra::media::kMaxName] = "";
 char s_folder_path[lyra::media::kMaxPath] = "/sdcard";
 char s_playback_folder_path[lyra::media::kMaxPath] = "/sdcard";
 char s_folder_names[32][lyra::media::kMaxName]{};

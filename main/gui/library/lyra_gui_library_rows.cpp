@@ -173,8 +173,13 @@ void make_file_row(lv_obj_t *parent, int y, size_t track_index, int height)
     make_marquee(name, 251);
     lv_obj_align(name, LV_ALIGN_LEFT_MID, 43, -9);
     char size[24];
-    if (track.size_bytes < 1024u * 1024u) std::snprintf(size, sizeof(size), "%.0f KB", track.size_bytes / 1024.0);
-    else std::snprintf(size, sizeof(size), "%.2f MB", track.size_bytes / (1024.0 * 1024.0));
+    if (track.size_bytes < 1024u * 1024u) {
+        format_float(lyra::i18n::StringId::SizeKilobytesWhole,
+                     track.size_bytes / 1024.0, size, sizeof(size));
+    } else {
+        format_float(lyra::i18n::StringId::SizeMegabytes,
+                     track.size_bytes / (1024.0 * 1024.0), size, sizeof(size));
+    }
     lv_obj_t *size_label = make_label(row, size, kTextSecondary);
     lv_obj_align(size_label, LV_ALIGN_LEFT_MID, 43, 11);
     add_track_route(row, track_index);

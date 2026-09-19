@@ -110,7 +110,8 @@ lv_obj_t *make_track_info_row(lv_obj_t *parent, int y, const char *label,
     if (clickable) lv_obj_set_style_bg_color(row, kSurfaceRaised, LV_STATE_PRESSED);
     lv_obj_t *label_view = make_label(row, label, kTextMuted);
     lv_obj_set_pos(label_view, 12, 6);
-    lv_obj_t *value_view = make_label(row, value && value[0] ? value : "Unavailable",
+    lv_obj_t *value_view = make_label(row, value && value[0] ? value :
+                                      tr(lyra::i18n::StringId::Unavailable),
                                       clickable ? kAccent : kTextPrimary);
     make_marquee(value_view, clickable ? 252 : 278);
     lv_obj_set_pos(value_view, 12, 25);
@@ -137,20 +138,23 @@ void make_track_info_tab_button(lv_obj_t *parent, int x, const char *label,
 void format_track_number(uint32_t number, char *output, size_t capacity)
 {
     if (!output || capacity == 0) return;
-    if (number == 0) copy_ui_text(output, capacity, "Unavailable");
+    if (number == 0) copy_ui_text(output, capacity, tr(lyra::i18n::StringId::Unavailable));
     else std::snprintf(output, capacity, "%u", static_cast<unsigned>(number));
 }
 
 void format_file_size(uint64_t bytes, char *output, size_t capacity)
 {
     if (!output || capacity == 0) return;
-    if (bytes < 1024u) std::snprintf(output, capacity, "%llu B",
-                                    static_cast<unsigned long long>(bytes));
-    else if (bytes < 1024u * 1024u) std::snprintf(output, capacity, "%.1f KB",
-                                                   bytes / 1024.0);
-    else if (bytes < 1024ull * 1024ull * 1024ull) std::snprintf(output, capacity, "%.2f MB",
-                                                                 bytes / (1024.0 * 1024.0));
-    else std::snprintf(output, capacity, "%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0));
+    if (bytes < 1024u) {
+        format_u64(lyra::i18n::StringId::SizeBytes, bytes, output, capacity);
+    } else if (bytes < 1024u * 1024u) {
+        format_float(lyra::i18n::StringId::SizeKilobytes, bytes / 1024.0, output, capacity);
+    } else if (bytes < 1024ull * 1024ull * 1024ull) {
+        format_float(lyra::i18n::StringId::SizeMegabytes, bytes / (1024.0 * 1024.0), output, capacity);
+    } else {
+        format_float(lyra::i18n::StringId::SizeGigabytes,
+                     bytes / (1024.0 * 1024.0 * 1024.0), output, capacity);
+    }
 }
 
 } // namespace lyra::gui::internal

@@ -32,6 +32,7 @@
 #include "lyra_board.h"
 #include "lyra_boot_test.h"
 #include "lyra_font.h"
+#include "lyra_i18n.h"
 #include "lvgl.h"
 #include "lyra_gui.h"
 #include "lyra_gui_settings.h"
@@ -42,6 +43,17 @@
 #include "nvs_flash.h"
 
 namespace lyra::gui::internal {
+
+using lyra::i18n::format_count;
+using lyra::i18n::format_float;
+using lyra::i18n::format_text;
+using lyra::i18n::format_text_text;
+using lyra::i18n::format_text_u32;
+using lyra::i18n::format_u32;
+using lyra::i18n::format_u32_text;
+using lyra::i18n::format_u32_u32;
+using lyra::i18n::format_u64;
+using lyra::i18n::tr;
 
 constexpr const char *kTag = "lyra.gui";
 constexpr int kScreenWidth = 320;

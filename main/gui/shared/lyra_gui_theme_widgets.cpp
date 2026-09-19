@@ -75,18 +75,18 @@ constexpr int16_t kEqualizerClassic[lyra::audio::kEqualizerBandCount] = {
 const char *equalizer_preset_name(EqualizerPreset preset)
 {
     switch (preset) {
-        case EqualizerPreset::Custom: return "Custom";
-        case EqualizerPreset::Flat: return "Flat";
-        case EqualizerPreset::FullBass: return "Full Bass";
-        case EqualizerPreset::FullTreble: return "Full Treble";
-        case EqualizerPreset::BassAndTreble: return "Bass & Treble";
-        case EqualizerPreset::Rock: return "Rock";
-        case EqualizerPreset::Pop: return "Pop";
-        case EqualizerPreset::Jazz: return "Jazz";
-        case EqualizerPreset::Classic: return "Classic";
+        case EqualizerPreset::Custom: return tr(lyra::i18n::StringId::Custom);
+        case EqualizerPreset::Flat: return tr(lyra::i18n::StringId::Flat);
+        case EqualizerPreset::FullBass: return tr(lyra::i18n::StringId::FullBass);
+        case EqualizerPreset::FullTreble: return tr(lyra::i18n::StringId::FullTreble);
+        case EqualizerPreset::BassAndTreble: return tr(lyra::i18n::StringId::BassAndTreble);
+        case EqualizerPreset::Rock: return tr(lyra::i18n::StringId::Rock);
+        case EqualizerPreset::Pop: return tr(lyra::i18n::StringId::Pop);
+        case EqualizerPreset::Jazz: return tr(lyra::i18n::StringId::Jazz);
+        case EqualizerPreset::Classic: return tr(lyra::i18n::StringId::Classic);
         case EqualizerPreset::Count: break;
     }
-    return "Custom";
+    return tr(lyra::i18n::StringId::Custom);
 }
 
 const int16_t *equalizer_preset_bands(EqualizerPreset preset)
