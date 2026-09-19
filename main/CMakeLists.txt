@@ -3,6 +3,7 @@ idf_component_register(
         "app_main.cpp"
         "lyra_boot_test.cpp"
         "lyra_gui.cpp"
+        "lyra_clock.cpp"
         "i18n/lyra_i18n.cpp"
         "gui/lyra_gui_state.cpp"
         "gui/shared/lyra_gui_theme_widgets.cpp"

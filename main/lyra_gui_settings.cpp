@@ -22,6 +22,9 @@ constexpr const char *kAccentColorKey = "accent_color";
 constexpr const char *kLanguageKey = "language";
 constexpr const char *kSpeakerOutputKey = "speaker_output";
 constexpr const char *kEqualizerPresetKey = "eq_preset";
+constexpr const char *kDateFormatKey = "date_format";
+constexpr const char *kUse24HourKey = "hour_24";
+constexpr const char *kDstKey = "dst";
 constexpr const char *kEqualizerBandKeys[kEqualizerBandCount] = {
     "eq_band_0", "eq_band_1", "eq_band_2", "eq_band_3", "eq_band_4",
 };
@@ -84,6 +87,15 @@ void load(Values *values, size_t accent_palette_count, uint8_t equalizer_preset_
             values->equalizer_custom_bands[band] = gain;
         }
     }
+    if (nvs_get_u8(handle, kDateFormatKey, &value) == ESP_OK && value < 3) {
+        values->date_format = value;
+    }
+    if (nvs_get_u8(handle, kUse24HourKey, &value) == ESP_OK && value <= 1) {
+        values->use_24_hour = value != 0;
+    }
+    if (nvs_get_u8(handle, kDstKey, &value) == ESP_OK && value <= 1) {
+        values->dst_enabled = value != 0;
+    }
     nvs_close(handle);
 }
 
@@ -117,6 +129,10 @@ esp_err_t save(const Values &values)
         result = nvs_set_i8(handle, kEqualizerBandKeys[band],
                             static_cast<int8_t>(values.equalizer_custom_bands[band]));
     }
+    if (result == ESP_OK) result = nvs_set_u8(handle, kDateFormatKey,
+                                               values.date_format < 3 ? values.date_format : 0);
+    if (result == ESP_OK) result = nvs_set_u8(handle, kUse24HourKey, values.use_24_hour ? 1 : 0);
+    if (result == ESP_OK) result = nvs_set_u8(handle, kDstKey, values.dst_enabled ? 1 : 0);
     if (result == ESP_OK) result = nvs_commit(handle);
     nvs_close(handle);
     if (result != ESP_OK) {

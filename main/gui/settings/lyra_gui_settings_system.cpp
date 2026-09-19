@@ -7,6 +7,68 @@
 
 namespace lyra::gui::internal {
 
+namespace {
+
+const char *clock_date_format_name()
+{
+    switch (s_date_format) {
+    case DateFormat::DayMonthYear: return tr(lyra::i18n::StringId::DateFormatDayMonth);
+    case DateFormat::MonthDayYear: return tr(lyra::i18n::StringId::DateFormatMonthDay);
+    case DateFormat::YearMonthDay: return tr(lyra::i18n::StringId::DateFormatYearMonth);
+    }
+    return tr(lyra::i18n::StringId::DateFormatDayMonth);
+}
+
+const char *clock_time_format_name()
+{
+    return s_use_24_hour ? tr(lyra::i18n::StringId::TwentyFourHour) :
+                           tr(lyra::i18n::StringId::TwelveHour);
+}
+
+const char *clock_dst_name()
+{
+    return s_dst_enabled ? tr(lyra::i18n::StringId::DaylightSavingOn) :
+                           tr(lyra::i18n::StringId::DaylightSavingOff);
+}
+
+} // namespace
+
+void format_clock_time(const lyra::clock::DateTime &value, char *output, size_t capacity)
+{
+    if (!output || capacity == 0) return;
+    if (s_use_24_hour) {
+        std::snprintf(output, capacity, "%02d:%02d", value.hour, value.minute);
+        return;
+    }
+    const bool pm = value.hour >= 12;
+    int hour = value.hour % 12;
+    if (hour == 0) hour = 12;
+    std::snprintf(output, capacity, "%d:%02d %s", hour, value.minute,
+                  tr(pm ? lyra::i18n::StringId::Pm : lyra::i18n::StringId::Am));
+}
+
+void format_clock_date_time(const lyra::clock::DateTime &value,
+                            char *output, size_t capacity)
+{
+    if (!output || capacity == 0) return;
+    char time_text[16];
+    format_clock_time(value, time_text, sizeof(time_text));
+    switch (s_date_format) {
+    case DateFormat::DayMonthYear:
+        std::snprintf(output, capacity, "%02d/%02d/%04d %s",
+                      value.day, value.month, value.year, time_text);
+        break;
+    case DateFormat::MonthDayYear:
+        std::snprintf(output, capacity, "%02d/%02d/%04d %s",
+                      value.month, value.day, value.year, time_text);
+        break;
+    case DateFormat::YearMonthDay:
+        std::snprintf(output, capacity, "%04d-%02d-%02d %s",
+                      value.year, value.month, value.day, time_text);
+        break;
+    }
+}
+
 void toggle_bool_cb(lv_event_t *event)
 {
     lv_obj_t *toggle = static_cast<lv_obj_t *>(lv_event_get_user_data(event));
@@ -346,6 +408,328 @@ void render_sorting_options()
                                     direction, selected);
         }
     }
+}
+
+void clock_settings_cb(lv_event_t *)
+{
+    navigate_to(View::ClockSettings);
+}
+
+void begin_clock_input(ClockInputKind kind)
+{
+    const lyra::clock::DateTime current = lyra::clock::now();
+    s_clock_input_kind = kind;
+    s_clock_input_cursor = 0;
+    s_clock_input_pm = current.hour >= 12;
+    if (kind == ClockInputKind::Time) {
+        int hour = current.hour;
+        if (!s_use_24_hour) {
+            hour %= 12;
+            if (hour == 0) hour = 12;
+        }
+        std::snprintf(s_clock_input_digits, sizeof(s_clock_input_digits), "%02d%02d",
+                      hour, current.minute);
+        navigate_to(View::ClockTimeSettings);
+        return;
+    }
+
+    switch (s_date_format) {
+    case DateFormat::DayMonthYear:
+        std::snprintf(s_clock_input_digits, sizeof(s_clock_input_digits), "%02d%02d%04d",
+                      current.day, current.month, current.year);
+        break;
+    case DateFormat::MonthDayYear:
+        std::snprintf(s_clock_input_digits, sizeof(s_clock_input_digits), "%02d%02d%04d",
+                      current.month, current.day, current.year);
+        break;
+    case DateFormat::YearMonthDay:
+        std::snprintf(s_clock_input_digits, sizeof(s_clock_input_digits), "%04d%02d%02d",
+                      current.year, current.month, current.day);
+        break;
+    }
+    navigate_to(View::ClockDateSettings);
+}
+
+void clock_time_settings_cb(lv_event_t *)
+{
+    begin_clock_input(ClockInputKind::Time);
+}
+
+void clock_date_settings_cb(lv_event_t *)
+{
+    begin_clock_input(ClockInputKind::Date);
+}
+
+void clock_date_format_cb(lv_event_t *)
+{
+    s_date_format = static_cast<DateFormat>(
+        (static_cast<uint8_t>(s_date_format) + 1u) % 3u);
+    save_user_settings();
+    render(View::ClockSettings);
+}
+
+void clock_time_format_cb(lv_event_t *)
+{
+    s_use_24_hour = !s_use_24_hour;
+    save_user_settings();
+    render(View::ClockSettings);
+}
+
+void clock_dst_cb(lv_event_t *)
+{
+    const bool enabled = !s_dst_enabled;
+    const esp_err_t result = lyra::clock::shift_minutes(enabled ? 60 : -60);
+    if (result != ESP_OK) {
+        show_notice(tr(lyra::i18n::StringId::Clock),
+                    tr(lyra::i18n::StringId::ClockInvalid));
+        return;
+    }
+    s_dst_enabled = enabled;
+    save_user_settings();
+    render(View::ClockSettings);
+}
+
+void clock_input_digit_cb(lv_event_t *event)
+{
+    const uintptr_t payload = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
+    if (payload < 1 || payload > 10) return;
+    const size_t length = s_clock_input_kind == ClockInputKind::Time ? 4 : 8;
+    if (s_clock_input_cursor >= length) return;
+    s_clock_input_digits[s_clock_input_cursor] = static_cast<char>('0' + payload - 1u);
+    if (s_clock_input_cursor + 1 < length) ++s_clock_input_cursor;
+    render(s_clock_input_kind == ClockInputKind::Time ? View::ClockTimeSettings :
+                                                        View::ClockDateSettings);
+}
+
+void clock_input_cursor_cb(lv_event_t *event)
+{
+    const uintptr_t payload = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
+    const size_t length = s_clock_input_kind == ClockInputKind::Time ? 4 : 8;
+    if (payload == 1 && s_clock_input_cursor > 0) --s_clock_input_cursor;
+    if (payload == 2 && s_clock_input_cursor + 1 < length) ++s_clock_input_cursor;
+    render(s_clock_input_kind == ClockInputKind::Time ? View::ClockTimeSettings :
+                                                        View::ClockDateSettings);
+}
+
+void clock_input_meridiem_cb(lv_event_t *)
+{
+    s_clock_input_pm = !s_clock_input_pm;
+    render(View::ClockTimeSettings);
+}
+
+int clock_input_value(size_t offset, size_t count)
+{
+    int value = 0;
+    for (size_t index = 0; index < count; ++index) {
+        const char digit = s_clock_input_digits[offset + index];
+        if (digit < '0' || digit > '9') return -1;
+        value = value * 10 + (digit - '0');
+    }
+    return value;
+}
+
+void clock_input_save_cb(lv_event_t *)
+{
+    lyra::clock::DateTime value = lyra::clock::now();
+    if (s_clock_input_kind == ClockInputKind::Time) {
+        int hour = clock_input_value(0, 2);
+        const int minute = clock_input_value(2, 2);
+        if (hour < 0 || minute < 0) return;
+        if (s_use_24_hour) {
+            value.hour = hour;
+        } else {
+            if (hour < 1 || hour > 12) {
+                show_notice(tr(lyra::i18n::StringId::Clock),
+                            tr(lyra::i18n::StringId::ClockInvalid));
+                return;
+            }
+            value.hour = hour % 12 + (s_clock_input_pm ? 12 : 0);
+        }
+        value.minute = minute;
+    } else {
+        if (s_date_format == DateFormat::YearMonthDay) {
+            value.year = clock_input_value(0, 4);
+            value.month = clock_input_value(4, 2);
+            value.day = clock_input_value(6, 2);
+        } else {
+            const int first = clock_input_value(0, 2);
+            const int second = clock_input_value(2, 2);
+            value.year = clock_input_value(4, 4);
+            value.day = first;
+            if (s_date_format == DateFormat::DayMonthYear) {
+                value.month = second;
+            } else {
+                value.month = first;
+                value.day = second;
+            }
+        }
+        if (value.year < 0 || value.month < 0 || value.day < 0) return;
+    }
+
+    const esp_err_t result = lyra::clock::set(value);
+    if (result != ESP_OK) {
+        show_notice(tr(lyra::i18n::StringId::Clock),
+                    tr(lyra::i18n::StringId::ClockInvalid));
+        return;
+    }
+    navigate_back(View::ClockSettings);
+}
+
+void clock_input_cancel_cb(lv_event_t *)
+{
+    navigate_back(View::ClockSettings);
+}
+
+void make_clock_input_display(lv_obj_t *parent)
+{
+    constexpr int kDisplayWidth = 306;
+    constexpr int kDigitWidth = 24;
+    constexpr int kSeparatorWidth = 12;
+    const size_t length = s_clock_input_kind == ClockInputKind::Time ? 4 : 8;
+    const size_t separator_count = s_clock_input_kind == ClockInputKind::Time ? 1 : 2;
+    const int total_width = static_cast<int>(length) * kDigitWidth +
+                            static_cast<int>(separator_count) * kSeparatorWidth;
+    lv_obj_t *display = make_box(parent, 7, 6, kDisplayWidth, 54, kAccentSurface, 6);
+    int x = (kDisplayWidth - total_width) / 2;
+    for (size_t index = 0; index < length; ++index) {
+        char digit[2] = {s_clock_input_digits[index], '\0'};
+        lv_obj_t *label = make_label(display, digit,
+                                     index == s_clock_input_cursor ? kAccent : kTextPrimary);
+        lv_obj_set_width(label, kDigitWidth);
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_pos(label, x, 12);
+        if (index == s_clock_input_cursor) {
+            make_box(display, x + 3, 40, kDigitWidth - 6, 2, kAccent, 1);
+        }
+        x += kDigitWidth;
+        const bool separator = s_clock_input_kind == ClockInputKind::Time ? index == 1 :
+            (s_date_format == DateFormat::YearMonthDay ? index == 3 || index == 5 :
+                                                          index == 1 || index == 3);
+        if (separator) {
+            const char separator_text[] = ":";
+            const char *date_separator = s_date_format == DateFormat::YearMonthDay ? "-" : "/";
+            lv_obj_t *label = make_label(display,
+                                         s_clock_input_kind == ClockInputKind::Time ?
+                                             separator_text : date_separator,
+                                         kTextSecondary);
+            lv_obj_set_width(label, kSeparatorWidth);
+            lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_pos(label, x, 12);
+            x += kSeparatorWidth;
+        }
+    }
+}
+
+void make_clock_input_keypad(lv_obj_t *parent, int y)
+{
+    constexpr const char *kDigits[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"};
+    for (size_t index = 0; index < 9; ++index) {
+        const int row = static_cast<int>(index / 3);
+        const int column = static_cast<int>(index % 3);
+        lv_obj_t *button = make_button(parent, 18 + column * 96, y + row * 46,
+                                       86, 40, kSurfaceRaised, 6);
+        lv_obj_t *label = make_label(button, kDigits[index], kTextPrimary);
+        lv_obj_center(label);
+        lv_obj_add_event_cb(button, clock_input_digit_cb, LV_EVENT_CLICKED,
+                            reinterpret_cast<void *>(index + 2u));
+    }
+
+    lv_obj_t *left = make_button(parent, 18, y + 138, 86, 40, kSurfaceRaised, 6);
+    lv_obj_t *left_label = make_label(left, LV_SYMBOL_LEFT, kTextPrimary);
+    lv_obj_center(left_label);
+    lv_obj_add_event_cb(left, clock_input_cursor_cb, LV_EVENT_CLICKED,
+                        reinterpret_cast<void *>(static_cast<uintptr_t>(1)));
+
+    lv_obj_t *zero = make_button(parent, 114, y + 138, 86, 40, kSurfaceRaised, 6);
+    lv_obj_t *zero_label = make_label(zero, kDigits[9], kTextPrimary);
+    lv_obj_center(zero_label);
+    lv_obj_add_event_cb(zero, clock_input_digit_cb, LV_EVENT_CLICKED,
+                        reinterpret_cast<void *>(static_cast<uintptr_t>(1)));
+
+    lv_obj_t *right = make_button(parent, 210, y + 138, 86, 40, kSurfaceRaised, 6);
+    lv_obj_t *right_label = make_label(right, LV_SYMBOL_RIGHT, kTextPrimary);
+    lv_obj_center(right_label);
+    lv_obj_add_event_cb(right, clock_input_cursor_cb, LV_EVENT_CLICKED,
+                        reinterpret_cast<void *>(static_cast<uintptr_t>(2)));
+}
+
+void render_clock_input(ClockInputKind kind)
+{
+    s_clock_input_kind = kind;
+    const bool is_time = kind == ClockInputKind::Time;
+    make_header(is_time ? tr(lyra::i18n::StringId::SetTime) :
+                          tr(lyra::i18n::StringId::SetDate),
+                View::ClockSettings, true, nullptr, clock_input_cancel_cb);
+    lv_obj_t *body = make_box(s_screen, 0, 72, kScreenWidth, content_height(72), kBackground);
+    make_clock_input_display(body);
+    if (is_time && !s_use_24_hour) {
+        lv_obj_t *meridiem = make_button(body, 126, 66, 68, 32, kSurfaceRaised, 6);
+        lv_obj_t *label = make_label(meridiem,
+                                     tr(s_clock_input_pm ? lyra::i18n::StringId::Pm :
+                                                             lyra::i18n::StringId::Am),
+                                     kAccent);
+        lv_obj_center(label);
+        lv_obj_add_event_cb(meridiem, clock_input_meridiem_cb, LV_EVENT_CLICKED, nullptr);
+    }
+    make_clock_input_keypad(body, 106);
+
+    lv_obj_t *save = make_button(body, 14, 300, 136, 44, kAccentDark, 7);
+    lv_obj_t *save_label = make_label(save, tr(lyra::i18n::StringId::SaveKey), kTextOnAccent);
+    lv_obj_center(save_label);
+    lv_obj_add_event_cb(save, clock_input_save_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *cancel = make_button(body, 164, 300, 136, 44, kSurface, 7);
+    lv_obj_t *cancel_label = make_label(cancel, tr(lyra::i18n::StringId::Cancel), kTextSecondary);
+    lv_obj_center(cancel_label);
+    lv_obj_add_event_cb(cancel, clock_input_cancel_cb, LV_EVENT_CLICKED, nullptr);
+}
+
+void render_clock_time_settings()
+{
+    render_clock_input(ClockInputKind::Time);
+}
+
+void render_clock_date_settings()
+{
+    render_clock_input(ClockInputKind::Date);
+}
+
+void render_clock_settings()
+{
+    make_header(tr(lyra::i18n::StringId::Clock), View::SystemSettings, true);
+    lv_obj_t *body = make_scroll_body(72);
+    lv_obj_t *summary = make_box(body, 7, 0, 306, 58, kAccentSurface, 6);
+    lv_obj_t *summary_title = make_label(summary, tr(lyra::i18n::StringId::TimeAndDate), kTextPrimary);
+    lv_obj_align(summary_title, LV_ALIGN_LEFT_MID, 12, -10);
+    char summary_value[32];
+    format_clock_date_time(lyra::clock::now(), summary_value, sizeof(summary_value));
+    lv_obj_t *summary_label = make_label(summary, summary_value, kAccent);
+    lv_obj_align(summary_label, LV_ALIGN_LEFT_MID, 12, 12);
+
+    lv_obj_t *time = make_row(body, 64, LV_SYMBOL_SETTINGS,
+                              tr(lyra::i18n::StringId::SetTime), nullptr,
+                              View::ClockTimeSettings, 54);
+    lv_obj_remove_event_cb(time, route_cb);
+    lv_obj_add_event_cb(time, clock_time_settings_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *date = make_row(body, 122, LV_SYMBOL_SETTINGS,
+                              tr(lyra::i18n::StringId::SetDate), nullptr,
+                              View::ClockDateSettings, 54);
+    lv_obj_remove_event_cb(date, route_cb);
+    lv_obj_add_event_cb(date, clock_date_settings_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *date_format = make_row(body, 180, LV_SYMBOL_SETTINGS,
+                                     tr(lyra::i18n::StringId::DateFormat),
+                                     clock_date_format_name(), View::ClockSettings, 54);
+    lv_obj_remove_event_cb(date_format, route_cb);
+    lv_obj_add_event_cb(date_format, clock_date_format_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *time_format = make_row(body, 238, LV_SYMBOL_SETTINGS,
+                                     tr(lyra::i18n::StringId::TimeFormat),
+                                     clock_time_format_name(), View::ClockSettings, 54);
+    lv_obj_remove_event_cb(time_format, route_cb);
+    lv_obj_add_event_cb(time_format, clock_time_format_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *dst = make_row(body, 296, LV_SYMBOL_SETTINGS,
+                             tr(lyra::i18n::StringId::DaylightSaving), clock_dst_name(),
+                             View::ClockSettings, 54);
+    lv_obj_remove_event_cb(dst, route_cb);
+    lv_obj_add_event_cb(dst, clock_dst_cb, LV_EVENT_CLICKED, nullptr);
 }
 
 void language_option_cb(lv_event_t *event)
@@ -763,7 +1147,14 @@ void render_settings_page(View view)
             format_text(lyra::i18n::StringId::NotMounted,
                         esp_err_to_name(status.last_error), sd_status, sizeof(sd_status));
         }
-        make_row(body, 0, LV_SYMBOL_SD_CARD, tr(lyra::i18n::StringId::MicroSdCard),
+        char clock_text[32];
+        format_clock_date_time(lyra::clock::now(), clock_text, sizeof(clock_text));
+        lv_obj_t *clock = make_row(body, 0, LV_SYMBOL_SETTINGS,
+                                   tr(lyra::i18n::StringId::TimeAndDate), clock_text,
+                                   View::ClockSettings, 62);
+        lv_obj_remove_event_cb(clock, route_cb);
+        lv_obj_add_event_cb(clock, clock_settings_cb, LV_EVENT_CLICKED, nullptr);
+        make_row(body, 66, LV_SYMBOL_SD_CARD, tr(lyra::i18n::StringId::MicroSdCard),
                  sd_status, View::SystemSettings, 62);
         char scan_status[48];
         if (status.scanning) {
@@ -774,31 +1165,31 @@ void render_settings_page(View view)
             format_count(lyra::i18n::StringId::IndexedTracks,
                          static_cast<uint32_t>(status.track_count), scan_status, sizeof(scan_status));
         }
-        lv_obj_t *scan = make_row(body, 66, LV_SYMBOL_REFRESH,
+        lv_obj_t *scan = make_row(body, 132, LV_SYMBOL_REFRESH,
                                   tr(lyra::i18n::StringId::ScanMusicLibrary), scan_status,
                                   View::SystemSettings, 62);
         lv_obj_remove_event_cb(scan, route_cb);
         lv_obj_add_event_cb(scan, scan_library_cb, LV_EVENT_CLICKED, nullptr);
-        make_row(body, 132, LV_SYMBOL_DRIVE, tr(lyra::i18n::StringId::DatabaseStorage),
+        make_row(body, 198, LV_SYMBOL_DRIVE, tr(lyra::i18n::StringId::DatabaseStorage),
                  tr(lyra::i18n::StringId::ManagePlaylistsLibrary),
                  View::DatabaseStorage, 62);
-        make_artwork_setting_toggle(body, 198, tr(lyra::i18n::StringId::SdAlbumArtCache),
+        make_artwork_setting_toggle(body, 264, tr(lyra::i18n::StringId::SdAlbumArtCache),
                                     tr(lyra::i18n::StringId::AllowOversizedJpeg),
                                     status.artwork_sd_cache_enabled, ArtworkSetting::SdCache);
-        make_artwork_setting_toggle(body, 264, tr(lyra::i18n::StringId::AlbumArt320),
+        make_artwork_setting_toggle(body, 330, tr(lyra::i18n::StringId::AlbumArt320),
                                     tr(lyra::i18n::StringId::AlbumArt240WhenDisabled),
                                     status.artwork_size == lyra::media::kLargeArtworkSize,
                                     ArtworkSetting::Size320);
-        make_row(body, 330, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::Language),
+        make_row(body, 396, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::Language),
                  lyra::i18n::language_name(lyra::i18n::current_language()),
                  View::LanguageOptions, 62);
-        lv_obj_t *reboot = make_row(body, 396, LV_SYMBOL_REFRESH,
+        lv_obj_t *reboot = make_row(body, 462, LV_SYMBOL_REFRESH,
                                     tr(lyra::i18n::StringId::Reboot),
                                     tr(lyra::i18n::StringId::SafelyRestartLyra),
                                     View::SystemSettings, 62);
         lv_obj_remove_event_cb(reboot, route_cb);
         lv_obj_add_event_cb(reboot, reboot_cb, LV_EVENT_CLICKED, nullptr);
-        lv_obj_t *power_off = make_row(body, 462, LV_SYMBOL_POWER,
+        lv_obj_t *power_off = make_row(body, 528, LV_SYMBOL_POWER,
                                        tr(lyra::i18n::StringId::PowerOff),
                                        tr(lyra::i18n::StringId::SafelyUnmountAndSleep),
                                        View::SystemSettings, 62);

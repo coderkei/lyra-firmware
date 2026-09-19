@@ -5,7 +5,19 @@
 
 #include "../lyra_media_internal.h"
 
+#include <ctime>
+
 namespace lyra::media::internal {
+
+uint64_t recorded_modified_time(const struct stat &info)
+{
+    if (info.st_mtime > 0) return static_cast<uint64_t>(info.st_mtime);
+    // Some cards/filesystems can expose a zero timestamp. The clock is
+    // initialized before media startup, so retain a deterministic date for
+    // that file instead of losing the timestamp from the catalog entirely.
+    const std::time_t current = std::time(nullptr);
+    return current > 0 ? static_cast<uint64_t>(current) : 0;
+}
 
 bool ensure_directory(const char *path)
 {
@@ -309,7 +321,7 @@ void scan_directory(const char *path, FILE *catalog, size_t *count,
             Track track{};
             copy_text(track.path, sizeof(track.path), child);
             track.size_bytes = static_cast<uint64_t>(info.st_size);
-            track.modified_time = static_cast<uint64_t>(info.st_mtime);
+            track.modified_time = recorded_modified_time(info);
             metadata_from_path(&track);
             // Read only compact text-tag blocks. Embedded pictures remain
             // deferred to the low-priority artwork worker so art-heavy cards
@@ -462,7 +474,7 @@ void refresh_track_file_state(Track *track)
     struct stat current{};
     if (stat(track->path, &current) == 0 && S_ISREG(current.st_mode)) {
         track->size_bytes = static_cast<uint64_t>(current.st_size);
-        track->modified_time = static_cast<uint64_t>(current.st_mtime);
+        track->modified_time = recorded_modified_time(current);
     }
 }
 

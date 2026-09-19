@@ -4,6 +4,7 @@
  */
 
 #include "lyra_gui.h"
+#include "lyra_clock.h"
 #include "lyra_audio.h"
 #include "lyra_boot_test.h"
 #include "lyra_media.h"
@@ -50,6 +51,16 @@ extern "C" void app_main(void)
     lyra::boot_test::restore_pending();
 
     ESP_LOGI(kTag, "Reset reason: %d", static_cast<int>(esp_reset_reason()));
+
+    // The board has no battery-backed RTC. Establish a valid clock before
+    // mounting the SD card so all files created or changed during startup get
+    // a real FAT timestamp, falling back to the requested 2000 epoch when the
+    // ESP32 has no retained time value.
+    const esp_err_t clock_ret = lyra::clock::init();
+    if (clock_ret != ESP_OK) {
+        ESP_LOGW(kTag, "system clock initialization failed: %s",
+                 esp_err_to_name(clock_ret));
+    }
 
     const esp_err_t board_ret = lyra_board_display_init(&board);
     if (board_ret != ESP_OK) {

@@ -27,6 +27,9 @@ struct Values {
     bool speaker_output_enabled;
     uint8_t equalizer_preset;
     int16_t equalizer_custom_bands[kEqualizerBandCount];
+    uint8_t date_format;
+    bool use_24_hour;
+    bool dst_enabled;
 };
 
 // Loads only valid persisted values, leaving caller-provided defaults intact.

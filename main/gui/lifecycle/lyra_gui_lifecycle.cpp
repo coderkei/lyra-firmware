@@ -22,6 +22,7 @@ void render(View view)
     s_scan_phase_label = nullptr;
     s_sort_overlay = nullptr;
     s_sort_progress_label = nullptr;
+    s_status_time_label = nullptr;
     style_root();
     if (view != View::FullscreenInfoArt) make_status_bar();
     switch (view) {
@@ -56,6 +57,9 @@ void render(View view)
         case View::SoundSettings:
         case View::DisplaySettings:
         case View::SystemSettings: render_settings_page(view); break;
+        case View::ClockSettings: render_clock_settings(); break;
+        case View::ClockTimeSettings: render_clock_time_settings(); break;
+        case View::ClockDateSettings: render_clock_date_settings(); break;
         case View::LanguageOptions: render_language_options(); break;
         case View::CrossfadeOptions: render_crossfade_options(); break;
         case View::SleepTimerOptions: render_sleep_timer_options(); break;
@@ -157,6 +161,7 @@ void crossfade_poll_cb(lv_timer_t *)
 
 void player_progress_poll_cb(lv_timer_t *)
 {
+    update_status_time_label();
     const lyra::audio::Status audio_status = lyra::audio::status();
     const int64_t now_us = esp_timer_get_time();
     if (s_sleep_timer_deadline_us != 0 && now_us >= s_sleep_timer_deadline_us) {

@@ -31,6 +31,7 @@
 #include "lyra_audio.h"
 #include "lyra_board.h"
 #include "lyra_boot_test.h"
+#include "lyra_clock.h"
 #include "lyra_font.h"
 #include "lyra_i18n.h"
 #include "lvgl.h"
@@ -93,7 +94,9 @@ enum class View : uintptr_t {
     Playlists, PlaylistDetail, PlaylistCreate, PlaylistAdd, Equalizer,
     EqualizerPresets, Search, Settings, SortingSettings, SortingOptions,
     PlaybackSettings, CrossfadeOptions, SleepTimerOptions, SoundSettings,
-    DisplaySettings, SystemSettings, LanguageOptions, DatabaseStorage, About, DebugMenu,
+    DisplaySettings, SystemSettings, ClockSettings, ClockTimeSettings, ClockDateSettings,
+    LanguageOptions, DatabaseStorage,
+    About, DebugMenu,
     Licenses, TrackList,
 };
 enum class LibraryTab : uint8_t { Songs, Artists, Albums, Genres, Years };
@@ -109,6 +112,8 @@ enum class PowerAction : uintptr_t { Reboot, PowerOff };
 enum class DatabaseAction : uintptr_t { Playlists, Artwork, All };
 enum class ArtworkSetting : uintptr_t { SdCache, Size320 };
 enum class PlaylistManageAction : uint8_t { DeletePlaylist, RemoveTrack };
+enum class DateFormat : uint8_t { DayMonthYear, MonthDayYear, YearMonthDay };
+enum class ClockInputKind : uint8_t { Time, Date };
 
 constexpr size_t kSearchPageSizeWithNav = 4;
 constexpr size_t kSearchPageSizeWithoutNav = 5;
@@ -174,6 +179,7 @@ extern lv_obj_t *s_sort_progress_label;
 extern lv_obj_t *s_playlist_picker;
 extern lv_obj_t *s_volume_popup;
 extern lv_obj_t *s_status_volume_label;
+extern lv_obj_t *s_status_time_label;
 extern lv_obj_t *s_screenshot_button;
 extern bool s_screenshot_dragged;
 extern lv_point_t s_screenshot_press_point;
@@ -201,6 +207,9 @@ extern bool s_gapless;
 extern bool s_replay_gain;
 extern uint8_t s_crossfade_seconds;
 extern uint8_t s_brightness_percent;
+extern DateFormat s_date_format;
+extern bool s_use_24_hour;
+extern bool s_dst_enabled;
 extern bool s_speaker_output_enabled;
 extern EqualizerPreset s_equalizer_preset;
 extern int16_t s_equalizer_custom_bands[lyra::audio::kEqualizerBandCount];
@@ -251,6 +260,10 @@ extern bool s_has_active_queue;
 extern size_t s_queue_position;
 extern bool s_queue_position_valid;
 extern bool s_firmware_update_in_progress;
+extern ClockInputKind s_clock_input_kind;
+extern char s_clock_input_digits[9];
+extern size_t s_clock_input_cursor;
+extern bool s_clock_input_pm;
 extern lyra::media::SortSection s_sort_section;
 extern char s_database_status[64];
 extern DebugTab s_debug_tab;
@@ -327,6 +340,7 @@ void nav_next_cb(lv_event_t *);
 bool restart_current_track();
 void make_virtual_nav();
 void update_status_volume_label(uint8_t volume_percent);
+void update_status_time_label();
 void close_volume_popup();
 void volume_popup_slider_cb(lv_event_t *event);
 void volume_popup_slider_released_cb(lv_event_t *);
@@ -514,6 +528,22 @@ void show_database_confirmation(DatabaseAction action);
 void database_action_cb(lv_event_t *event);
 void render_database_storage();
 void render_settings_page(View view);
+void render_clock_settings();
+void clock_settings_cb(lv_event_t *event);
+void render_clock_time_settings();
+void render_clock_date_settings();
+void clock_time_settings_cb(lv_event_t *event);
+void clock_date_settings_cb(lv_event_t *event);
+void clock_date_format_cb(lv_event_t *event);
+void clock_time_format_cb(lv_event_t *event);
+void clock_dst_cb(lv_event_t *event);
+void clock_input_digit_cb(lv_event_t *event);
+void clock_input_cursor_cb(lv_event_t *event);
+void clock_input_meridiem_cb(lv_event_t *event);
+void clock_input_save_cb(lv_event_t *event);
+void clock_input_cancel_cb(lv_event_t *event);
+void format_clock_time(const lyra::clock::DateTime &value, char *output, size_t capacity);
+void format_clock_date_time(const lyra::clock::DateTime &value, char *output, size_t capacity);
 void render_about();
 void render_licenses();
 void render(View view);

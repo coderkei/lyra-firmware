@@ -7,6 +7,15 @@
 
 namespace lyra::gui::internal {
 
+void update_status_time_label()
+{
+    if (!s_status_time_label) return;
+    const lyra::clock::DateTime current = lyra::clock::now();
+    char value[16];
+    format_clock_time(current, value, sizeof(value));
+    lv_label_set_text(s_status_time_label, value);
+}
+
 void make_status_bar()
 {
     lv_obj_t *bar = make_box(s_screen, 0, 0, kScreenWidth, kStatusHeight, kBackground);
@@ -17,8 +26,9 @@ void make_status_bar()
     lv_obj_align(s_status_volume_label, LV_ALIGN_LEFT_MID, 9, 0);
     update_status_volume_label(audio_status.volume_percent);
     lv_obj_add_event_cb(volume_button, show_volume_popup_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *time = make_label(bar, "12:30", kTextPrimary);
-    lv_obj_align(time, LV_ALIGN_CENTER, 0, 0);
+    s_status_time_label = make_label(bar, "", kTextPrimary);
+    lv_obj_align(s_status_time_label, LV_ALIGN_CENTER, 0, 0);
+    update_status_time_label();
     // Battery ADC calibration is not yet available on the reference board, so
     // this status-bar value is a UI placeholder rather than a voltage reading.
     lv_obj_t *battery = make_label(bar, "100%  " LV_SYMBOL_BATTERY_FULL, kTextSecondary);

@@ -49,6 +49,14 @@ reported to the UI instead of preventing the system shell from starting.
 
 ## Media and persistence
 
+- The system clock is initialized before MicroSD mounting. If the ESP32 has no
+  retained RTC/system-clock value, it starts at `00:00 01/01/2000` and counts
+  forward while powered. **Settings > System > Time & date** opens separate
+  numeric **Set time** and **Set date** screens. The screens use a number pad
+  with left/right cursor movement so individual digits can be corrected. The
+  clock menu also stores the selected date format, 12/24-hour display format,
+  and a manual daylight-saving correction. Because this board has no
+  battery-backed RTC, a full power loss returns it to the fallback epoch.
 - The MicroSD card mounts at `/sdcard`. A user starts the library scan from
   `Settings > System > Scan music library`.
 - The recursive catalog accepts MP3, WAV, FLAC, AAC, M4A, OGG, Opus, AIFF,
@@ -62,6 +70,9 @@ reported to the UI instead of preventing the system shell from starting.
   choices use the `lyra` NVS namespace.
 - Embedded album art is loaded on demand. Lyra keeps the display image in
   memory and can retain selected decoded artwork in `/sdcard/.lyra/covers`.
+- Track catalog records capture each file's filesystem modification timestamp
+  and refresh the size/date when file metadata is read, so files created or
+  changed by Lyra receive the active clock date.
 
 ## Playback and UI
 

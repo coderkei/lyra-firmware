@@ -91,6 +91,9 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     s_replay_gain = true;
     s_crossfade_seconds = 0;
     s_brightness_percent = 72;
+    s_date_format = DateFormat::DayMonthYear;
+    s_use_24_hour = true;
+    s_dst_enabled = false;
     s_dark_mode = true;
     s_accent_colour = 0;
     s_speaker_output_enabled = lyra::audio::kDefaultSpeakerOutputEnabled;
@@ -100,6 +103,10 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     s_debug_status[0] = '\0';
     s_sleep_timer_minutes = 0;
     s_sleep_timer_deadline_us = 0;
+    s_clock_input_kind = ClockInputKind::Time;
+    std::strcpy(s_clock_input_digits, "0000");
+    s_clock_input_cursor = 0;
+    s_clock_input_pm = false;
     s_pending_track_advance = false;
     s_pending_track_advance_us = 0;
     s_crossfade_fade_in_started_us = 0;

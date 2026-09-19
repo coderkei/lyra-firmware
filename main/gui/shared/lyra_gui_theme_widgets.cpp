@@ -136,6 +136,9 @@ void save_user_settings()
         s_speaker_output_enabled,
         static_cast<uint8_t>(s_equalizer_preset),
         {},
+        static_cast<uint8_t>(s_date_format),
+        s_use_24_hour,
+        s_dst_enabled,
     };
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
@@ -155,11 +158,16 @@ void load_user_settings()
         s_speaker_output_enabled,
         static_cast<uint8_t>(s_equalizer_preset),
         {},
+        static_cast<uint8_t>(s_date_format),
+        s_use_24_hour,
+        s_dst_enabled,
     };
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
     lyra::gui_settings::load(&values, kAccentPaletteCount,
                              static_cast<uint8_t>(EqualizerPreset::Count));
+    const bool clear_fallback_dst = lyra::clock::is_using_default_time() && values.dst_enabled;
+    if (clear_fallback_dst) values.dst_enabled = false;
     s_gapless = values.gapless;
     s_replay_gain = values.replay_gain;
     s_crossfade_seconds = values.crossfade_seconds;
@@ -169,8 +177,13 @@ void load_user_settings()
     lyra::i18n::set_language(values.language);
     s_speaker_output_enabled = values.speaker_output_enabled;
     s_equalizer_preset = static_cast<EqualizerPreset>(values.equalizer_preset);
+    s_date_format = values.date_format < 3 ? static_cast<DateFormat>(values.date_format) :
+                                             DateFormat::DayMonthYear;
+    s_use_24_hour = values.use_24_hour;
+    s_dst_enabled = values.dst_enabled;
     std::memcpy(s_equalizer_custom_bands, values.equalizer_custom_bands,
                 sizeof(s_equalizer_custom_bands));
+    if (clear_fallback_dst) save_user_settings();
 }
 
 void copy_ui_text(char *destination, size_t capacity, const char *source)
@@ -386,6 +399,7 @@ void style_root()
     s_playlist_picker = nullptr;
     s_volume_popup = nullptr;
     s_status_volume_label = nullptr;
+    s_status_time_label = nullptr;
     lv_obj_clean(s_screen);
     lv_obj_set_style_bg_color(s_screen, kBackground, 0);
     lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
@@ -438,6 +452,9 @@ View back_view(View view)
         case View::DisplaySettings:
         case View::SystemSettings:
         case View::SortingSettings: return View::Settings;
+        case View::ClockSettings: return View::SystemSettings;
+        case View::ClockTimeSettings:
+        case View::ClockDateSettings: return View::ClockSettings;
         case View::LanguageOptions: return View::SystemSettings;
         case View::SortingOptions: return View::SortingSettings;
         case View::CrossfadeOptions:
