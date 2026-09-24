@@ -12,6 +12,8 @@ void update_player_progress();
 namespace {
 
 constexpr size_t kMaximumLyricsRows = 256;
+constexpr size_t kLyricsRowsPerTick = 6;
+constexpr uint32_t kLyricsRowsTickMs = 10;
 constexpr uint32_t kUntimedLyric = UINT32_MAX;
 constexpr int32_t kFlipScale = 256;
 
@@ -21,27 +23,48 @@ struct LyricsRow {
     lv_obj_t *label;
 };
 
+struct LyricsLoadRequest {
+    uint32_t generation;
+    lyra::media::Track track;
+    char *buffer;
+    lyra::media::LyricsSource source;
+    bool loaded;
+};
+
 enum class FlipPhase : uint8_t { None, ToOpenEdge, FromOpenEdge, ToCloseEdge, FromCloseEdge };
 
 lv_obj_t *s_player_art_face;
 lv_obj_t *s_player_lyrics_scroll;
+lv_obj_t *s_player_lyrics_loading_spinner;
+lv_timer_t *s_player_lyrics_rows_timer;
 lyra::media::Track s_player_lyrics_track{};
+lyra::media::Track s_player_pending_lyrics_track{};
 int s_player_art_size;
 bool s_player_lyrics_visible;
 bool s_player_flip_animating;
 bool s_player_auto_scrolling;
+bool s_player_lyrics_rows_ready;
+bool s_player_lyrics_rows_pending;
 FlipPhase s_player_flip_phase;
 char *s_player_lyrics_buffer;
 lyra::media::LyricsSource s_player_lyrics_source;
 LyricsRow s_player_lyrics_rows[kMaximumLyricsRows]{};
 size_t s_player_lyrics_row_count;
+size_t s_player_lyrics_rows_created;
+int s_player_lyrics_next_row_y;
 int s_player_current_lyric = -1;
 int64_t s_player_manual_scroll_until_us;
+uint32_t s_player_lyrics_generation;
 
 void player_art_click_cb(lv_event_t *event);
 void player_lyrics_close_cb(lv_event_t *event);
 void player_art_flip_exec(void *object, int32_t scale);
 void player_art_flip_finished(lv_anim_t *animation);
+void start_player_lyrics_load();
+void player_lyrics_load_task(void *context);
+void player_lyrics_loaded_async_cb(void *context);
+void player_lyrics_rows_timer_cb(lv_timer_t *timer);
+void start_player_lyrics_rows_timer();
 
 bool parse_lrc_timestamp(const char *text, size_t length, size_t *consumed,
                          uint32_t *time_ms)
@@ -178,7 +201,8 @@ void set_player_lyric_style(LyricsRow &row, bool active)
 
 void update_player_lyrics()
 {
-    if (!s_player_lyrics_visible || !s_player_lyrics_scroll || s_player_lyrics_row_count == 0) return;
+    if (!s_player_lyrics_visible || !s_player_lyrics_scroll ||
+        !s_player_lyrics_rows_ready || s_player_lyrics_row_count == 0) return;
     const uint32_t position_ms = lyra::audio::status().position_ms;
     int current = -1;
     uint32_t current_time = 0;
@@ -246,56 +270,213 @@ void build_player_lyrics_face()
     lv_obj_add_event_cb(scroll, player_lyrics_scroll_begin_cb,
                         LV_EVENT_SCROLL_BEGIN, nullptr);
     s_player_lyrics_scroll = scroll;
+    s_player_lyrics_loading_spinner = lv_spinner_create(scroll);
+    lv_obj_set_size(s_player_lyrics_loading_spinner, 34, 34);
+    lv_obj_center(s_player_lyrics_loading_spinner);
+    lv_spinner_set_anim_params(s_player_lyrics_loading_spinner, 900, 250);
+    lv_obj_set_style_arc_color(s_player_lyrics_loading_spinner, kDivider, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(s_player_lyrics_loading_spinner, kAccent, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(s_player_lyrics_loading_spinner, 4, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s_player_lyrics_loading_spinner, 4, LV_PART_INDICATOR);
+    s_player_lyrics_source = lyra::media::LyricsSource::None;
+    s_player_lyrics_row_count = 0;
+    s_player_lyrics_rows_created = 0;
+    s_player_lyrics_rows_ready = false;
+    s_player_lyrics_rows_pending = false;
+    s_player_lyrics_next_row_y = 2;
+    s_player_current_lyric = -1;
+    s_player_lyrics_visible = true;
+    s_player_manual_scroll_until_us = 0;
+}
+
+void free_player_lyrics_buffer()
+{
+    if (!s_player_lyrics_buffer) return;
+    heap_caps_free(s_player_lyrics_buffer);
+    s_player_lyrics_buffer = nullptr;
+}
+
+void stop_player_lyrics_rows_timer()
+{
+    if (!s_player_lyrics_rows_timer) return;
+    lv_timer_delete(s_player_lyrics_rows_timer);
+    s_player_lyrics_rows_timer = nullptr;
+}
+
+void free_lyrics_load_request(LyricsLoadRequest *request)
+{
+    if (!request) return;
+    if (request->buffer) heap_caps_free(request->buffer);
+    heap_caps_free(request);
+}
+
+void remove_player_lyrics_spinner()
+{
+    if (!s_player_lyrics_loading_spinner) return;
+    lv_obj_delete(s_player_lyrics_loading_spinner);
+    s_player_lyrics_loading_spinner = nullptr;
+}
+
+void show_player_no_lyrics()
+{
+    remove_player_lyrics_spinner();
+    free_player_lyrics_buffer();
+    s_player_lyrics_row_count = 0;
+    s_player_lyrics_rows_created = 0;
+    s_player_lyrics_rows_ready = true;
+    if (!s_player_lyrics_scroll) return;
+    lv_obj_t *plain = make_label(s_player_lyrics_scroll,
+                                 tr(lyra::i18n::StringId::NoLyricsFound),
+                                 kTextPrimary);
+    lv_obj_set_width(plain, s_player_art_size - 32);
+    lv_label_set_long_mode(plain, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_align(plain, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_set_pos(plain, 4, 4);
+}
+
+void player_lyrics_rows_timer_cb(lv_timer_t *timer)
+{
+    if (s_player_lyrics_rows_timer != timer) return;
+    if (!s_player_lyrics_visible || !s_player_lyrics_scroll) {
+        stop_player_lyrics_rows_timer();
+        return;
+    }
+
+    const int row_width = s_player_art_size - 32;
+    size_t created_this_tick = 0;
+    while (s_player_lyrics_rows_created < s_player_lyrics_row_count &&
+           created_this_tick < kLyricsRowsPerTick) {
+        const size_t index = s_player_lyrics_rows_created;
+        const char *text = s_player_lyrics_rows[index].text;
+        lv_obj_t *row = make_label(s_player_lyrics_scroll, text ? text : "",
+                                   kTextSecondary);
+        lv_obj_set_width(row, row_width);
+        lv_label_set_long_mode(row, LV_LABEL_LONG_MODE_WRAP);
+        lv_obj_set_style_text_align(row, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_radius(row, 6, 0);
+        lv_obj_set_style_pad_hor(row, 5, 0);
+        lv_obj_set_style_pad_ver(row, 7, 0);
+        lv_obj_set_pos(row, 4, s_player_lyrics_next_row_y);
+        lv_obj_update_layout(row);
+        int row_height = lv_obj_get_height(row);
+        if (row_height < 34) {
+            row_height = 34;
+            lv_obj_set_height(row, row_height);
+        }
+        s_player_lyrics_next_row_y += row_height + 3;
+        s_player_lyrics_rows[index].label = row;
+        ++s_player_lyrics_rows_created;
+        ++created_this_tick;
+    }
+
+    if (s_player_lyrics_rows_created < s_player_lyrics_row_count) return;
+
+    lv_obj_update_layout(s_player_lyrics_scroll);
+    s_player_lyrics_rows_ready = true;
+    stop_player_lyrics_rows_timer();
+    free_player_lyrics_buffer();
+    update_player_lyrics();
+}
+
+void player_lyrics_loaded_async_cb(void *context)
+{
+    auto *request = static_cast<LyricsLoadRequest *>(context);
+    if (!request) return;
+    if (request->generation != s_player_lyrics_generation ||
+        !s_player_lyrics_visible || !s_player_lyrics_scroll) {
+        free_lyrics_load_request(request);
+        return;
+    }
+
+    s_player_lyrics_source = request->loaded ? request->source :
+        lyra::media::LyricsSource::None;
+    s_player_lyrics_buffer = request->buffer;
+    request->buffer = nullptr;
+    free_lyrics_load_request(request);
 
     const bool parse_timestamps = s_player_lyrics_source == lyra::media::LyricsSource::Lrc ||
                                   s_player_lyrics_source == lyra::media::LyricsSource::Embedded;
     const size_t row_count = s_player_lyrics_buffer ?
         parse_player_lyrics(s_player_lyrics_buffer, parse_timestamps) : 0;
     if (s_player_lyrics_source == lyra::media::LyricsSource::None || row_count == 0) {
-        lv_obj_t *plain = make_label(scroll,
-                                     tr(lyra::i18n::StringId::NoLyricsFound),
-                                     kTextPrimary);
-        lv_obj_set_width(plain, scroll_width - 16);
-        lv_label_set_long_mode(plain, LV_LABEL_LONG_MODE_WRAP);
-        lv_obj_set_style_text_align(plain, LV_TEXT_ALIGN_LEFT, 0);
-        lv_obj_set_pos(plain, 4, 4);
+        show_player_no_lyrics();
+        return;
+    }
+
+    s_player_lyrics_rows_created = 0;
+    s_player_lyrics_next_row_y = 2;
+    s_player_lyrics_rows_ready = false;
+    if (s_player_flip_animating && s_player_flip_phase == FlipPhase::FromOpenEdge) {
+        s_player_lyrics_rows_pending = true;
     } else {
-        int y = 2;
-        for (size_t i = 0; i < row_count; ++i) {
-            const char *text = s_player_lyrics_rows[i].text;
-            lv_obj_t *row = make_label(scroll, text ? text : "", kTextSecondary);
-            lv_obj_set_width(row, scroll_width - 16);
-            lv_label_set_long_mode(row, LV_LABEL_LONG_MODE_WRAP);
-            lv_obj_set_style_text_align(row, LV_TEXT_ALIGN_CENTER, 0);
-            lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-            lv_obj_set_style_radius(row, 6, 0);
-            lv_obj_set_style_pad_hor(row, 5, 0);
-            lv_obj_set_style_pad_ver(row, 7, 0);
-            lv_obj_set_pos(row, 4, y);
-            lv_obj_update_layout(row);
-            int row_height = lv_obj_get_height(row);
-            if (row_height < 34) {
-                row_height = 34;
-                lv_obj_set_height(row, row_height);
-            }
-            y += row_height + 3;
-            s_player_lyrics_rows[i].label = row;
-        }
-        lv_obj_update_layout(scroll);
+        start_player_lyrics_rows_timer();
     }
-    if (s_player_lyrics_buffer) {
-        heap_caps_free(s_player_lyrics_buffer);
-        s_player_lyrics_buffer = nullptr;
+}
+
+void start_player_lyrics_rows_timer()
+{
+    if (!s_player_lyrics_visible || s_player_lyrics_row_count == 0 ||
+        s_player_lyrics_rows_ready || s_player_lyrics_rows_timer) return;
+    s_player_lyrics_rows_pending = false;
+    remove_player_lyrics_spinner();
+    s_player_lyrics_rows_timer = lv_timer_create(player_lyrics_rows_timer_cb,
+                                                  kLyricsRowsTickMs, nullptr);
+    if (!s_player_lyrics_rows_timer) show_player_no_lyrics();
+}
+
+void player_lyrics_load_task(void *context)
+{
+    auto *request = static_cast<LyricsLoadRequest *>(context);
+    if (!request) {
+        vTaskDelete(nullptr);
+        return;
     }
-    s_player_lyrics_visible = true;
-    s_player_manual_scroll_until_us = 0;
-    update_player_lyrics();
+    request->loaded = lyra::media::load_lyrics(request->track, request->buffer,
+                                               lyra::media::kMaxLyricsBytes + 1,
+                                               &request->source);
+    if (lv_async_call(player_lyrics_loaded_async_cb, request) != LV_RESULT_OK) {
+        free_lyrics_load_request(request);
+    }
+    vTaskDelete(nullptr);
+}
+
+void start_player_lyrics_load()
+{
+    auto *request = static_cast<LyricsLoadRequest *>(
+        heap_caps_calloc(1, sizeof(LyricsLoadRequest), MALLOC_CAP_8BIT));
+    if (!request) {
+        show_player_no_lyrics();
+        return;
+    }
+    request->generation = s_player_lyrics_generation;
+    request->track = s_player_pending_lyrics_track;
+    request->source = lyra::media::LyricsSource::None;
+    request->buffer = static_cast<char *>(heap_caps_malloc(
+        lyra::media::kMaxLyricsBytes + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!request->buffer) {
+        request->buffer = static_cast<char *>(std::malloc(lyra::media::kMaxLyricsBytes + 1));
+    }
+    if (!request->buffer) {
+        free_lyrics_load_request(request);
+        show_player_no_lyrics();
+        return;
+    }
+    request->buffer[0] = '\0';
+    if (xTaskCreatePinnedToCore(player_lyrics_load_task, "lyra_lyrics", 8192,
+                                request, 1, nullptr, 0) != pdPASS) {
+        free_lyrics_load_request(request);
+        show_player_no_lyrics();
+    }
 }
 
 void restore_player_art_face()
 {
     lv_obj_t *face = s_player_art_face;
     if (!face) return;
+    stop_player_lyrics_rows_timer();
+    remove_player_lyrics_spinner();
+    free_player_lyrics_buffer();
     lv_obj_clean(face);
     lv_obj_set_style_bg_color(face, kArtworkSurface, 0);
     lv_obj_set_style_bg_opa(face, LV_OPA_COVER, 0);
@@ -308,6 +489,9 @@ void restore_player_art_face()
     lv_obj_add_event_cb(face, player_art_click_cb, LV_EVENT_CLICKED, nullptr);
     s_player_lyrics_scroll = nullptr;
     s_player_lyrics_row_count = 0;
+    s_player_lyrics_rows_created = 0;
+    s_player_lyrics_rows_ready = false;
+    s_player_lyrics_rows_pending = false;
     s_player_current_lyric = -1;
     s_player_lyrics_visible = false;
 }
@@ -339,6 +523,7 @@ void player_art_flip_finished(lv_anim_t *)
     switch (s_player_flip_phase) {
         case FlipPhase::ToOpenEdge:
             build_player_lyrics_face();
+            start_player_lyrics_load();
             s_player_flip_phase = FlipPhase::FromOpenEdge;
             start_player_art_flip(FlipPhase::FromOpenEdge, 0, kFlipScale);
             break;
@@ -348,6 +533,10 @@ void player_art_flip_finished(lv_anim_t *)
             start_player_art_flip(FlipPhase::FromCloseEdge, 0, kFlipScale);
             break;
         case FlipPhase::FromOpenEdge:
+            s_player_flip_animating = false;
+            s_player_flip_phase = FlipPhase::None;
+            if (s_player_lyrics_rows_pending) start_player_lyrics_rows_timer();
+            break;
         case FlipPhase::FromCloseEdge:
             s_player_flip_animating = false;
             s_player_flip_phase = FlipPhase::None;
@@ -361,25 +550,18 @@ void player_art_flip_finished(lv_anim_t *)
 void player_art_click_cb(lv_event_t *)
 {
     if (!s_player_art_face || s_player_lyrics_visible || s_player_flip_animating) return;
-    s_player_lyrics_buffer = static_cast<char *>(heap_caps_malloc(
-        lyra::media::kMaxLyricsBytes + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!s_player_lyrics_buffer) {
-        s_player_lyrics_buffer = static_cast<char *>(std::malloc(
-            lyra::media::kMaxLyricsBytes + 1));
-    }
-    if (!s_player_lyrics_buffer) return;
-    s_player_lyrics_buffer[0] = '\0';
-    if (!lyra::media::load_lyrics(s_player_lyrics_track, s_player_lyrics_buffer,
-                                  lyra::media::kMaxLyricsBytes + 1,
-                                  &s_player_lyrics_source)) {
-        s_player_lyrics_source = lyra::media::LyricsSource::None;
-    }
+    ++s_player_lyrics_generation;
+    s_player_pending_lyrics_track = s_player_lyrics_track;
     start_player_art_flip(FlipPhase::ToOpenEdge, kFlipScale, 0);
 }
 
 void player_lyrics_close_cb(lv_event_t *)
 {
     if (!s_player_art_face || !s_player_lyrics_visible || s_player_flip_animating) return;
+    ++s_player_lyrics_generation;
+    stop_player_lyrics_rows_timer();
+    free_player_lyrics_buffer();
+    s_player_lyrics_rows_pending = false;
     s_player_flip_animating = true;
     lv_obj_remove_event_cb(s_player_art_face, player_art_click_cb);
     start_player_art_flip(FlipPhase::ToCloseEdge, kFlipScale, 0);
@@ -389,15 +571,19 @@ void player_lyrics_close_cb(lv_event_t *)
 
 void reset_player_lyrics_state()
 {
+    ++s_player_lyrics_generation;
     if (s_player_art_face) lv_anim_delete(s_player_art_face, nullptr);
-    if (s_player_lyrics_buffer) {
-        heap_caps_free(s_player_lyrics_buffer);
-        s_player_lyrics_buffer = nullptr;
-    }
+    stop_player_lyrics_rows_timer();
+    remove_player_lyrics_spinner();
+    free_player_lyrics_buffer();
     s_player_art_face = nullptr;
     s_player_lyrics_scroll = nullptr;
+    s_player_lyrics_loading_spinner = nullptr;
     s_player_lyrics_source = lyra::media::LyricsSource::None;
     s_player_lyrics_row_count = 0;
+    s_player_lyrics_rows_created = 0;
+    s_player_lyrics_rows_ready = false;
+    s_player_lyrics_rows_pending = false;
     s_player_current_lyric = -1;
     s_player_manual_scroll_until_us = 0;
     s_player_auto_scrolling = false;
