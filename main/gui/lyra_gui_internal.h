@@ -480,6 +480,7 @@ void update_player_progress_preview();
 void player_progress_touch_cb(lv_event_t *event);
 lv_obj_t *make_player_progress_touch(lv_obj_t *parent, int x, int y, int width, int height);
 void update_player_progress();
+void reset_player_lyrics_state();
 void render_player();
 void update_equalizer_gain_label(lv_obj_t *label, int16_t gain_tenths_db, lv_color_t color);
 void equalizer_slider_cb(lv_event_t *event);

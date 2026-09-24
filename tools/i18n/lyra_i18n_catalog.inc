@@ -131,6 +131,8 @@ LYRA_I18N_ENTRY(TrackInfo, "Track Info", "Informations sur la piste", "Titelinfo
 LYRA_I18N_ENTRY(SongInfo, "Song Info", "Informations sur la chanson", "Songinformationen", "Información de la canción", "Informazioni brano", "曲情報", "곡 정보", "Информация о песне", "歌曲信息", "歌曲資訊")
 LYRA_I18N_ENTRY(MediaInfo, "Media Info", "Informations multimédias", "Medieninformationen", "Información multimedia", "Informazioni multimediali", "メディア情報", "미디어 정보", "Информация о медиа", "媒体信息", "媒體資訊")
 LYRA_I18N_ENTRY(TapAlbumArt, "Tap album art for full screen", "Touchez la pochette pour l'afficher en plein écran", "Tippen Sie auf das Cover für die Vollbildansicht", "Toca la carátula para verla a pantalla completa", "Tocca la copertina per la visualizzazione a schermo intero", "アルバムアートをタップすると全画面表示", "앨범 아트를 누르면 전체 화면으로 표시됩니다", "Нажмите на обложку для полноэкранного просмотра", "点击专辑封面以全屏查看", "點選專輯封面以全螢幕檢視")
+LYRA_I18N_ENTRY(Lyrics, "Lyrics", "Paroles", "Liedtexte", "Letras", "Testi", "歌詞", "가사", "Текст песни", "歌词", "歌詞")
+LYRA_I18N_ENTRY(NoLyricsFound, "No lyrics found", "Aucune parole disponible", "Keine Liedtexte gefunden", "No se encontraron letras", "Testo non disponibile", "歌詞が見つかりません", "가사를 찾을 수 없습니다", "Текст песни не найден", "未找到歌词", "未找到歌詞")
 LYRA_I18N_ENTRY(Title, "Title", "Titre", "Titel", "Título", "Titolo", "タイトル", "제목", "Название", "标题", "標題")
 LYRA_I18N_ENTRY(Album, "Album", "Album", "Album", "Álbum", "Album", "アルバム", "앨범", "Альбом", "专辑", "專輯")
 LYRA_I18N_ENTRY(Artist, "Artist", "Artiste", "Interpret", "Artista", "Artista", "アーティスト", "아티스트", "Исполнитель", "艺术家", "藝人")

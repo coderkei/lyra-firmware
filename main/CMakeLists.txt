@@ -29,6 +29,7 @@ idf_component_register(
         "audio/playback/lyra_audio_decoder_task.cpp"
         "lyra_audio_pcm.cpp"
         "lyra_media.cpp"
+        "media/lyra_media_lyrics.cpp"
         "media/lyra_media_state.cpp"
         "media/catalog/lyra_media_catalog_settings.cpp"
         "media/catalog/lyra_media_catalog_pipeline.cpp"

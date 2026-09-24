@@ -102,3 +102,8 @@ The interface includes Menu, Queue, Music Library, folder browsing,
 playlists, search, Now Playing, Equalizer, and Settings. A configurable
 bottom virtual-control bar provides Menu, Previous, Play/Pause, Next, and
 Back controls for the buttonless development kit.
+
+In Now Playing, tapping album art flips to a scrollable lyrics view. Lyrics
+are loaded from embedded metadata first, then a same-stem `.lrc` file, then a
+same-stem `.txt` file. Timestamped LRC lyrics highlight the current line;
+plain text lyrics remain unhighlighted.

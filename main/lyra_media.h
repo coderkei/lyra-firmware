@@ -191,6 +191,14 @@ enum class ArtworkSize : uint8_t { Player };
 // The caller owns the destination buffer while the media service owns its copy.
 bool copy_artwork(const Track &track, uint16_t *pixels, size_t pixel_count);
 esp_err_t request_artwork(const Track &track, ArtworkSize size);
+
+enum class LyricsSource : uint8_t { None, Embedded, Lrc, Text };
+constexpr size_t kMaxLyricsBytes = 16u * 1024u;
+// Reads embedded lyrics first, then a same-stem .lrc file, then .txt.
+// The destination is always NUL terminated when capacity is non-zero.
+bool load_lyrics(const Track &track, char *destination, size_t capacity,
+                 LyricsSource *source = nullptr);
+
 size_t group_count(GroupKind kind);
 bool group_at(GroupKind kind, size_t index, Group *out);
 bool sorted_group_index_at(SortSection section, size_t index, size_t *group_index);
