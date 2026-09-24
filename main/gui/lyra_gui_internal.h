@@ -480,6 +480,7 @@ void update_player_progress_touch_value(lv_obj_t *touch);
 void update_player_progress_preview();
 void player_progress_touch_cb(lv_event_t *event);
 lv_obj_t *make_player_progress_touch(lv_obj_t *parent, int x, int y, int width, int height);
+void update_player_progress_seek_preview(uint32_t position_ms, uint32_t duration_ms, bool active);
 void update_player_progress();
 void reset_player_lyrics_state();
 void render_player();

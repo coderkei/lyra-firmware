@@ -15,7 +15,6 @@ constexpr size_t kMaximumLyricsRows = 256;
 constexpr size_t kLyricsRowsPerTick = 6;
 constexpr uint32_t kLyricsRowsTickMs = 10;
 constexpr uint32_t kUntimedLyric = UINT32_MAX;
-constexpr int32_t kFlipScale = 256;
 
 struct LyricsRow {
     uint32_t time_ms;
@@ -33,7 +32,8 @@ struct LyricsLoadRequest {
 
 enum class FlipPhase : uint8_t { None, ToOpenEdge, FromOpenEdge, ToCloseEdge, FromCloseEdge };
 
-lv_obj_t *s_player_art_face;
+lv_obj_t *s_player_flip_window;
+lv_obj_t *s_player_flip_content;
 lv_obj_t *s_player_lyrics_scroll;
 lv_obj_t *s_player_lyrics_loading_spinner;
 lv_timer_t *s_player_lyrics_rows_timer;
@@ -55,6 +55,9 @@ int s_player_lyrics_next_row_y;
 int s_player_current_lyric = -1;
 int64_t s_player_manual_scroll_until_us;
 uint32_t s_player_lyrics_generation;
+bool s_player_seek_preview_active;
+uint32_t s_player_seek_preview_position_ms;
+uint32_t s_player_seek_preview_duration_ms;
 
 void player_art_click_cb(lv_event_t *event);
 void player_lyrics_close_cb(lv_event_t *event);
@@ -233,22 +236,28 @@ void update_player_lyrics()
 
 void build_player_lyrics_face()
 {
-    lv_obj_t *face = s_player_art_face;
-    if (!face) return;
-    lv_obj_clean(face);
-    lv_obj_set_style_bg_color(face, kArtworkSurface, 0);
-    lv_obj_set_style_bg_opa(face, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(face, 0, 0);
-    lv_obj_set_style_radius(face, 13, 0);
-    lv_obj_set_style_pad_all(face, 0, 0);
-    lv_obj_clear_flag(face, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_event_cb(face, player_art_click_cb);
+    lv_obj_t *window = s_player_flip_window;
+    if (!window) return;
+    if (s_player_flip_content) {
+        lv_obj_remove_event_cb(s_player_flip_content, player_art_click_cb);
+    }
+    lv_obj_clean(window);
+    lv_obj_set_style_bg_color(window, kArtworkSurface, 0);
+    lv_obj_set_style_bg_opa(window, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(window, 0, 0);
+    lv_obj_set_style_radius(window, 13, 0);
+    lv_obj_set_style_pad_all(window, 0, 0);
+    lv_obj_clear_flag(window, LV_OBJ_FLAG_SCROLLABLE);
+    s_player_flip_content = make_box(window, 0, 0, s_player_art_size,
+                                     s_player_art_size, kArtworkSurface, 13);
+    lv_obj_set_style_border_width(s_player_flip_content, 0, 0);
 
-    lv_obj_t *title = make_label(face, tr(lyra::i18n::StringId::Lyrics), kTextPrimary);
+    lv_obj_t *title = make_label(s_player_flip_content,
+                                 tr(lyra::i18n::StringId::Lyrics), kTextPrimary);
     lv_obj_set_width(title, s_player_art_size - 62);
     lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 12, 10);
-    lv_obj_t *close = make_button(face, s_player_art_size - 42, 4, 36, 36,
+    lv_obj_set_pos(title, 12, 10);
+    lv_obj_t *close = make_button(s_player_flip_content, s_player_art_size - 42, 4, 36, 36,
                                   kSurfaceRaised, 18);
     lv_obj_t *close_icon = make_label(close, LV_SYMBOL_CLOSE, kTextPrimary);
     lv_obj_center(close_icon);
@@ -256,7 +265,7 @@ void build_player_lyrics_face()
 
     const int scroll_width = s_player_art_size - 16;
     const int scroll_height = s_player_art_size - 50;
-    lv_obj_t *scroll = lv_obj_create(face);
+    lv_obj_t *scroll = lv_obj_create(s_player_flip_content);
     lv_obj_set_pos(scroll, 8, 42);
     lv_obj_set_size(scroll, scroll_width, scroll_height);
     lv_obj_set_style_bg_opa(scroll, LV_OPA_TRANSP, 0);
@@ -287,6 +296,7 @@ void build_player_lyrics_face()
     s_player_current_lyric = -1;
     s_player_lyrics_visible = true;
     s_player_manual_scroll_until_us = 0;
+    player_art_flip_exec(window, 0);
 }
 
 void free_player_lyrics_buffer()
@@ -472,21 +482,28 @@ void start_player_lyrics_load()
 
 void restore_player_art_face()
 {
-    lv_obj_t *face = s_player_art_face;
-    if (!face) return;
+    lv_obj_t *window = s_player_flip_window;
+    if (!window) return;
     stop_player_lyrics_rows_timer();
     remove_player_lyrics_spinner();
     free_player_lyrics_buffer();
-    lv_obj_clean(face);
-    lv_obj_set_style_bg_color(face, kArtworkSurface, 0);
-    lv_obj_set_style_bg_opa(face, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(face, 0, 0);
-    lv_obj_set_style_radius(face, 13, 0);
-    lv_obj_set_style_pad_all(face, 0, 0);
-    lv_obj_clear_flag(face, LV_OBJ_FLAG_SCROLLABLE);
-    make_artwork_contents(face, s_player_art_size, s_player_art_size,
+    if (s_player_flip_content) {
+        lv_obj_remove_event_cb(s_player_flip_content, player_art_click_cb);
+    }
+    lv_obj_clean(window);
+    lv_obj_set_style_bg_color(window, kArtworkSurface, 0);
+    lv_obj_set_style_bg_opa(window, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(window, 0, 0);
+    lv_obj_set_style_radius(window, 13, 0);
+    lv_obj_set_style_pad_all(window, 0, 0);
+    lv_obj_clear_flag(window, LV_OBJ_FLAG_SCROLLABLE);
+    s_player_flip_content = make_box(window, 0, 0, s_player_art_size,
+                                     s_player_art_size, kArtworkSurface, 13);
+    lv_obj_set_style_border_width(s_player_flip_content, 0, 0);
+    make_artwork_contents(s_player_flip_content, s_player_art_size, s_player_art_size,
                           s_player_lyrics_track, 13);
-    lv_obj_add_event_cb(face, player_art_click_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(s_player_flip_content, player_art_click_cb,
+                        LV_EVENT_CLICKED, nullptr);
     s_player_lyrics_scroll = nullptr;
     s_player_lyrics_row_count = 0;
     s_player_lyrics_rows_created = 0;
@@ -494,24 +511,30 @@ void restore_player_art_face()
     s_player_lyrics_rows_pending = false;
     s_player_current_lyric = -1;
     s_player_lyrics_visible = false;
+    player_art_flip_exec(window, 0);
 }
 
-void player_art_flip_exec(void *object, int32_t scale)
+void player_art_flip_exec(void *object, int32_t width)
 {
-    lv_obj_t *face = static_cast<lv_obj_t *>(object);
-    if (face) lv_obj_set_style_transform_scale_x(face, scale, 0);
+    lv_obj_t *window = static_cast<lv_obj_t *>(object);
+    if (!window || s_player_art_size <= 0) return;
+    const int32_t clipped_width = std::clamp<int32_t>(width, 1, s_player_art_size);
+    const int32_t offset = (s_player_art_size - clipped_width) / 2;
+    lv_obj_set_x(window, offset);
+    lv_obj_set_width(window, clipped_width);
+    if (s_player_flip_content) lv_obj_set_x(s_player_flip_content, -offset);
 }
 
 void start_player_art_flip(FlipPhase phase, int32_t from, int32_t to)
 {
-    if (!s_player_art_face) return;
+    if (!s_player_flip_window) return;
     s_player_flip_phase = phase;
     s_player_flip_animating = true;
     lv_anim_t animation;
     lv_anim_init(&animation);
-    lv_anim_set_var(&animation, s_player_art_face);
+    lv_anim_set_var(&animation, s_player_flip_window);
     lv_anim_set_values(&animation, from, to);
-    lv_anim_set_duration(&animation, 180);
+    lv_anim_set_duration(&animation, 200);
     lv_anim_set_path_cb(&animation, lv_anim_path_ease_in_out);
     lv_anim_set_exec_cb(&animation, player_art_flip_exec);
     lv_anim_set_completed_cb(&animation, player_art_flip_finished);
@@ -525,12 +548,12 @@ void player_art_flip_finished(lv_anim_t *)
             build_player_lyrics_face();
             start_player_lyrics_load();
             s_player_flip_phase = FlipPhase::FromOpenEdge;
-            start_player_art_flip(FlipPhase::FromOpenEdge, 0, kFlipScale);
+            start_player_art_flip(FlipPhase::FromOpenEdge, 0, s_player_art_size);
             break;
         case FlipPhase::ToCloseEdge:
             restore_player_art_face();
             s_player_flip_phase = FlipPhase::FromCloseEdge;
-            start_player_art_flip(FlipPhase::FromCloseEdge, 0, kFlipScale);
+            start_player_art_flip(FlipPhase::FromCloseEdge, 0, s_player_art_size);
             break;
         case FlipPhase::FromOpenEdge:
             s_player_flip_animating = false;
@@ -549,22 +572,25 @@ void player_art_flip_finished(lv_anim_t *)
 
 void player_art_click_cb(lv_event_t *)
 {
-    if (!s_player_art_face || s_player_lyrics_visible || s_player_flip_animating) return;
+    if (!s_player_flip_window || !s_player_flip_content ||
+        s_player_lyrics_visible || s_player_flip_animating) return;
     ++s_player_lyrics_generation;
     s_player_pending_lyrics_track = s_player_lyrics_track;
-    start_player_art_flip(FlipPhase::ToOpenEdge, kFlipScale, 0);
+    start_player_art_flip(FlipPhase::ToOpenEdge, s_player_art_size, 0);
 }
 
 void player_lyrics_close_cb(lv_event_t *)
 {
-    if (!s_player_art_face || !s_player_lyrics_visible || s_player_flip_animating) return;
+    if (!s_player_flip_window || !s_player_lyrics_visible || s_player_flip_animating) return;
     ++s_player_lyrics_generation;
     stop_player_lyrics_rows_timer();
     free_player_lyrics_buffer();
     s_player_lyrics_rows_pending = false;
     s_player_flip_animating = true;
-    lv_obj_remove_event_cb(s_player_art_face, player_art_click_cb);
-    start_player_art_flip(FlipPhase::ToCloseEdge, kFlipScale, 0);
+    if (s_player_flip_content) {
+        lv_obj_remove_event_cb(s_player_flip_content, player_art_click_cb);
+    }
+    start_player_art_flip(FlipPhase::ToCloseEdge, s_player_art_size, 0);
 }
 
 } // namespace
@@ -572,11 +598,12 @@ void player_lyrics_close_cb(lv_event_t *)
 void reset_player_lyrics_state()
 {
     ++s_player_lyrics_generation;
-    if (s_player_art_face) lv_anim_delete(s_player_art_face, nullptr);
+    if (s_player_flip_window) lv_anim_delete(s_player_flip_window, nullptr);
     stop_player_lyrics_rows_timer();
     remove_player_lyrics_spinner();
     free_player_lyrics_buffer();
-    s_player_art_face = nullptr;
+    s_player_flip_window = nullptr;
+    s_player_flip_content = nullptr;
     s_player_lyrics_scroll = nullptr;
     s_player_lyrics_loading_spinner = nullptr;
     s_player_lyrics_source = lyra::media::LyricsSource::None;
@@ -672,9 +699,12 @@ void update_player_progress()
     if (!s_player_progress_bar && !s_player_elapsed_label && !s_player_duration_label) return;
 
     const lyra::audio::Status audio_status = lyra::audio::status();
-    const uint32_t duration_ms = audio_status.duration_ms;
-    const uint32_t position_ms = duration_ms > 0 && audio_status.position_ms > duration_ms ?
-                                 duration_ms : audio_status.position_ms;
+    const uint32_t duration_ms = s_player_seek_preview_active ?
+        s_player_seek_preview_duration_ms : audio_status.duration_ms;
+    const uint32_t requested_position_ms = s_player_seek_preview_active ?
+        s_player_seek_preview_position_ms : audio_status.position_ms;
+    const uint32_t position_ms = duration_ms > 0 && requested_position_ms > duration_ms ?
+                                 duration_ms : requested_position_ms;
     if (s_player_progress_dragging) return;
     if (s_player_progress_bar) {
         const int progress = duration_ms > 0 ? static_cast<int>(
@@ -688,6 +718,27 @@ void update_player_progress()
     if (s_player_elapsed_label) lv_label_set_text(s_player_elapsed_label, elapsed);
     if (s_player_duration_label) lv_label_set_text(s_player_duration_label, duration);
     update_player_lyrics();
+}
+
+void update_player_progress_seek_preview(uint32_t position_ms, uint32_t duration_ms, bool active)
+{
+    s_player_seek_preview_active = active;
+    if (!active) {
+        update_player_progress();
+        return;
+    }
+
+    s_player_seek_preview_duration_ms = duration_ms;
+    s_player_seek_preview_position_ms = std::min(position_ms, duration_ms);
+    if (s_player_progress_dragging) return;
+    if (s_player_progress_bar && duration_ms > 0) {
+        const int progress = static_cast<int>(
+            (static_cast<uint64_t>(s_player_seek_preview_position_ms) * 1000u) / duration_ms);
+        lv_bar_set_value(s_player_progress_bar, std::min(progress, 1000), LV_ANIM_OFF);
+    }
+    char elapsed[16];
+    format_playback_time(s_player_seek_preview_position_ms, false, elapsed, sizeof(elapsed));
+    if (s_player_elapsed_label) lv_label_set_text(s_player_elapsed_label, elapsed);
 }
 
 void render_player()
@@ -723,11 +774,19 @@ void render_player()
     const int art_y = 20;
     s_player_art_size = art_size;
     s_player_lyrics_track = track;
-    s_player_art_face = make_artwork(body, art_x, art_y, art_size, art_size, track, 13);
-    lv_obj_add_flag(s_player_art_face, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_transform_pivot_x(s_player_art_face, art_size / 2, 0);
-    lv_obj_set_style_transform_pivot_y(s_player_art_face, art_size / 2, 0);
-    lv_obj_add_event_cb(s_player_art_face, player_art_click_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *art_face = make_box(body, art_x, art_y, art_size, art_size,
+                                  kBackground, 13);
+    lv_obj_set_style_bg_opa(art_face, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(art_face, 0, 0);
+    s_player_flip_window = make_box(art_face, 0, 0, art_size, art_size,
+                                    kArtworkSurface, 13);
+    lv_obj_set_style_border_width(s_player_flip_window, 0, 0);
+    s_player_flip_content = make_box(s_player_flip_window, 0, 0, art_size, art_size,
+                                     kArtworkSurface, 13);
+    lv_obj_set_style_border_width(s_player_flip_content, 0, 0);
+    make_artwork_contents(s_player_flip_content, art_size, art_size, track, 13);
+    lv_obj_add_event_cb(s_player_flip_content, player_art_click_cb,
+                        LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *title = make_label(body, track.title, kTextPrimary);
     lv_obj_set_style_text_font(title, lyra::font::ui(), 0);

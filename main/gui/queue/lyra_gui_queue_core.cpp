@@ -7,6 +7,172 @@
 
 namespace lyra::gui::internal {
 
+namespace {
+
+constexpr int64_t kNavLongPressThresholdUs = 2'000'000;
+constexpr int64_t kNavSeekUpdatePeriodUs = 1'000'000;
+constexpr int64_t kNavSeekAccelerationDelayUs = 5'000'000;
+constexpr uint32_t kNavSeekInitialRate = 10;
+constexpr uint32_t kNavSeekAcceleratedRate = 30;
+
+struct NavHoldState {
+    bool pressed;
+    bool long_press_handled;
+    bool seek_active;
+    bool was_paused;
+    int64_t pressed_at_us;
+    int64_t seek_started_at_us;
+    int64_t last_seek_update_us;
+    int64_t last_preview_update_us;
+    uint32_t base_position_ms;
+    uint32_t target_position_ms;
+    uint32_t duration_ms;
+    char track_path[lyra::audio::kMaxPath];
+};
+
+NavHoldState s_previous_hold;
+NavHoldState s_next_hold;
+
+uint64_t nav_seek_distance_ms(int64_t from_us, int64_t to_us,
+                              int64_t seek_started_at_us)
+{
+    const int64_t from_elapsed_us = std::max<int64_t>(0, from_us - seek_started_at_us);
+    const int64_t to_elapsed_us = std::max<int64_t>(0, to_us - seek_started_at_us);
+    if (to_elapsed_us <= from_elapsed_us) return 0;
+
+    const int64_t acceleration_delay_us = kNavSeekAccelerationDelayUs;
+    const int64_t initial_end_us = std::min(to_elapsed_us, acceleration_delay_us);
+    const int64_t initial_start_us = std::min(from_elapsed_us, acceleration_delay_us);
+    const int64_t accelerated_start_us = std::max(from_elapsed_us, acceleration_delay_us);
+    const int64_t accelerated_end_us = std::max(to_elapsed_us, acceleration_delay_us);
+    const uint64_t initial_distance_ms = static_cast<uint64_t>(
+        initial_end_us - initial_start_us) * kNavSeekInitialRate / 1000u;
+    const uint64_t accelerated_distance_ms = static_cast<uint64_t>(
+        accelerated_end_us - accelerated_start_us) * kNavSeekAcceleratedRate / 1000u;
+    return initial_distance_ms + accelerated_distance_ms;
+}
+
+uint32_t nav_seek_target(uint32_t base_position_ms, uint64_t distance_ms,
+                         uint32_t duration_ms, int direction)
+{
+    const uint32_t maximum_position_ms = duration_ms > 250 ? duration_ms - 250 : 0;
+    if (direction > 0) {
+        return static_cast<uint32_t>(std::min<uint64_t>(
+            maximum_position_ms, static_cast<uint64_t>(base_position_ms) + distance_ms));
+    }
+    return distance_ms >= base_position_ms ? 0 :
+        base_position_ms - static_cast<uint32_t>(distance_ms);
+}
+
+void update_nav_hold(NavHoldState &hold, int64_t now_us, int direction, bool force)
+{
+    if (!hold.pressed) return;
+
+    if (!hold.long_press_handled && now_us - hold.pressed_at_us >= kNavLongPressThresholdUs) {
+        hold.long_press_handled = true;
+        if (s_crossfade_transition_direction != 0 || s_crossfade_pause_pending) return;
+
+        const lyra::audio::Status audio_status = lyra::audio::status();
+        if (!hold.track_path[0] || std::strcmp(audio_status.path, hold.track_path) != 0 ||
+            audio_status.last_error != ESP_OK || audio_status.duration_ms == 0) return;
+
+        hold.seek_active = true;
+        hold.was_paused = audio_status.paused;
+        hold.duration_ms = audio_status.duration_ms;
+        const uint32_t maximum_position_ms = audio_status.duration_ms > 250 ?
+            audio_status.duration_ms - 250 : 0;
+        hold.base_position_ms = std::min(audio_status.position_ms, maximum_position_ms);
+        hold.target_position_ms = hold.base_position_ms;
+        hold.seek_started_at_us = hold.pressed_at_us + kNavLongPressThresholdUs;
+        hold.last_seek_update_us = hold.seek_started_at_us;
+    }
+
+    if (!hold.seek_active) return;
+    if (hold.was_paused) {
+        const uint64_t distance_ms = nav_seek_distance_ms(
+            hold.seek_started_at_us, now_us, hold.seek_started_at_us);
+        const uint32_t target_ms = nav_seek_target(
+            hold.base_position_ms, distance_ms, hold.duration_ms, direction);
+        hold.target_position_ms = target_ms;
+
+        const lyra::audio::Status audio_status = lyra::audio::status();
+        if (std::strcmp(audio_status.path, hold.track_path) != 0) {
+            update_player_progress_seek_preview(0, 0, false);
+            hold.seek_active = false;
+            return;
+        }
+
+        if (!force) {
+            if (now_us - hold.last_preview_update_us >= 100'000) {
+                update_player_progress_seek_preview(target_ms, hold.duration_ms, true);
+                hold.last_preview_update_us = now_us;
+            }
+            return;
+        }
+
+        if (target_ms != hold.base_position_ms) {
+            const esp_err_t seek_ret = lyra::audio::seek(target_ms);
+            if (seek_ret != ESP_OK) {
+                ESP_LOGW(kTag, "could not seek playback: %s", esp_err_to_name(seek_ret));
+            }
+        }
+        update_player_progress_seek_preview(0, 0, false);
+        return;
+    }
+
+    if (!force && now_us - hold.last_seek_update_us < kNavSeekUpdatePeriodUs) return;
+    const uint64_t distance_ms = nav_seek_distance_ms(
+        hold.last_seek_update_us, now_us, hold.seek_started_at_us);
+    const uint32_t target_ms = nav_seek_target(
+        hold.target_position_ms, distance_ms, hold.duration_ms, direction);
+    hold.last_seek_update_us = now_us;
+    if (target_ms == hold.target_position_ms) return;
+    hold.target_position_ms = target_ms;
+
+    const lyra::audio::Status audio_status = lyra::audio::status();
+    if (std::strcmp(audio_status.path, hold.track_path) != 0) {
+        hold.seek_active = false;
+        return;
+    }
+    const esp_err_t seek_ret = lyra::audio::seek(target_ms);
+    if (seek_ret != ESP_OK) {
+        ESP_LOGW(kTag, "could not seek playback: %s", esp_err_to_name(seek_ret));
+    } else {
+        update_player_progress();
+    }
+}
+
+void nav_button_event(lv_event_t *event, int direction, NavHoldState &hold)
+{
+    const lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_PRESSED) {
+        hold = {};
+        hold.pressed = true;
+        hold.pressed_at_us = esp_timer_get_time();
+        const lyra::audio::Status audio_status = lyra::audio::status();
+        std::strncpy(hold.track_path, audio_status.path, sizeof(hold.track_path) - 1);
+        hold.track_path[sizeof(hold.track_path) - 1] = '\0';
+        return;
+    }
+    if (code == LV_EVENT_PRESSING) {
+        update_nav_hold(hold, esp_timer_get_time(), direction, false);
+        return;
+    }
+    if (code == LV_EVENT_RELEASED) {
+        if (!hold.pressed) return;
+        update_nav_hold(hold, esp_timer_get_time(), direction, true);
+        if (!hold.long_press_handled) request_manual_queue_move(direction);
+        hold = {};
+        return;
+    }
+    if (code == LV_EVENT_PRESS_LOST && hold.pressed) {
+        update_nav_hold(hold, esp_timer_get_time(), direction, true);
+        hold = {};
+    }
+}
+
+} // namespace
+
 void reset_shuffle_queue()
 {
     if (s_shuffle_order) heap_caps_free(s_shuffle_order);
@@ -455,14 +621,14 @@ void nav_play_cb(lv_event_t *)
     }
 }
 
-void nav_previous_cb(lv_event_t *)
+void nav_previous_cb(lv_event_t *event)
 {
-    request_manual_queue_move(-1);
+    nav_button_event(event, -1, s_previous_hold);
 }
 
-void nav_next_cb(lv_event_t *)
+void nav_next_cb(lv_event_t *event)
 {
-    request_manual_queue_move(1);
+    nav_button_event(event, 1, s_next_hold);
 }
 
 bool restart_current_track()
@@ -491,11 +657,17 @@ void make_virtual_nav()
         if (i == 0) {
             add_route(button, View::Menu);
         } else if (i == 1) {
-            lv_obj_add_event_cb(button, nav_previous_cb, LV_EVENT_CLICKED, nullptr);
+            lv_obj_add_event_cb(button, nav_previous_cb, LV_EVENT_PRESSED, nullptr);
+            lv_obj_add_event_cb(button, nav_previous_cb, LV_EVENT_PRESSING, nullptr);
+            lv_obj_add_event_cb(button, nav_previous_cb, LV_EVENT_RELEASED, nullptr);
+            lv_obj_add_event_cb(button, nav_previous_cb, LV_EVENT_PRESS_LOST, nullptr);
         } else if (i == 2) {
             lv_obj_add_event_cb(button, nav_play_cb, LV_EVENT_CLICKED, nullptr);
         } else if (i == 3) {
-            lv_obj_add_event_cb(button, nav_next_cb, LV_EVENT_CLICKED, nullptr);
+            lv_obj_add_event_cb(button, nav_next_cb, LV_EVENT_PRESSED, nullptr);
+            lv_obj_add_event_cb(button, nav_next_cb, LV_EVENT_PRESSING, nullptr);
+            lv_obj_add_event_cb(button, nav_next_cb, LV_EVENT_RELEASED, nullptr);
+            lv_obj_add_event_cb(button, nav_next_cb, LV_EVENT_PRESS_LOST, nullptr);
         } else {
             lv_obj_add_event_cb(button, nav_back_cb, LV_EVENT_CLICKED, nullptr);
         }
