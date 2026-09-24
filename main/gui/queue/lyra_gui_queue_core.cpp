@@ -11,6 +11,7 @@ namespace {
 
 constexpr int64_t kNavLongPressThresholdUs = 2'000'000;
 constexpr int64_t kNavSeekRateTierDurationUs = 5'000'000;
+constexpr uint32_t kPreviousRestartThresholdMs = 5'000;
 constexpr uint32_t kNavSeekRateTier1 = 10;
 constexpr uint32_t kNavSeekRateTier2 = 30;
 constexpr uint32_t kNavSeekRateTier3 = 50;
@@ -139,6 +140,22 @@ void update_nav_hold(NavHoldState &hold, int64_t now_us, int direction, bool for
     update_player_progress_seek_preview(0, 0, false);
 }
 
+void request_manual_previous()
+{
+    if (s_crossfade_transition_direction != 0 || s_crossfade_pause_pending) return;
+
+    const lyra::audio::Status audio_status = lyra::audio::status();
+    size_t queue_position = 0;
+    const bool at_queue_start = s_has_active_queue &&
+        current_queue_position(&queue_position) && queue_position == 0;
+    if (audio_status.position_ms > kPreviousRestartThresholdMs || at_queue_start) {
+        restart_current_track();
+        return;
+    }
+
+    request_manual_queue_move(-1);
+}
+
 void nav_button_event(lv_event_t *event, int direction, NavHoldState &hold)
 {
     const lv_event_code_t code = lv_event_get_code(event);
@@ -158,7 +175,10 @@ void nav_button_event(lv_event_t *event, int direction, NavHoldState &hold)
     if (code == LV_EVENT_RELEASED) {
         if (!hold.pressed) return;
         update_nav_hold(hold, esp_timer_get_time(), direction, true);
-        if (!hold.long_press_handled) request_manual_queue_move(direction);
+        if (!hold.long_press_handled) {
+            if (direction < 0) request_manual_previous();
+            else request_manual_queue_move(direction);
+        }
         hold = {};
         return;
     }
