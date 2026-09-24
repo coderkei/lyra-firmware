@@ -367,6 +367,7 @@ void release_boot_image();
 bool load_brand_logo();
 bool load_player_art(const lyra::media::Track &track);
 lv_obj_t *make_artwork(lv_obj_t *parent, int x, int y, int width, int height, const lyra::media::Track &track, int radius, bool preserve_aspect = false);
+void make_artwork_contents(lv_obj_t *art, int width, int height, const lyra::media::Track &track, int radius, bool preserve_aspect = false);
 void play_track_from_row(size_t track_index, bool force_single);
 void track_route_cb(lv_event_t *event);
 void single_track_route_cb(lv_event_t *event);

@@ -187,11 +187,11 @@ bool load_player_art(const lyra::media::Track &track)
     return true;
 }
 
-lv_obj_t *make_artwork(lv_obj_t *parent, int x, int y, int width, int height,
-                       const lyra::media::Track &track, int radius,
-                       bool preserve_aspect)
+void make_artwork_contents(lv_obj_t *art, int width, int height,
+                           const lyra::media::Track &track, int radius,
+                           bool preserve_aspect)
 {
-    lv_obj_t *art = make_box(parent, x, y, width, height, kArtworkSurface, radius);
+    if (!art) return;
     lv_obj_t *fallback = make_label(art, LV_SYMBOL_AUDIO, kAccent);
     lv_obj_set_style_text_font(fallback, &lv_font_montserrat_18, 0);
     lv_obj_set_style_transform_scale_x(fallback, width > 80 ? 512 : 320, 0);
@@ -208,6 +208,14 @@ lv_obj_t *make_artwork(lv_obj_t *parent, int x, int y, int width, int height,
     } else {
         lyra::media::request_artwork(track, lyra::media::ArtworkSize::Player);
     }
+}
+
+lv_obj_t *make_artwork(lv_obj_t *parent, int x, int y, int width, int height,
+                       const lyra::media::Track &track, int radius,
+                       bool preserve_aspect)
+{
+    lv_obj_t *art = make_box(parent, x, y, width, height, kArtworkSurface, radius);
+    make_artwork_contents(art, width, height, track, radius, preserve_aspect);
     return art;
 }
 

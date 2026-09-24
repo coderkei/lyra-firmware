@@ -29,6 +29,7 @@ lyra::media::Track s_player_lyrics_track{};
 int s_player_art_size;
 bool s_player_lyrics_visible;
 bool s_player_flip_animating;
+bool s_player_auto_scrolling;
 FlipPhase s_player_flip_phase;
 char *s_player_lyrics_buffer;
 lyra::media::LyricsSource s_player_lyrics_source;
@@ -162,7 +163,9 @@ size_t parse_player_lyrics(char *text, bool parse_timestamps)
 
 void player_lyrics_scroll_begin_cb(lv_event_t *)
 {
-    s_player_manual_scroll_until_us = esp_timer_get_time() + 3000000;
+    if (!s_player_auto_scrolling) {
+        s_player_manual_scroll_until_us = esp_timer_get_time() + 3000000;
+    }
 }
 
 void set_player_lyric_style(LyricsRow &row, bool active)
@@ -197,7 +200,9 @@ void update_player_lyrics()
         LyricsRow &row = s_player_lyrics_rows[current];
         set_player_lyric_style(row, true);
         if (esp_timer_get_time() >= s_player_manual_scroll_until_us && row.label) {
+            s_player_auto_scrolling = true;
             lv_obj_scroll_to_view(row.label, LV_ANIM_OFF);
+            s_player_auto_scrolling = false;
         }
     }
 }
@@ -298,8 +303,8 @@ void restore_player_art_face()
     lv_obj_set_style_radius(face, 13, 0);
     lv_obj_set_style_pad_all(face, 0, 0);
     lv_obj_clear_flag(face, LV_OBJ_FLAG_SCROLLABLE);
-    make_artwork(face, 0, 0, s_player_art_size, s_player_art_size,
-                 s_player_lyrics_track, 13);
+    make_artwork_contents(face, s_player_art_size, s_player_art_size,
+                          s_player_lyrics_track, 13);
     lv_obj_add_event_cb(face, player_art_click_cb, LV_EVENT_CLICKED, nullptr);
     s_player_lyrics_scroll = nullptr;
     s_player_lyrics_row_count = 0;
@@ -395,6 +400,7 @@ void reset_player_lyrics_state()
     s_player_lyrics_row_count = 0;
     s_player_current_lyric = -1;
     s_player_manual_scroll_until_us = 0;
+    s_player_auto_scrolling = false;
     s_player_lyrics_visible = false;
     s_player_flip_animating = false;
     s_player_flip_phase = FlipPhase::None;
