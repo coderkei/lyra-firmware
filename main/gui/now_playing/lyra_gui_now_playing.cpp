@@ -56,8 +56,10 @@ int s_player_current_lyric = -1;
 int64_t s_player_manual_scroll_until_us;
 uint32_t s_player_lyrics_generation;
 bool s_player_seek_preview_active;
+bool s_player_seek_preview_release_pending;
 uint32_t s_player_seek_preview_position_ms;
 uint32_t s_player_seek_preview_duration_ms;
+char s_player_seek_preview_path[lyra::audio::kMaxPath];
 
 void player_art_click_cb(lv_event_t *event);
 void player_lyrics_close_cb(lv_event_t *event);
@@ -699,6 +701,13 @@ void update_player_progress()
     if (!s_player_progress_bar && !s_player_elapsed_label && !s_player_duration_label) return;
 
     const lyra::audio::Status audio_status = lyra::audio::status();
+    if (s_player_seek_preview_active && s_player_seek_preview_release_pending) {
+        const bool path_changed = std::strcmp(audio_status.path, s_player_seek_preview_path) != 0;
+        if (path_changed || audio_status.last_error != ESP_OK || audio_status.duration_ms > 0) {
+            s_player_seek_preview_active = false;
+            s_player_seek_preview_release_pending = false;
+        }
+    }
     const uint32_t duration_ms = s_player_seek_preview_active ?
         s_player_seek_preview_duration_ms : audio_status.duration_ms;
     const uint32_t requested_position_ms = s_player_seek_preview_active ?
@@ -722,14 +731,23 @@ void update_player_progress()
 
 void update_player_progress_seek_preview(uint32_t position_ms, uint32_t duration_ms, bool active)
 {
-    s_player_seek_preview_active = active;
     if (!active) {
+        const lyra::audio::Status audio_status = lyra::audio::status();
+        s_player_seek_preview_release_pending = s_player_seek_preview_active &&
+                                                audio_status.duration_ms == 0;
+        if (!s_player_seek_preview_release_pending) s_player_seek_preview_active = false;
         update_player_progress();
         return;
     }
 
+    s_player_seek_preview_active = true;
+    s_player_seek_preview_release_pending = false;
     s_player_seek_preview_duration_ms = duration_ms;
     s_player_seek_preview_position_ms = std::min(position_ms, duration_ms);
+    const lyra::audio::Status audio_status = lyra::audio::status();
+    std::strncpy(s_player_seek_preview_path, audio_status.path,
+                 sizeof(s_player_seek_preview_path) - 1);
+    s_player_seek_preview_path[sizeof(s_player_seek_preview_path) - 1] = '\0';
     if (s_player_progress_dragging) return;
     if (s_player_progress_bar && duration_ms > 0) {
         const int progress = static_cast<int>(

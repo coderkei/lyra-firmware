@@ -10,7 +10,6 @@ namespace lyra::gui::internal {
 namespace {
 
 constexpr int64_t kNavLongPressThresholdUs = 2'000'000;
-constexpr int64_t kNavSeekUpdatePeriodUs = 1'000'000;
 constexpr int64_t kNavSeekAccelerationDelayUs = 5'000'000;
 constexpr uint32_t kNavSeekInitialRate = 10;
 constexpr uint32_t kNavSeekAcceleratedRate = 30;
@@ -20,9 +19,9 @@ struct NavHoldState {
     bool long_press_handled;
     bool seek_active;
     bool was_paused;
+    bool temporary_pause_succeeded;
     int64_t pressed_at_us;
     int64_t seek_started_at_us;
-    int64_t last_seek_update_us;
     int64_t last_preview_update_us;
     uint32_t base_position_ms;
     uint32_t target_position_ms;
@@ -84,62 +83,55 @@ void update_nav_hold(NavHoldState &hold, int64_t now_us, int direction, bool for
         hold.base_position_ms = std::min(audio_status.position_ms, maximum_position_ms);
         hold.target_position_ms = hold.base_position_ms;
         hold.seek_started_at_us = hold.pressed_at_us + kNavLongPressThresholdUs;
-        hold.last_seek_update_us = hold.seek_started_at_us;
+        if (!hold.was_paused) {
+            const esp_err_t pause_ret = lyra::audio::toggle_pause();
+            hold.temporary_pause_succeeded = pause_ret == ESP_OK;
+            if (pause_ret != ESP_OK) {
+                ESP_LOGW(kTag, "could not pause playback for seeking: %s",
+                         esp_err_to_name(pause_ret));
+            }
+        }
     }
 
     if (!hold.seek_active) return;
-    if (hold.was_paused) {
-        const uint64_t distance_ms = nav_seek_distance_ms(
-            hold.seek_started_at_us, now_us, hold.seek_started_at_us);
-        const uint32_t target_ms = nav_seek_target(
-            hold.base_position_ms, distance_ms, hold.duration_ms, direction);
-        hold.target_position_ms = target_ms;
-
-        const lyra::audio::Status audio_status = lyra::audio::status();
-        if (std::strcmp(audio_status.path, hold.track_path) != 0) {
-            update_player_progress_seek_preview(0, 0, false);
-            hold.seek_active = false;
-            return;
-        }
-
-        if (!force) {
-            if (now_us - hold.last_preview_update_us >= 100'000) {
-                update_player_progress_seek_preview(target_ms, hold.duration_ms, true);
-                hold.last_preview_update_us = now_us;
-            }
-            return;
-        }
-
-        if (target_ms != hold.base_position_ms) {
-            const esp_err_t seek_ret = lyra::audio::seek(target_ms);
-            if (seek_ret != ESP_OK) {
-                ESP_LOGW(kTag, "could not seek playback: %s", esp_err_to_name(seek_ret));
-            }
-        }
-        update_player_progress_seek_preview(0, 0, false);
-        return;
-    }
-
-    if (!force && now_us - hold.last_seek_update_us < kNavSeekUpdatePeriodUs) return;
     const uint64_t distance_ms = nav_seek_distance_ms(
-        hold.last_seek_update_us, now_us, hold.seek_started_at_us);
+        hold.seek_started_at_us, now_us, hold.seek_started_at_us);
     const uint32_t target_ms = nav_seek_target(
-        hold.target_position_ms, distance_ms, hold.duration_ms, direction);
-    hold.last_seek_update_us = now_us;
-    if (target_ms == hold.target_position_ms) return;
+        hold.base_position_ms, distance_ms, hold.duration_ms, direction);
     hold.target_position_ms = target_ms;
 
     const lyra::audio::Status audio_status = lyra::audio::status();
     if (std::strcmp(audio_status.path, hold.track_path) != 0) {
+        update_player_progress_seek_preview(0, 0, false);
         hold.seek_active = false;
         return;
     }
-    const esp_err_t seek_ret = lyra::audio::seek(target_ms);
+
+    if (!force) {
+        if (now_us - hold.last_preview_update_us >= 100'000) {
+            update_player_progress_seek_preview(target_ms, hold.duration_ms, true);
+            hold.last_preview_update_us = now_us;
+        }
+        return;
+    }
+
+    esp_err_t seek_ret = ESP_OK;
+    if (hold.was_paused) {
+        if (target_ms != hold.base_position_ms) seek_ret = lyra::audio::seek(target_ms);
+    } else {
+        seek_ret = lyra::audio::play_from_position(hold.track_path, target_ms, false);
+        if (seek_ret != ESP_OK && hold.temporary_pause_succeeded) {
+            const esp_err_t resume_ret = lyra::audio::toggle_pause();
+            if (resume_ret != ESP_OK) {
+                ESP_LOGW(kTag, "could not resume playback after failed seek: %s",
+                         esp_err_to_name(resume_ret));
+            }
+        }
+    }
     if (seek_ret != ESP_OK) {
         ESP_LOGW(kTag, "could not seek playback: %s", esp_err_to_name(seek_ret));
-    } else {
-        update_player_progress();
     }
+    update_player_progress_seek_preview(0, 0, false);
 }
 
 void nav_button_event(lv_event_t *event, int direction, NavHoldState &hold)
