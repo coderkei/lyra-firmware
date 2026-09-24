@@ -85,6 +85,7 @@ bool s_player_progress_dragging = false;
 int32_t s_player_progress_drag_value = 0;
 bool s_gapless = true;
 bool s_replay_gain = true;
+bool s_quick_seek = false;
 uint8_t s_crossfade_seconds = 0;
 uint8_t s_brightness_percent = 72;
 DateFormat s_date_format = DateFormat::DayMonthYear;

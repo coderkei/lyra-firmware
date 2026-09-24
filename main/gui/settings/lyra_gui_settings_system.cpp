@@ -108,7 +108,7 @@ void toggle_bool_cb(lv_event_t *event)
     lv_obj_t *toggle = static_cast<lv_obj_t *>(lv_event_get_user_data(event));
     bool *value = static_cast<bool *>(lv_obj_get_user_data(toggle));
     *value = !*value;
-    if (value == &s_gapless || value == &s_replay_gain) {
+    if (value == &s_gapless || value == &s_replay_gain || value == &s_quick_seek) {
         save_user_settings();
         if (value == &s_replay_gain) apply_replay_gain_to_current_track();
     }
@@ -1229,8 +1229,9 @@ void render_settings_page(View view)
     if (view == View::PlaybackSettings) {
         make_setting_toggle(body, 0, tr(lyra::i18n::StringId::GaplessPlayback), nullptr, &s_gapless);
         make_setting_toggle(body, 66, tr(lyra::i18n::StringId::ReplayGain), nullptr, &s_replay_gain);
-        make_row(body, 132, LV_SYMBOL_LOOP, tr(lyra::i18n::StringId::Crossfade), nullptr, View::CrossfadeOptions, 54);
-        make_row(body, 190, LV_SYMBOL_WARNING, tr(lyra::i18n::StringId::SleepTimer), nullptr, View::SleepTimerOptions, 54);
+        make_setting_toggle(body, 132, tr(lyra::i18n::StringId::QuickSeek), nullptr, &s_quick_seek);
+        make_row(body, 198, LV_SYMBOL_LOOP, tr(lyra::i18n::StringId::Crossfade), nullptr, View::CrossfadeOptions, 54);
+        make_row(body, 256, LV_SYMBOL_WARNING, tr(lyra::i18n::StringId::SleepTimer), nullptr, View::SleepTimerOptions, 54);
     } else if (view == View::SoundSettings) {
         make_volume_control(body, 0);
         make_setting_toggle(body, 92, tr(lyra::i18n::StringId::OnBoardSpeaker),

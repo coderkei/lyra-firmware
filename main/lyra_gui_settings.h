@@ -19,6 +19,7 @@ constexpr size_t kEqualizerBandCount = lyra::audio::kEqualizerBandCount;
 struct Values {
     bool gapless;
     bool replay_gain;
+    bool quick_seek;
     uint8_t crossfade_seconds;
     uint8_t brightness_percent;
     bool dark_mode;

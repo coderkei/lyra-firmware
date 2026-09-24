@@ -15,6 +15,7 @@ constexpr const char *kTag = "lyra.gui.settings";
 constexpr const char *kSettingsNamespace = "lyra";
 constexpr const char *kGaplessKey = "gapless";
 constexpr const char *kReplayGainKey = "replay_gain";
+constexpr const char *kQuickSeekKey = "quick_seek";
 constexpr const char *kCrossfadeKey = "crossfade";
 constexpr const char *kBrightnessKey = "brightness";
 constexpr const char *kDarkModeKey = "dark_mode";
@@ -55,6 +56,9 @@ void load(Values *values, size_t accent_palette_count, uint8_t equalizer_preset_
     }
     if (nvs_get_u8(handle, kReplayGainKey, &value) == ESP_OK && value <= 1) {
         values->replay_gain = value != 0;
+    }
+    if (nvs_get_u8(handle, kQuickSeekKey, &value) == ESP_OK && value <= 1) {
+        values->quick_seek = value != 0;
     }
     if (nvs_get_u8(handle, kCrossfadeKey, &value) == ESP_OK && valid_crossfade(value)) {
         values->crossfade_seconds = value;
@@ -112,6 +116,7 @@ esp_err_t save(const Values &values)
 
     result = nvs_set_u8(handle, kGaplessKey, values.gapless ? 1 : 0);
     if (result == ESP_OK) result = nvs_set_u8(handle, kReplayGainKey, values.replay_gain ? 1 : 0);
+    if (result == ESP_OK) result = nvs_set_u8(handle, kQuickSeekKey, values.quick_seek ? 1 : 0);
     if (result == ESP_OK) result = nvs_set_u8(handle, kCrossfadeKey, values.crossfade_seconds);
     if (result == ESP_OK) result = nvs_set_u8(handle, kBrightnessKey, values.brightness_percent);
     if (result == ESP_OK) result = nvs_set_u8(handle, kDarkModeKey, values.dark_mode ? 1 : 0);

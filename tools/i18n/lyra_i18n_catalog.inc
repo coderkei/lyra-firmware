@@ -24,6 +24,9 @@ LYRA_I18N_ENTRY(Queue, "Queue", "File d'attente", "Warteschlange", "Cola", "Coda
 LYRA_I18N_ENTRY(Equalizer, "Equalizer", "Égaliseur", "Equalizer", "Ecualizador", "Equalizzatore", "イコライザー", "이퀄라이저", "Эквалайзер", "均衡器", "等化器")
 LYRA_I18N_ENTRY(Search, "Search", "Rechercher", "Suchen", "Buscar", "Cerca", "検索", "검색", "Поиск", "搜索", "搜尋")
 LYRA_I18N_ENTRY(Settings, "Settings", "Réglages", "Einstellungen", "Ajustes", "Impostazioni", "設定", "설정", "Настройки", "设置", "設定")
+LYRA_I18N_ENTRY(QuickSeek, "Quick Seek", "Saut rapide", "Schnellnavigation", "Salto rápido", "Salto rapido", "クイックシーク", "빠른 탐색", "Быстрая перемотка", "快速跳转", "快速跳轉")
+LYRA_I18N_ENTRY(QuickSeekBackward, "-30", "-30", "-30", "-30", "-30", "-30", "-30", "-30", "-30", "-30")
+LYRA_I18N_ENTRY(QuickSeekForward, "+30", "+30", "+30", "+30", "+30", "+30", "+30", "+30", "+30", "+30")
 
 LYRA_I18N_ENTRY(Songs, "Songs", "Chansons", "Titel", "Canciones", "Brani", "曲", "곡", "Песни", "歌曲", "歌曲")
 LYRA_I18N_ENTRY(Albums, "Albums", "Albums", "Alben", "Álbumes", "Album", "アルバム", "앨범", "Альбомы", "专辑", "專輯")

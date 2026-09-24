@@ -107,3 +107,5 @@ In Now Playing, tapping album art flips to a scrollable lyrics view. Lyrics
 are loaded from embedded metadata first, then a same-stem `.lrc` file, then a
 same-stem `.txt` file. Timestamped LRC lyrics highlight the current line;
 plain text lyrics remain unhighlighted.
+The optional Quick Seek playback setting adds 30-second backward and forward
+controls beside the album art.

@@ -208,6 +208,7 @@ extern bool s_player_progress_dragging;
 extern int32_t s_player_progress_drag_value;
 extern bool s_gapless;
 extern bool s_replay_gain;
+extern bool s_quick_seek;
 extern uint8_t s_crossfade_seconds;
 extern uint8_t s_brightness_percent;
 extern DateFormat s_date_format;

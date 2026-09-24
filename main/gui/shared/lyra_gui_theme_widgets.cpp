@@ -126,6 +126,7 @@ esp_err_t save_user_settings()
     lyra::gui_settings::Values values{
         s_gapless,
         s_replay_gain,
+        s_quick_seek,
         s_crossfade_seconds,
         s_brightness_percent,
         s_dark_mode,
@@ -149,6 +150,7 @@ void load_user_settings()
     lyra::gui_settings::Values values{
         s_gapless,
         s_replay_gain,
+        s_quick_seek,
         s_crossfade_seconds,
         s_brightness_percent,
         s_dark_mode,
@@ -171,6 +173,7 @@ void load_user_settings()
     if (clear_fallback_dst) values.dst_enabled = false;
     s_gapless = values.gapless;
     s_replay_gain = values.replay_gain;
+    s_quick_seek = values.quick_seek;
     s_crossfade_seconds = values.crossfade_seconds;
     s_brightness_percent = values.brightness_percent;
     s_dark_mode = values.dark_mode;

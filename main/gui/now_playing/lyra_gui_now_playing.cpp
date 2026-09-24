@@ -729,6 +729,73 @@ void update_player_progress()
     update_player_lyrics();
 }
 
+void player_quick_seek_cb(lv_event_t *event)
+{
+    const lyra::audio::Status audio_status = lyra::audio::status();
+    if (!audio_status.path[0] || audio_status.duration_ms == 0 ||
+        audio_status.last_error != ESP_OK) return;
+
+    constexpr uint32_t kQuickSeekDistanceMs = 30000;
+    const uint32_t current_ms = std::min(audio_status.position_ms, audio_status.duration_ms);
+    const bool forward = lv_event_get_user_data(event) != nullptr;
+    const uint32_t target_ms = forward ? static_cast<uint32_t>(std::min<uint64_t>(
+        static_cast<uint64_t>(current_ms) + kQuickSeekDistanceMs,
+        audio_status.duration_ms)) :
+        (current_ms > kQuickSeekDistanceMs ? current_ms - kQuickSeekDistanceMs : 0);
+    const esp_err_t seek_ret = lyra::audio::seek(target_ms);
+    if (seek_ret != ESP_OK) {
+        ESP_LOGW(kTag, "could not quick seek playback: %s", esp_err_to_name(seek_ret));
+    }
+    update_player_progress();
+}
+
+void make_player_quick_seek_button(lv_obj_t *parent, int x, int y, bool forward)
+{
+    constexpr int kButtonWidth = 44;
+    constexpr int kButtonHeight = 58;
+    lv_obj_t *button = make_button(parent, x, y, kButtonWidth, kButtonHeight,
+                                   kSurface, 8);
+
+    lv_obj_t *arc = lv_arc_create(button);
+    lv_obj_set_size(arc, 24, 24);
+    lv_obj_align(arc, LV_ALIGN_TOP_MID, 0, 2);
+    lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(arc, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(arc, 0, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 0, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 2, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, kAccent, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(arc, true, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_set_style_border_width(arc, 0, LV_PART_KNOB);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_SCROLLABLE);
+    lv_arc_set_bg_angles(arc, 135, 405);
+    lv_arc_set_angles(arc, 135, 405);
+
+    // The arc leaves a lower gap. Point the arrowhead along its clockwise or
+    // counter-clockwise tangent to make the direction clear at a glance.
+    static const lv_point_precise_t forward_head[] = {{31, 16}, {30, 22}, {36, 21}};
+    static const lv_point_precise_t backward_head[] = {{8, 21}, {14, 22}, {13, 16}};
+    lv_obj_t *arrowhead = lv_line_create(button);
+    lv_obj_set_size(arrowhead, kButtonWidth, kButtonHeight);
+    lv_line_set_points(arrowhead, forward ? forward_head : backward_head, 3);
+    lv_obj_set_style_line_width(arrowhead, 2, LV_PART_MAIN);
+    lv_obj_set_style_line_color(arrowhead, kAccent, LV_PART_MAIN);
+    lv_obj_set_style_line_rounded(arrowhead, true, LV_PART_MAIN);
+    lv_obj_clear_flag(arrowhead, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(arrowhead, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *label = make_label(button, tr(forward ?
+        lyra::i18n::StringId::QuickSeekForward :
+        lyra::i18n::StringId::QuickSeekBackward), kTextPrimary);
+    lv_obj_set_width(label, kButtonWidth);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -2);
+    lv_obj_add_event_cb(button, player_quick_seek_cb, LV_EVENT_CLICKED,
+                        forward ? reinterpret_cast<void *>(static_cast<uintptr_t>(1)) : nullptr);
+}
+
 void update_player_progress_seek_preview(uint32_t position_ms, uint32_t duration_ms, bool active)
 {
     if (!active) {
@@ -785,7 +852,7 @@ void render_player()
         lv_obj_set_style_text_align(position, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(position, LV_ALIGN_TOP_MID, 0, 0);
     }
-    const int art_size = s_show_nav ? 224 : 272;
+    const int art_size = s_show_nav || s_quick_seek ? 224 : 272;
     const int art_x = (kScreenWidth - art_size) / 2;
     const int controls_y = body_height - 54;
     const int progress_y = controls_y - 19;
@@ -805,6 +872,17 @@ void render_player()
     make_artwork_contents(s_player_flip_content, art_size, art_size, track, 13);
     lv_obj_add_event_cb(s_player_flip_content, player_art_click_cb,
                         LV_EVENT_CLICKED, nullptr);
+
+    if (s_quick_seek) {
+        constexpr int kQuickSeekButtonWidth = 44;
+        constexpr int kQuickSeekButtonHeight = 58;
+        const int side_space = (art_x - kQuickSeekButtonWidth) / 2;
+        const int button_y = art_y + (art_size - kQuickSeekButtonHeight) / 2;
+        make_player_quick_seek_button(body, side_space, button_y, false);
+        make_player_quick_seek_button(body,
+            art_x + art_size + (kScreenWidth - art_x - art_size - kQuickSeekButtonWidth) / 2,
+            button_y, true);
+    }
 
     lv_obj_t *title = make_label(body, track.title, kTextPrimary);
     lv_obj_set_style_text_font(title, lyra::font::ui(), 0);
