@@ -34,12 +34,9 @@ lv_color_t kDivider = lv_color_hex(0x25303D);
 lv_color_t kNavSurface = lv_color_hex(0x0B111A);
 lv_color_t kKeyboardSurface = lv_color_hex(0x05080D);
 lv_color_t kArtworkSurface = lv_color_hex(0x142131);
-lv_color_t kPlayerArtSurface = lv_color_hex(0x101D45);
 lv_color_t kDangerSurface = lv_color_hex(0x3F1118);
 extern const lv_color_t kOverlay = lv_color_hex(0x000000);
 extern const lv_color_t kTextOnAccent = lv_color_hex(0xFFFFFF);
-extern const lv_color_t kTextOnOverlayPrimary = lv_color_hex(0xFFFFFF);
-extern const lv_color_t kTextOnOverlaySecondary = lv_color_hex(0xE2E8F0);
 
 lv_obj_t *s_screen = nullptr;
 lv_obj_t *s_search_label = nullptr;

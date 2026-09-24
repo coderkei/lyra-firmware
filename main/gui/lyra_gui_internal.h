@@ -88,7 +88,7 @@ extern const AccentPalette kAccentPalettes[8];
 constexpr size_t kAccentPaletteCount = 8;
 
 enum class View : uintptr_t {
-    Menu, Player, FullscreenArt, TrackInfo, FullscreenInfoArt, Queue,
+    Menu, Player, TrackInfo, FullscreenInfoArt, Queue,
     Library, LibrarySongs, LibraryArtists, LibraryAlbums, LibraryGenres,
     LibraryYears, AlbumDetail, ArtistDetail, Folders, FolderDetail,
     Playlists, PlaylistDetail, PlaylistCreate, PlaylistAdd, Equalizer,
@@ -156,12 +156,9 @@ extern lv_color_t kDivider;
 extern lv_color_t kNavSurface;
 extern lv_color_t kKeyboardSurface;
 extern lv_color_t kArtworkSurface;
-extern lv_color_t kPlayerArtSurface;
 extern lv_color_t kDangerSurface;
 extern const lv_color_t kOverlay;
 extern const lv_color_t kTextOnAccent;
-extern const lv_color_t kTextOnOverlayPrimary;
-extern const lv_color_t kTextOnOverlaySecondary;
 constexpr const char *kHeartOutline = "\xE2\x99\xA1";
 constexpr const char *kHeartFilled = "\xE2\x99\xA5";
 
@@ -483,7 +480,7 @@ void update_player_progress_preview();
 void player_progress_touch_cb(lv_event_t *event);
 lv_obj_t *make_player_progress_touch(lv_obj_t *parent, int x, int y, int width, int height);
 void update_player_progress();
-void render_player(bool fullscreen);
+void render_player();
 void update_equalizer_gain_label(lv_obj_t *label, int16_t gain_tenths_db, lv_color_t color);
 void equalizer_slider_cb(lv_event_t *event);
 void equalizer_slider_released_cb(lv_event_t *);

@@ -106,7 +106,7 @@ void update_player_progress()
     if (s_player_duration_label) lv_label_set_text(s_player_duration_label, duration);
 }
 
-void render_player(bool fullscreen)
+void render_player()
 {
     lyra::media::Track track{};
     if (!lyra::media::track_at(s_current_track, &track)) {
@@ -117,43 +117,6 @@ void render_player(bool fullscreen)
     }
     const bool favorite = lyra::media::is_favorite(s_current_track);
     const int body_height = content_height(kStatusHeight);
-    if (fullscreen) {
-        lv_obj_t *art = make_box(s_screen, 0, kStatusHeight, 320, body_height, kPlayerArtSurface);
-        // Keep the square cover flush with the status bar instead of centering
-        // it in the taller fullscreen content area.
-        make_album_art(art, 0, 0, kScreenWidth, kScreenWidth, track, true);
-        lv_obj_t *exit_hit = make_button(art, 0, 0, 320, body_height, kBackground, 0, false);
-        lv_obj_set_style_bg_opa(exit_hit, LV_OPA_TRANSP, 0);
-        add_route(exit_hit, View::Player);
-        lv_obj_t *overlay = make_box(art, 0, body_height - 132, 320, 132, kOverlay);
-        lv_obj_set_style_bg_opa(overlay, LV_OPA_80, 0);
-        lv_obj_t *title = make_label(overlay, track.title, kTextOnOverlayPrimary);
-        lv_obj_set_style_text_font(title, lyra::font::ui(), 0);
-        make_marquee(title, 250);
-        lv_obj_align(title, LV_ALIGN_TOP_LEFT, 10, 20);
-        lv_obj_t *artist = make_label(overlay, track.artist, kTextOnOverlaySecondary);
-        make_marquee(artist, 280);
-        lv_obj_align(artist, LV_ALIGN_TOP_LEFT, 10, 43);
-        lv_obj_t *heart = make_label(overlay, favorite ? kHeartFilled : kHeartOutline,
-                                     favorite ? kAccent : kTextOnOverlayPrimary);
-        lv_obj_align(heart, LV_ALIGN_TOP_RIGHT, -13, 24);
-        lv_obj_t *bar = lv_bar_create(overlay);
-        lv_obj_set_size(bar, 258, 5);
-        lv_obj_align(bar, LV_ALIGN_BOTTOM_MID, 0, -32);
-        lv_bar_set_range(bar, 0, 1000);
-        lv_bar_set_value(bar, 0, LV_ANIM_OFF);
-        lv_obj_set_style_bg_color(bar, kDivider, LV_PART_MAIN);
-        lv_obj_set_style_bg_color(bar, kAccent, LV_PART_INDICATOR);
-        s_player_progress_bar = bar;
-        s_player_progress_touch = make_player_progress_touch(overlay, 31, 87, 258, 21);
-        s_player_elapsed_label = make_label(overlay, "00:00", kTextOnOverlaySecondary);
-        lv_obj_align(s_player_elapsed_label, LV_ALIGN_BOTTOM_LEFT, 10, -8);
-        s_player_duration_label = make_label(overlay, "--:--", kTextOnOverlaySecondary);
-        lv_obj_align(s_player_duration_label, LV_ALIGN_BOTTOM_RIGHT, -10, -8);
-        update_player_progress();
-        return;
-    }
-
     lv_obj_t *body = make_box(s_screen, 0, kStatusHeight, 320, body_height, kBackground);
     const size_t queue_count = s_has_active_queue ? playback_queue_count() : 0;
     size_t queue_position = 0;
@@ -175,9 +138,6 @@ void render_player(bool fullscreen)
     const int progress_y = controls_y - 19;
     const int art_y = 20;
     make_album_art(body, art_x, art_y, art_size, art_size, track);
-    lv_obj_t *art_hit = make_button(body, art_x, art_y, art_size, art_size, kBackground, 13, false);
-    lv_obj_set_style_bg_opa(art_hit, LV_OPA_TRANSP, 0);
-    add_route(art_hit, View::FullscreenArt);
 
     lv_obj_t *title = make_label(body, track.title, kTextPrimary);
     lv_obj_set_style_text_font(title, lyra::font::ui(), 0);

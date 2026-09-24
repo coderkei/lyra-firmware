@@ -27,8 +27,7 @@ void render(View view)
     if (view != View::FullscreenInfoArt) make_status_bar();
     switch (view) {
         case View::Menu: render_menu(); break;
-        case View::Player: render_player(false); break;
-        case View::FullscreenArt: render_player(true); break;
+        case View::Player: render_player(); break;
         case View::TrackInfo: render_track_info(); break;
         case View::FullscreenInfoArt: render_fullscreen_info_art(); break;
         case View::Queue: render_queue(); break;
@@ -321,7 +320,7 @@ void catalog_poll_cb(lv_timer_t *)
         return;
     }
     if (artwork_changed) {
-        if (s_view == View::Player || s_view == View::FullscreenArt ||
+        if (s_view == View::Player ||
             s_view == View::TrackInfo || s_view == View::FullscreenInfoArt ||
             s_view == View::AlbumDetail) {
             render(s_view);

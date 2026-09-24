@@ -369,9 +369,7 @@ bool move_in_playback_queue(int direction, bool automatic)
         }
     }
     s_audio_eof_seen = false;
-    if (!automatic || s_view == View::Player || s_view == View::FullscreenArt) {
-        render(s_view == View::FullscreenArt ? View::FullscreenArt : View::Player);
-    }
+    if (!automatic || s_view == View::Player) render(View::Player);
     return true;
 }
 
@@ -436,7 +434,7 @@ void request_manual_queue_move(int direction)
 
 void nav_play_cb(lv_event_t *)
 {
-    if (s_view == View::Player || s_view == View::FullscreenArt) {
+    if (s_view == View::Player) {
         if (s_crossfade_transition_direction != 0 || s_crossfade_pause_pending) return;
         const lyra::audio::Status audio_status = lyra::audio::status();
         if (audio_status.playing && !audio_status.paused) {

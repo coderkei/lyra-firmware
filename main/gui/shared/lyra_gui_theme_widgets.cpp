@@ -26,7 +26,6 @@ void apply_theme_palette()
         kNavSurface = lv_color_hex(0x0B111A);
         kKeyboardSurface = lv_color_hex(0x05080D);
         kArtworkSurface = lv_color_hex(0x142131);
-        kPlayerArtSurface = lv_color_hex(0x101D45);
         kDangerSurface = lv_color_hex(0x3F1118);
     } else {
         kBackground = lv_color_hex(0xF8FAFC);
@@ -42,7 +41,6 @@ void apply_theme_palette()
         kNavSurface = lv_color_hex(0xFFFFFF);
         kKeyboardSurface = lv_color_hex(0xE2E8F0);
         kArtworkSurface = lv_color_hex(0xE2E8F0);
-        kPlayerArtSurface = lv_color_hex(0xE0E7FF);
         kDangerSurface = lv_color_hex(0xFEE2E2);
     }
 }
@@ -257,10 +255,7 @@ void restore_navigation_state(const NavigationState &state)
 void navigate_to(View target)
 {
     if (target == s_view) return;
-    const bool player_mode_transition =
-        (s_view == View::Player || s_view == View::FullscreenArt) &&
-        (target == View::Player || target == View::FullscreenArt);
-    if (!player_mode_transition) push_navigation_state();
+    push_navigation_state();
     s_list_page = 0;
     render(target);
 }
@@ -434,7 +429,6 @@ void add_route(lv_obj_t *object, View target)
 View back_view(View view)
 {
     switch (view) {
-        case View::FullscreenArt: return View::Menu;
         case View::TrackInfo: return View::Player;
         case View::FullscreenInfoArt: return View::TrackInfo;
         case View::Queue: return View::Menu;
