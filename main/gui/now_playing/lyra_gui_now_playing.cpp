@@ -775,9 +775,10 @@ void make_player_quick_seek_button(lv_obj_t *parent, int x, int y, bool forward)
 
     // The arc leaves a lower gap. Point the arrowhead along its clockwise or
     // counter-clockwise tangent to make the direction clear at a glance.
-    static const lv_point_precise_t forward_head[] = {{31, 16}, {30, 22}, {36, 21}};
-    static const lv_point_precise_t backward_head[] = {{8, 21}, {14, 22}, {13, 16}};
+    static const lv_point_precise_t forward_head[] = {{32, 16}, {30, 22}, {36, 20}};
+    static const lv_point_precise_t backward_head[] = {{8, 20}, {14, 22}, {12, 16}};
     lv_obj_t *arrowhead = lv_line_create(button);
+    lv_obj_set_pos(arrowhead, 0, 0);
     lv_obj_set_size(arrowhead, kButtonWidth, kButtonHeight);
     lv_line_set_points(arrowhead, forward ? forward_head : backward_head, 3);
     lv_obj_set_style_line_width(arrowhead, 2, LV_PART_MAIN);
