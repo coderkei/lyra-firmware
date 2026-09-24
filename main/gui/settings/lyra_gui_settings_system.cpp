@@ -1347,7 +1347,7 @@ void render_about()
     }
     lv_obj_t *firmware_heading = make_label(body, tr(lyra::i18n::StringId::FirmwareVersion), kTextMuted);
     lv_obj_align(firmware_heading, LV_ALIGN_TOP_MID, 0, 112);
-    lv_obj_t *firmware_version = make_label(body, "1.0.1", kTextPrimary);
+    lv_obj_t *firmware_version = make_label(body, "1.0.2", kTextPrimary);
     lv_obj_align(firmware_version, LV_ALIGN_TOP_MID, 0, 138);
     lv_obj_t *hardware_heading = make_label(body, tr(lyra::i18n::StringId::HardwareId), kTextMuted);
     lv_obj_align(hardware_heading, LV_ALIGN_TOP_MID, 0, 190);
