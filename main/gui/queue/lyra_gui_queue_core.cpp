@@ -10,9 +10,11 @@ namespace lyra::gui::internal {
 namespace {
 
 constexpr int64_t kNavLongPressThresholdUs = 2'000'000;
-constexpr int64_t kNavSeekAccelerationDelayUs = 5'000'000;
-constexpr uint32_t kNavSeekInitialRate = 10;
-constexpr uint32_t kNavSeekAcceleratedRate = 30;
+constexpr int64_t kNavSeekRateTierDurationUs = 5'000'000;
+constexpr uint32_t kNavSeekRateTier1 = 10;
+constexpr uint32_t kNavSeekRateTier2 = 30;
+constexpr uint32_t kNavSeekRateTier3 = 50;
+constexpr uint32_t kNavSeekRateTier4 = 100;
 
 struct NavHoldState {
     bool pressed;
@@ -39,16 +41,19 @@ uint64_t nav_seek_distance_ms(int64_t from_us, int64_t to_us,
     const int64_t to_elapsed_us = std::max<int64_t>(0, to_us - seek_started_at_us);
     if (to_elapsed_us <= from_elapsed_us) return 0;
 
-    const int64_t acceleration_delay_us = kNavSeekAccelerationDelayUs;
-    const int64_t initial_end_us = std::min(to_elapsed_us, acceleration_delay_us);
-    const int64_t initial_start_us = std::min(from_elapsed_us, acceleration_delay_us);
-    const int64_t accelerated_start_us = std::max(from_elapsed_us, acceleration_delay_us);
-    const int64_t accelerated_end_us = std::max(to_elapsed_us, acceleration_delay_us);
-    const uint64_t initial_distance_ms = static_cast<uint64_t>(
-        initial_end_us - initial_start_us) * kNavSeekInitialRate / 1000u;
-    const uint64_t accelerated_distance_ms = static_cast<uint64_t>(
-        accelerated_end_us - accelerated_start_us) * kNavSeekAcceleratedRate / 1000u;
-    return initial_distance_ms + accelerated_distance_ms;
+    const auto distance_in_segment = [from_elapsed_us, to_elapsed_us](
+        int64_t segment_start_us, int64_t segment_end_us, uint32_t rate) {
+        const int64_t overlap_start_us = std::max(from_elapsed_us, segment_start_us);
+        const int64_t overlap_end_us = std::min(to_elapsed_us, segment_end_us);
+        if (overlap_end_us <= overlap_start_us) return uint64_t{0};
+        return static_cast<uint64_t>(overlap_end_us - overlap_start_us) * rate / 1000u;
+    };
+
+    const int64_t tier_us = kNavSeekRateTierDurationUs;
+    return distance_in_segment(0, tier_us, kNavSeekRateTier1) +
+           distance_in_segment(tier_us, tier_us * 2, kNavSeekRateTier2) +
+           distance_in_segment(tier_us * 2, tier_us * 3, kNavSeekRateTier3) +
+           distance_in_segment(tier_us * 3, to_elapsed_us, kNavSeekRateTier4);
 }
 
 uint32_t nav_seek_target(uint32_t base_position_ms, uint64_t distance_ms,
