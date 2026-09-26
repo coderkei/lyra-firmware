@@ -1,0 +1,71 @@
+diff --git a/web/wasm/worker.js b/web/wasm/worker.js
+--- a/web/wasm/worker.js
++++ b/web/wasm/worker.js
+@@ -40,6 +40,17 @@ function drain() {
+   }
+ }
+ 
++let loopScheduled = false;
++function scheduleLoop(delayMs = 0) {
++  if (loopScheduled) return;
++  loopScheduled = true;
++  if (delayMs <= 0 && yieldChannel) {
++    yieldPort.postMessage(0);
++    return;
++  }
++  setTimeout(() => { loopScheduled = false; loop(); }, delayMs);
++}
++
+ function loop() {
+   if (!running) return;
+   const now = performance.now();
+@@ -73,12 +84,12 @@ function loop() {
+   // Only yield immediately when this turn left catch-up work unfinished. Once we reach
+   // its target, sleep even if running the guest has put us slightly behind wall time.
+   // MessageChannel avoids the nested timer clamp during expensive interactive turns.
+-  if (cur < target) yieldPort.postMessage(0);
+-  else setTimeout(loop, Math.max(1, Math.min(20, aheadMs)));
++  if (cur < target) scheduleLoop();
++  else scheduleLoop(Math.max(1, Math.min(20, aheadMs)));
+ }
+ const yieldChannel = typeof MessageChannel === 'function' ? new MessageChannel() : null;
+-const yieldPort = yieldChannel ? yieldChannel.port2 : { postMessage: () => setTimeout(loop, 0) };
+-if (yieldChannel) yieldChannel.port1.onmessage = loop;
++const yieldPort = yieldChannel ? yieldChannel.port2 : { postMessage: () => setTimeout(() => { loopScheduled = false; loop(); }, 0) };
++if (yieldChannel) yieldChannel.port1.onmessage = () => { loopScheduled = false; loop(); };
+ 
+ // A network runs on its own clock: network time in nanoseconds paced to the wall clock, and
+@@ -188,10 +199,24 @@ onmessage = async (ev) => {
+         running = true;
+         t0 = performance.now();
+         lastStat = { wall: t0, insns: wasm.esp32sim_insns(emu), cycles: wasm.esp32sim_cycles(emu) };
+-        loop();
++        scheduleLoop();
+       }
+       postMessage({ restarted: true, requestId: m.requestId });
+     }
++    else if (m.op === 'pause') {
++      running = false;
++      postMessage({ paused: true, requestId: m.requestId });
++    }
++    else if (m.op === 'resume') {
++      if (!emu) throw new Error('no emulator to resume');
++      if (!running) {
++        running = true;
++        t0 = performance.now() - wasm.esp32sim_cycles(emu) / CPU_HZ * 1000;
++        lastStat = { wall: performance.now(), insns: wasm.esp32sim_insns(emu), cycles: wasm.esp32sim_cycles(emu) };
++        scheduleLoop();
++      }
++      postMessage({ resumed: true, requestId: m.requestId });
++    }
+     else if (m.op === 'stub') { if (withBytes(enc.encode(m.spec), (p, n) => wasm.esp32sim_stub_spec(emu, p, n)) !== 0) setupError ||= 'invalid stub: ' + m.spec; }
+     else if (m.op === 'wifi') { if (withBytes(enc.encode(m.spec), (p, n) => wasm.esp32sim_wifi(emu, p, n)) !== 0) setupError ||= 'invalid WiFi configuration (see console)'; }
+@@ -201,7 +226,7 @@ onmessage = async (ev) => {
+       if (setupError) throw new Error(setupError);
+       applyExperiments(wasm, emu, experiments);
+       if (smoothDisplay && (!wasm.esp32sim_set_smooth_display || wasm.esp32sim_set_smooth_display(emu, 1) !== 0)) throw new Error('smooth display publication is unsupported');
+-      const rc = wasm.esp32sim_boot(emu, m.appDirect ? 1 : 0); if (rc === 0) { running = true; t0 = performance.now(); lastStat = { wall: t0, insns: wasm.esp32sim_insns(emu), cycles: wasm.esp32sim_cycles(emu) }; loop(); } postMessage({ started: rc === 0, requestId: m.requestId }); }
++      const rc = wasm.esp32sim_boot(emu, m.appDirect ? 1 : 0); if (rc === 0) { running = true; t0 = performance.now(); lastStat = { wall: t0, insns: wasm.esp32sim_insns(emu), cycles: wasm.esp32sim_cycles(emu) }; scheduleLoop(); } postMessage({ started: rc === 0, requestId: m.requestId }); }
+     else if (m.op === 'net-create') {
+       setupError = null;
+       running = false;

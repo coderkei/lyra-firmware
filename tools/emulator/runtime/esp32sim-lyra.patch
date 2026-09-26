@@ -1,0 +1,890 @@
+diff --git a/esp-soc/src/board.rs b/esp-soc/src/board.rs
+index 8bae55f..8d31ad8 100644
+--- a/esp-soc/src/board.rs
++++ b/esp-soc/src/board.rs
+@@ -15,6 +15,8 @@ pub struct BoardEdge {
+ /// What a board does with the SoC's pin-level activity.
+ pub trait BoardModel {
+     fn name(&self) -> &'static str;
++    /// Reset board-side controller state when the attached SoC reboots.
++    fn reset(&mut self) {}
+     /// GPIO output level changes, in order.
+     fn gpio_changes(&mut self, _changes: &[(u8, bool)]) {}
+     /// A completed RMT transmission, decoded to bits by the peripheral model, with the pin the
+diff --git a/esp32s3/src/board/lyra_jc3248w535en.rs b/esp32s3/src/board/lyra_jc3248w535en.rs
+new file mode 100644
+index 0000000..2c76b5b
+--- /dev/null
++++ b/esp32s3/src/board/lyra_jc3248w535en.rs
+@@ -0,0 +1,272 @@
++//! Lyra MP3 player board: JC3248W535EN, AXS15231B QSPI panel and touch controller.
++
++use esp_soc::board::BoardModel;
++use std::sync::{Arc, Mutex};
++
++const WIDTH: usize = 320;
++const HEIGHT: usize = 480;
++
++/// AXS15231B command stream used by the firmware's `esp_lcd` QSPI adapter.
++pub struct Axs15231bPanel {
++    frame: Vec<u16>,
++    pixels_written: u64,
++    frames: u64,
++    stream_bytes: u64,
++    last_frame_bytes: u64,
++    frame_start_pixels: u64,
++    last_frame_pixels: u64,
++    x0: u16,
++    x1: u16,
++    y0: u16,
++    y1: u16,
++    x: u16,
++    y: u16,
++    pending: Option<u8>,
++    pixel_hi: Option<u8>,
++}
++
++impl Axs15231bPanel {
++    fn new() -> Self {
++        Self {
++            frame: vec![0; WIDTH * HEIGHT],
++            pixels_written: 0,
++            frames: 0,
++            stream_bytes: 0,
++            last_frame_bytes: 0,
++            frame_start_pixels: 0,
++            last_frame_pixels: 0,
++            x0: 0,
++            x1: WIDTH as u16 - 1,
++            y0: 0,
++            y1: HEIGHT as u16 - 1,
++            x: 0,
++            y: 0,
++            pending: None,
++            pixel_hi: None,
++        }
++    }
++
++    fn reset(&mut self) {
++        self.frame.fill(0);
++        self.x0 = 0;
++        self.x1 = WIDTH as u16 - 1;
++        self.y0 = 0;
++        self.y1 = HEIGHT as u16 - 1;
++        self.x = 0;
++        self.y = 0;
++        self.pending = None;
++        self.pixel_hi = None;
++        // Keep the host-visible version monotonic and force the UI to publish this cleared frame.
++        self.pixels_written = self.pixels_written.wrapping_add(1);
++    }
++
++    fn transaction(&mut self, tx: &[u8]) {
++        // QSPI commands have a compact 4-byte header. Color DMA chunks are much
++        // larger and may naturally start with the same byte values; do not
++        // mistake RGB565 pixel data for a new command header.
++        let data = if (4..=16).contains(&tx.len()) && matches!(tx[0], 0x02 | 0x32) {
++            let command = tx[2];
++            self.pending = Some(command);
++            if command == 0x2c {
++                self.last_frame_bytes = self.stream_bytes;
++                self.last_frame_pixels = self.pixels_written.saturating_sub(self.frame_start_pixels);
++                self.stream_bytes = 0;
++                self.frame_start_pixels = self.pixels_written;
++                // Lyra's QSPI adapter submits a full-screen frame from row zero
++                // and omits RASET. Start every RAMWR with the complete panel window.
++                self.x0 = 0;
++                self.x1 = WIDTH as u16 - 1;
++                self.y0 = 0;
++                self.y1 = HEIGHT as u16 - 1;
++                self.x = self.x0;
++                self.y = self.y0;
++                self.pixel_hi = None;
++                self.frames = self.frames.wrapping_add(1);
++            }
++            &tx[4..]
++        } else {
++            tx
++        };
++
++        match self.pending {
++            Some(0x2a) if data.len() >= 4 => {
++                self.x0 = u16::from_be_bytes([data[0], data[1]]);
++                self.x1 = u16::from_be_bytes([data[2], data[3]]);
++                self.x = self.x0;
++                self.pending = None;
++            }
++            // esp_lcd sends the QSPI command and parameters as separate transactions.
++            Some(0x2a) => {}
++            Some(0x2b) if data.len() >= 4 => {
++                self.y0 = u16::from_be_bytes([data[0], data[1]]);
++                self.y1 = u16::from_be_bytes([data[2], data[3]]);
++                self.y = self.y0;
++                self.pending = None;
++            }
++            Some(0x2b) => {}
++            Some(0x2c | 0x3c) => self.write_pixels(data),
++            Some(_) => self.pending = None,
++            None => {}
++        }
++    }
++
++    fn write_pixels(&mut self, mut data: &[u8]) {
++        self.stream_bytes = self.stream_bytes.wrapping_add(data.len() as u64);
++        if let Some(high) = self.pixel_hi {
++            let Some((&low, rest)) = data.split_first() else { return };
++            self.pixel_hi = None;
++            self.write_pixel(u16::from_be_bytes([high, low]));
++            data = rest;
++        }
++
++        let (pairs, rest) = data.as_chunks::<2>();
++        for pair in pairs {
++            self.write_pixel(u16::from_be_bytes(*pair));
++        }
++        if let [byte] = rest {
++            self.pixel_hi = Some(*byte);
++        }
++    }
++
++    fn write_pixel(&mut self, pixel: u16) {
++        let x = self.x as usize;
++        let y = self.y as usize;
++        if x < WIDTH && y < HEIGHT {
++            self.frame[y * WIDTH + x] = pixel;
++            self.pixels_written = self.pixels_written.wrapping_add(1);
++        }
++        if self.x >= self.x1 {
++            self.x = self.x0;
++            if self.y >= self.y1 {
++                self.y = self.y0;
++            } else {
++                self.y += 1;
++            }
++        } else {
++            self.x += 1;
++        }
++    }
++}
++
++#[derive(Default, Clone, Copy)]
++struct TouchPoint {
++    down: bool,
++    seen: bool,
++    release_pending: bool,
++    x: u16,
++    y: u16,
++}
++
++/// The board's 0x3B I2C device returns an eight-byte touch report after its 11-byte poll request.
++struct Axs15231bTouch {
++    point: Arc<Mutex<TouchPoint>>,
++    read_index: usize,
++}
++
++impl Axs15231bTouch {
++    fn new(point: Arc<Mutex<TouchPoint>>) -> Self {
++        Self { point, read_index: 0 }
++    }
++}
++
++impl crate::i2c::I2cDevice for Axs15231bTouch {
++    fn start(&mut self, read: bool) -> bool {
++        if read {
++            self.read_index = 0;
++        }
++        true
++    }
++
++    fn write(&mut self, _byte: u8) -> bool {
++        true
++    }
++
++    fn read(&mut self) -> u8 {
++        let index = self.read_index;
++        self.read_index += 1;
++        let mut point = self.point.lock().expect("AXS15231B touch mutex poisoned");
++        if index == 1 {
++            if point.release_pending && point.seen {
++                point.down = false;
++                point.release_pending = false;
++            }
++            if point.down {
++                point.seen = true;
++            }
++        }
++        match index {
++            1 => u8::from(point.down),
++            2 => ((point.x >> 8) as u8) & 0x0f,
++            3 => point.x as u8,
++            4 => ((point.y >> 8) as u8) & 0x0f,
++            5 => point.y as u8,
++            _ => 0,
++        }
++    }
++}
++
++pub struct LyraJc3248w535en {
++    pub panel: Axs15231bPanel,
++    touch: Arc<Mutex<TouchPoint>>,
++    pub spi_transactions: u64,
++}
++
++impl LyraJc3248w535en {
++    pub fn new() -> Self {
++        Self { panel: Axs15231bPanel::new(), touch: Arc::new(Mutex::new(TouchPoint::default())), spi_transactions: 0 }
++    }
++}
++
++impl Default for LyraJc3248w535en { fn default() -> Self { Self::new() } }
++
++impl BoardModel for LyraJc3248w535en {
++    fn name(&self) -> &'static str { "lyra-jc3248w535en" }
++
++    fn reset(&mut self) {
++        self.panel.reset();
++        *self.touch.lock().expect("AXS15231B touch mutex poisoned") = TouchPoint::default();
++    }
++
++    fn spi_transfer(&mut self, host: u8, tx: &[u8], rx_len: usize) -> Vec<u8> {
++        if host == 2 {
++            self.spi_transactions = self.spi_transactions.wrapping_add(1);
++            self.panel.transaction(tx);
++        }
++        vec![0xff; rx_len]
++    }
++
++    fn i2c_devices(&mut self) -> Vec<(u8, u8, Box<dyn crate::i2c::I2cDevice>)> {
++        vec![(0, 0x3b, Box::new(Axs15231bTouch::new(self.touch.clone())))]
++    }
++
++    fn display(&self) -> Option<(u32, u32, Vec<u16>, u64)> {
++        Some((WIDTH as u32, HEIGHT as u32, self.panel.frame.clone(), self.panel.pixels_written))
++    }
++
++    fn display_version(&self) -> u64 { self.panel.pixels_written }
++    fn display_frames(&self) -> u64 { self.panel.frames }
++    fn display_quiet_push(&self) -> bool { true }
++    fn display_push_hz(&self) -> u64 { 60 }
++
++    fn report(&self) -> String {
++        format!("[lyra-panel] spi={} ramwr={} last-frame={} bytes/{} pixels stream={} bytes cursor=({}, {}) window=x{}..{} y{}..{}",
++            self.spi_transactions, self.panel.frames, self.panel.last_frame_bytes,
++            self.panel.last_frame_pixels, self.panel.stream_bytes, self.panel.x, self.panel.y,
++            self.panel.x0, self.panel.x1, self.panel.y0, self.panel.y1)
++    }
++
++    fn touch(&mut self, x: u16, y: u16, down: bool) {
++        let mut point = self.touch.lock().expect("AXS15231B touch mutex poisoned");
++        point.x = x.min(WIDTH as u16 - 1);
++        point.y = y.min(HEIGHT as u16 - 1);
++        if down {
++            point.down = true;
++            point.seen = false;
++            point.release_pending = false;
++        } else if point.seen {
++            point.down = false;
++        } else {
++            point.release_pending = true;
++        }
++    }
++}
+diff --git a/esp32s3/src/board/mod.rs b/esp32s3/src/board/mod.rs
+index 3216221..302ee59 100644
+--- a/esp32s3/src/board/mod.rs
++++ b/esp32s3/src/board/mod.rs
+@@ -11,11 +11,13 @@
+ pub use esp_soc::board::{Board, BoardEdge, BoardModel, NoBoard, VirtualCycle};
+ 
+ pub mod atech14;
++pub mod lyra_jc3248w535en;
+ pub mod waveshare_amoled18;
+ pub mod waveshare_cam;
+ pub mod waveshare_lcd4b;
+ 
+ pub use atech14::*;
++pub use lyra_jc3248w535en::*;
+ pub use waveshare_amoled18::*;
+ pub use waveshare_cam::*;
+ pub use waveshare_lcd4b::*;
+@@ -27,6 +29,7 @@ pub fn make_board(name: &str) -> Option<Board> {
+         "none" | "bare" => Some(Box::new(NoBoard)),
+         "waveshare-cam" | "waveshare" => Some(Box::new(WaveshareCam::new())),
+         "waveshare-lcd4b" | "lcd4b" => Some(Box::new(WaveshareLcd4b::new())),
++        "lyra-jc3248w535en" | "lyra" => Some(Box::new(LyraJc3248w535en::new())),
+         "waveshare-amoled18-v2" | "amoled18-v2" => Some(Box::new(WaveshareAmoled18V2::new())),
+         _ => None,
+     }
+diff --git a/esp32s3/src/bus.rs b/esp32s3/src/bus.rs
+index 5cfe19e..6195f55 100644
+--- a/esp32s3/src/bus.rs
++++ b/esp32s3/src/bus.rs
+@@ -476,6 +476,7 @@ impl SocBus {
+         }
+         let old_gpio_out = self.periph.gpio.out;
+         self.periph.write32(a, v);
++        if a >> 12 == 0x60028 { self.complete_sdmmc(); }
+         self.complete_spi2_dma();
+         self.deliver_spi2_transfer();
+         // GPIO output writes usually only drive the board, but an enabled level
+diff --git a/esp32s3/src/bus/dma.rs b/esp32s3/src/bus/dma.rs
+index d819590..7eb9181 100644
+--- a/esp32s3/src/bus/dma.rs
++++ b/esp32s3/src/bus/dma.rs
+@@ -53,6 +53,98 @@ impl DescriptorWalk {
+ }
+ 
+ impl SocBus {
++    pub(super) fn complete_sdmmc(&mut self) {
++        let Some(command) = self.periph.sdmmc.take_pending() else { return };
++        let result = self.periph.sdmmc.begin_command(command);
++        let mut transferred = 0usize;
++        if result.status == 0 && command.flags & (1 << 9) != 0 {
++            let byte_count = command.byte_count.min(8 * 1024 * 1024);
++            let mut data = result.data.unwrap_or_else(|| vec![0; byte_count]);
++            data.resize(byte_count, 0);
++            let host_writes = command.flags & (1 << 10) != 0;
++            if self.sdmmc_dma_transfer(&mut data, host_writes) {
++                if host_writes && matches!(command.index, 24 | 25) {
++                    let start = command.arg as usize * 512;
++                    let card = self.periph.sdmmc.card_mut();
++                    if start <= card.len() && data.len() <= card.len() - start {
++                        card[start..start + data.len()].copy_from_slice(&data);
++                    }
++                }
++                transferred = byte_count;
++            }
++        }
++        self.periph.sdmmc.finish_command(result.response, transferred, command.flags & (1 << 10) != 0, result.status);
++        self.irq_dirty = true;
++    }
++
++    /// Transfer one SDMMC transaction through IDMAC's linked descriptor list.
++    fn sdmmc_dma_transfer(&mut self, data: &mut [u8], host_writes: bool) -> bool {
++        let mut descriptor = self.periph.sdmmc.dma_base();
++        if descriptor == 0 { return false; }
++        let mut offset = 0usize;
++        let mut steps = 0usize;
++        while offset < data.len() && steps < 4096 {
++            steps += 1;
++            let control = self.read32_unpriced(descriptor).unwrap_or(0);
++            if control & (1 << 31) == 0 { return false; }
++            let sizes = self.read32_unpriced(descriptor + 4).unwrap_or(0);
++            let first_len = (sizes & 0x1fff) as usize;
++            let second_len = ((sizes >> 13) & 0x1fff) as usize;
++            let first = self.read32_unpriced(descriptor + 8).unwrap_or(0);
++            let chained = control & (1 << 4) != 0;
++            let parts = if chained { [(first, first_len), (0, 0)] } else {
++                [(first, first_len), (self.read32_unpriced(descriptor + 12).unwrap_or(0), second_len)]
++            };
++            for (address, length) in parts {
++                if length == 0 || offset == data.len() { continue; }
++                let count = length.min(data.len() - offset);
++                let slice = &mut data[offset..offset + count];
++                let ok = if host_writes { self.read_dma_bytes(address, slice) } else { self.write_dma_bytes(address, slice) };
++                if !ok { return false; }
++                offset += count;
++            }
++            let next = self.read32_unpriced(descriptor + 12).unwrap_or(0);
++            let last = control & (1 << 2) != 0;
++            if self.write32_unpriced(descriptor, control & !(1 << 31)).is_err() { return false; }
++            self.periph.sdmmc.set_current_descriptor(if chained { next } else { descriptor + 16 + self.periph.sdmmc.descriptor_skip() * 4 });
++            descriptor = if chained { next } else { descriptor + 16 + self.periph.sdmmc.descriptor_skip() * 4 };
++            if last && offset < data.len() { return false; }
++            if descriptor == 0 && offset < data.len() { return false; }
++        }
++        offset == data.len()
++    }
++
++    fn read_dma_bytes(&mut self, address: u32, out: &mut [u8]) -> bool {
++        let mut offset = 0usize;
++        while offset < out.len() {
++            if offset + 4 <= out.len() {
++                let Ok(word) = self.read32_unpriced(address + offset as u32) else { return false };
++                out[offset..offset + 4].copy_from_slice(&word.to_le_bytes());
++                offset += 4;
++            } else {
++                let Ok(byte) = self.read8_unpriced(address + offset as u32) else { return false };
++                out[offset] = byte;
++                offset += 1;
++            }
++        }
++        true
++    }
++
++    fn write_dma_bytes(&mut self, address: u32, data: &[u8]) -> bool {
++        let mut offset = 0usize;
++        while offset < data.len() {
++            if offset + 4 <= data.len() {
++                let word = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap());
++                if self.write32_unpriced(address + offset as u32, word).is_err() { return false; }
++                offset += 4;
++            } else {
++                if self.write8_unpriced(address + offset as u32, data[offset]).is_err() { return false; }
++                offset += 1;
++            }
++        }
++        true
++    }
++
+     pub(super) fn complete_spi2_dma(&mut self) {
+         if let Some((deadline, _)) = &self.spi2_scheduled {
+             if self.cycles < *deadline { return; }
+diff --git a/esp32s3/src/lib.rs b/esp32s3/src/lib.rs
+index ee7b60a..9167f3a 100644
+--- a/esp32s3/src/lib.rs
++++ b/esp32s3/src/lib.rs
+@@ -4,6 +4,7 @@ pub mod periph;
+ pub mod i2c;
+ pub mod soc;
+ pub mod timing;
++pub mod sdmmc;
+ pub mod rough_memory;
+ pub mod memory_cost_model;
+ pub mod approximate_timing;
+diff --git a/esp32s3/src/periph.rs b/esp32s3/src/periph.rs
+index 29f538d..3a7eba1 100644
+--- a/esp32s3/src/periph.rs
++++ b/esp32s3/src/periph.rs
+@@ -16,6 +16,7 @@ pub const SRC_GPIO: usize = 16;
+ pub const SRC_UART0: usize = 27;
+ pub const SRC_UART1: usize = 28;
+ pub const SRC_SPI2: usize = 21;
++pub const SRC_SDMMC: usize = 30;
+ pub const SRC_PCNT: usize = 41;
+ pub const SRC_AES: usize = 77;
+ pub const SRC_LCD_CAM: usize = 24;
+@@ -393,6 +394,7 @@ pub struct Peripherals {
+     pub i2c: [crate::i2c::I2c; 2],
+     pub lcd_cam: LcdCam,
+     pub spi2: GpSpi,
++    pub sdmmc: crate::sdmmc::Sdmmc,
+     pub pcnt: Pcnt,
+     pub wifi: WifiMac,
+     pub fe: FeIq,
+@@ -446,6 +448,7 @@ device_set! { Peripherals; clock: (clock) CPU_HZ, [(ClockDomain::Systimer, 15),
+     0x27 "I2C1" (i2c[1]) => [SRC_I2C1];
+     0x41 "LCD_CAM" (lcd_cam) => [SRC_LCD_CAM];
+     0x24 "SPI2" (spi2) => [SRC_SPI2];
++    0x28 "SDMMC" (sdmmc) => [SRC_SDMMC];
+     0x17 "PCNT" (pcnt) => [SRC_PCNT];
+     0x33 "WIFI_MAC" (wifi) => [SRC_WIFI_MAC];
+     0x34 "WIFI_MAC" alias (wifi) delta 0x1000 => [];
+@@ -481,7 +484,7 @@ impl Peripherals {
+             usb: UsbSerialJtag::new(CPU_HZ), uart: [Uart::new(UartLayout::S3), Uart::new(UartLayout::S3), Uart::new(UartLayout::S3)], systimer: Systimer::new(),
+             timg: [TimerGroup::new(), TimerGroup::new()], intmatrix: IntMatrix::new(), gpio: Gpio::new(), rtc: RtcCntl::new(),
+             efuse: Efuse::new(mac), system: SystemRegs::new(0x30), extmem: Extmem::new(), spi0: SpiMem::new(false), spi1: SpiMem::new(true),
+-            i2c: [crate::i2c::I2c::new(), crate::i2c::I2c::new()], lcd_cam: LcdCam::new(), spi2: GpSpi::new(), pcnt: Pcnt::new(), wifi: WifiMac::new(), fe: FeIq { word: 0, done: false },
++            i2c: [crate::i2c::I2c::new(), crate::i2c::I2c::new()], lcd_cam: LcdCam::new(), spi2: GpSpi::new(), sdmmc: crate::sdmmc::Sdmmc::new(), pcnt: Pcnt::new(), wifi: WifiMac::new(), fe: FeIq { word: 0, done: false },
+             aes: Aes::new(), rsa: Rsa::new(), sha: Sha::new(), wdev: Wdev::new(), i2c_mst: I2cMst::new(), gdma: Gdma::new(), i2s0: I2s::new(CPU_HZ), i2s1: I2s::new(CPU_HZ), rmt: Rmt::new(CPU_HZ),
+             io_mux: RegRam::new(), misc: Misc::new(), fake_reads: std::env::var("ESP_EMU_FAKE_READ").ok().map(|v| v.split(',').filter_map(|e| { let mut p = e.split(':'); let a = u32::from_str_radix(p.next()?.trim_start_matches("0x"), 16).ok()?; let o = u32::from_str_radix(p.next().unwrap_or("0").trim_start_matches("0x"), 16).ok()?; let m = u32::from_str_radix(p.next().unwrap_or("ffffffff").trim_start_matches("0x"), 16).ok()?; Some((a, (o, m))) }).collect()).unwrap_or_default(),
+             clock: Self::new_clock(),
+diff --git a/esp32s3/src/sdmmc.rs b/esp32s3/src/sdmmc.rs
+new file mode 100644
+index 0000000..4045534
+--- /dev/null
++++ b/esp32s3/src/sdmmc.rs
+@@ -0,0 +1,196 @@
++//! Minimal SD v2 / SDHC card and SDMMC IDMAC model used by the Lyra board.
++//! The card payload is a sector image supplied by the browser at runtime.
++
++use esp_periph::{Device, RegRam, WriteEffect};
++
++const CARD_SECTOR: usize = 512;
++const RINT_CMD_DONE: u32 = 1 << 2;
++const RINT_DATA_OVER: u32 = 1 << 3;
++const RINT_RESPONSE_TIMEOUT: u32 = 1 << 8;
++
++#[derive(Clone, Copy)]
++pub struct PendingCommand {
++    pub index: u8,
++    pub arg: u32,
++    pub flags: u32,
++    pub block_size: usize,
++    pub byte_count: usize,
++}
++
++pub struct CommandResult {
++    pub response: [u32; 4],
++    pub data: Option<Vec<u8>>,
++    pub status: u32,
++}
++
++pub struct Sdmmc {
++    regs: RegRam,
++    card: Vec<u8>,
++    pending: Option<PendingCommand>,
++    app_command: bool,
++    idle: bool,
++    selected: bool,
++    rca: u16,
++}
++
++impl Default for Sdmmc {
++    fn default() -> Self { Self::new() }
++}
++
++impl Sdmmc {
++    pub fn new() -> Self {
++        Self { regs: RegRam::new(), card: Vec::new(), pending: None, app_command: false, idle: true, selected: false, rca: 0x1234 }
++    }
++
++    pub fn set_card(&mut self, image: &[u8]) -> bool {
++        if image.len() < CARD_SECTOR || !image.len().is_multiple_of(CARD_SECTOR) { return false; }
++        self.card.clear();
++        self.card.extend_from_slice(image);
++        self.pending = None;
++        self.app_command = false;
++        self.idle = true;
++        self.selected = false;
++        true
++    }
++
++    pub fn card(&self) -> &[u8] { &self.card }
++    pub fn card_mut(&mut self) -> &mut [u8] { &mut self.card }
++    pub fn take_pending(&mut self) -> Option<PendingCommand> { self.pending.take() }
++    pub fn dma_base(&self) -> u32 { self.regs.read(0x88) }
++    pub fn descriptor_skip(&self) -> u32 { (self.regs.read(0x80) >> 2) & 0x1f }
++    pub fn set_current_descriptor(&mut self, address: u32) { self.regs.write(0x94, address); }
++
++    fn reg(&self, offset: u32) -> u32 {
++        match offset {
++            0x40 => self.regs.read(0x44) & self.regs.read(0x24), // MINTSTS
++            0x50 => u32::from(self.card.is_empty()), // CDETECT: zero means present
++            0x54 => 0, // WRT_PROTECT
++            0x6c => 0x240a, // SDMMC IP version
++            0x70 => 0x0344_4cc3, // HCON defaults from the ESP32-S3 SDMMC block
++            _ => self.regs.read(offset),
++        }
++    }
++
++    fn set_status(&mut self, offset: u32, bits: u32) { self.regs.write(offset, self.regs.read(offset) | bits); }
++
++    pub fn begin_command(&mut self, pending: PendingCommand) -> CommandResult {
++        let was_app = std::mem::take(&mut self.app_command);
++        let mut result = CommandResult { response: [0; 4], data: None, status: 0 };
++        let ready_status = 1 << 8 | 4 << 9; // READY_FOR_DATA, transfer state
++        let mut r1 = if self.idle { 1 << 0 } else { ready_status };
++
++        match pending.index {
++            0 => { self.idle = true; self.selected = false; self.app_command = false; }
++            5 | 52 => result.status = RINT_RESPONSE_TIMEOUT, // A memory-only card has no SDIO function.
++            2 => result.response = self.cid_response(),
++            3 => { self.idle = false; result.response[0] = ((self.rca as u32) << 16) | (ready_status & 0xffff); }
++            6 if was_app => { /* ACMD6: the Lyra host stays in one-bit mode. */ }
++            7 => { self.selected = pending.arg != 0; }
++            8 => result.response[0] = pending.arg & 0xfff,
++            9 => result.response = self.csd_response(),
++            12 => {}
++            13 if was_app => result.data = Some(vec![0; 512]), // ACMD13: SD status
++            13 => result.response[0] = ready_status,
++            16 => {}
++            17 | 18 | 24 | 25 => {
++                let write = matches!(pending.index, 24 | 25);
++                let length = pending.byte_count.min(8 * 1024 * 1024);
++                if !write {
++                    let start = pending.arg as usize * CARD_SECTOR;
++                    let end = start.saturating_add(length);
++                    if start < self.card.len() {
++                        let mut data = vec![0; length];
++                        let copy_end = end.min(self.card.len());
++                        data[..copy_end - start].copy_from_slice(&self.card[start..copy_end]);
++                        result.data = Some(data);
++                    } else {
++                        result.data = Some(vec![0; length]);
++                    }
++                }
++            }
++            23 => {} // SET_BLOCK_COUNT
++            41 if was_app => { self.idle = false; result.response[0] = 0xc0ff_8000; }
++            51 if was_app => result.data = Some(vec![0x02, 0x05, 0, 0, 0, 0, 0, 0]),
++            55 => { self.app_command = true; r1 |= 1 << 5; }
++            _ => {}
++        }
++
++        if pending.index != 2 && pending.index != 9 && pending.index != 3 && pending.index != 8 && pending.index != 41 {
++            result.response[0] = r1;
++        }
++        result
++    }
++
++    pub fn finish_command(&mut self, response: [u32; 4], data_length: usize, write: bool, status: u32) {
++        for (i, word) in response.into_iter().enumerate() { self.regs.write(0x30 + i as u32 * 4, word); }
++        let data = data_length != 0;
++        self.set_status(0x44, RINT_CMD_DONE | (if data { RINT_DATA_OVER } else { 0 }) | status);
++        if data {
++            let count_off = if write { 0x5c } else { 0x60 };
++            self.regs.write(count_off, data_length as u32);
++            self.set_status(0x8c, (1 << 8) | if write { 1 } else { 1 << 1 }); // NIS | TI/RI
++        }
++    }
++
++    fn cid_response(&self) -> [u32; 4] {
++        let mut words = [0; 4];
++        set_bits(&mut words, 120, 8, 0x1d);
++        set_bits(&mut words, 104, 16, u16::from_be_bytes(*b"LY") as u32);
++        for (n, byte) in b"LYRA1".iter().enumerate() { set_bits(&mut words, 96 - n as u32 * 8, 8, *byte as u32); }
++        set_bits(&mut words, 56, 8, 0x10);
++        set_bits(&mut words, 24, 32, 0x3248_5353);
++        set_bits(&mut words, 8, 12, 0x126);
++        set_bits(&mut words, 1, 7, 0x7f);
++        set_bits(&mut words, 0, 1, 1);
++        words
++    }
++
++    fn csd_response(&self) -> [u32; 4] {
++        let mut words = [0; 4];
++        let sectors = (self.card.len() / CARD_SECTOR).max(1024);
++        let units = (sectors / 1024).clamp(1, (1 << 22) as usize);
++        set_bits(&mut words, 126, 2, 1); // CSD v2
++        set_bits(&mut words, 96, 8, 0x32); // 25 MHz
++        set_bits(&mut words, 84, 12, 0x1f5); // read/write, erase and application-specific commands
++        set_bits(&mut words, 48, 22, (units - 1) as u32);
++        set_bits(&mut words, 1, 7, 0x7f);
++        set_bits(&mut words, 0, 1, 1);
++        words
++    }
++}
++
++fn set_bits(words: &mut [u32; 4], start: u32, width: u32, value: u32) {
++    for bit in 0..width {
++        if value & (1 << bit) == 0 { continue; }
++        let target = start + bit;
++        words[(target / 32) as usize] |= 1 << (target % 32);
++    }
++}
++
++impl Device for Sdmmc {
++    fn read(&mut self, offset: u32) -> u32 { self.reg(offset) }
++
++    fn write(&mut self, offset: u32, value: u32) -> WriteEffect {
++        match offset {
++            0x00 => self.regs.write(offset, value & !0x7), // reset bits self-clear
++            0x80 => self.regs.write(offset, value & !1), // IDMAC software reset self-clears
++            0x44 => self.regs.write(offset, self.regs.read(offset) & !value), // RINTSTS is W1C
++            0x8c => self.regs.write(offset, self.regs.read(offset) & !value), // IDSTS is W1C
++            0x2c if value & (1 << 21) != 0 => self.regs.write(offset, value & !(1 << 31)), // clock update
++            0x2c if value & (1 << 31) != 0 => {
++                self.regs.write(offset, value & !(1 << 31));
++                self.pending = Some(PendingCommand {
++                    index: (value & 0x3f) as u8,
++                    arg: self.regs.read(0x28),
++                    flags: value,
++                    block_size: self.regs.read(0x1c) as usize,
++                    byte_count: self.regs.read(0x20) as usize,
++                });
++            }
++            _ => self.regs.write(offset, value),
++        }
++        WriteEffect::NONE
++    }
++
++    fn irq_sources(&self) -> u64 { u64::from((self.regs.read(0x44) & self.regs.read(0x24)) != 0 || (self.regs.read(0x8c) & self.regs.read(0x90)) != 0) }
++}
+diff --git a/esp32s3/src/soc.rs b/esp32s3/src/soc.rs
+index 8d8fc1a..3f0e733 100644
+--- a/esp32s3/src/soc.rs
++++ b/esp32s3/src/soc.rs
+@@ -117,6 +117,9 @@ impl esp_soc::SocBus for SocBus {
+         let cause = self.periph.rtc.reset_cause;
+         let old = std::mem::replace(&mut self.periph, periph::Peripherals::new(mac));
+         let p = &mut self.periph;
++        // The card itself remains powered while the ESP32-S3 resets. Preserve its sectors but
++        // use a fresh controller/card protocol state so firmware can mount it again from CMD0.
++        if !old.sdmmc.card().is_empty() { p.sdmmc.set_card(old.sdmmc.card()); }
+         p.efuse = old.efuse;
+         p.gpio.strap = old.gpio.strap;
+         p.misc.log_unknown = old.misc.log_unknown; p.spi1.log = old.spi1.log;
+@@ -128,6 +131,7 @@ impl esp_soc::SocBus for SocBus {
+         self.mmu = [MMU_INVALID; MMU_ENTRIES];
+         self.invalidate_tlb();
+         self.reset_approximate_cache();
++        self.board.reset();
+         self.attach_board_devices();
+         self.refresh_tick_budget();
+         self.irq_dirty = true;
+@@ -171,6 +175,14 @@ impl esp_soc::SocBus for SocBus {
+     fn report(&self) -> String {
+         let p = &self.periph;
+         let mut s = format!("[emu] i2s frames out: {} (i2s0 @ {} Hz) {} (i2s1 @ {} Hz)\n", p.i2s0.frames_out, p.i2s0.sample_rate, p.i2s1.frames_out, p.i2s1.sample_rate);
++        let spi_dma = p.gdma.out.iter().enumerate().filter(|(_, ch)| ch.peri_sel == 0 || ch.desc != 0 || ch.running)
++            .map(|(i, ch)| format!("ch{}:desc={:#x} pos={} run={} int={:#x}", i, ch.desc, ch.buf_pos, ch.running, ch.int_raw))
++            .collect::<Vec<_>>().join("; ");
++        s += &format!("[emu] spi2 state: transfers={} pending={} dma_bits={:?} gdma=[{}]\n",
++            p.spi2.transfers, p.spi2.has_pending_transfer(), p.spi2.dma_tx_pending, spi_dma);
++        if let Some(fault) = self.spi2_dma_fault.as_ref() {
++            s += &format!("[emu] spi2 DMA fault: {:?}\n", fault);
++        }
+         { let r = self.board.report(); if !r.is_empty() { s += &r; s += "\n"; } }
+         { let w = &p.wifi;
+           if w.tx_frames + w.rx_frames > 0 { s += &format!("[emu] wifi: {} frames sent by the station, {} received ({} dropped: no descriptor){}\n", w.tx_frames, w.rx_frames, w.rx_dropped, w.ap.as_ref().map_or(String::new(), |ap| format!("; AP: {} beacons, {} probe responses, {} data frames from the station, state {:?}", ap.stats.0, ap.stats.1, ap.stats.2, ap.state))); }
+diff --git a/wasm/Cargo.toml b/wasm/Cargo.toml
+index eee76c4..1229cc1 100644
+--- a/wasm/Cargo.toml
++++ b/wasm/Cargo.toml
+@@ -1,5 +1,6 @@
+ [package]
+ name = "esp32sim-wasm"
++build = false
+ version.workspace = true
+ edition.workspace = true
+ license.workspace = true
+diff --git a/wasm/src/lib.rs b/wasm/src/lib.rs
+index 36e2707..cceb62d 100644
+--- a/wasm/src/lib.rs
++++ b/wasm/src/lib.rs
+@@ -63,6 +63,14 @@ unsafe fn bytes<'a>(ptr: *const u8, len: usize) -> &'a [u8] {
+     }
+ }
+ 
++/// Borrow a WebAssembly buffer that the emulator fills.
++unsafe fn bytes_mut<'a>(ptr: *mut u8, len: usize) -> &'a mut [u8] {
++    if len == 0 { &mut [] } else {
++        // SAFETY: The caller supplies a writable allocation for exactly `len` bytes.
++        unsafe { std::slice::from_raw_parts_mut(ptr, len) }
++    }
++}
++
+ /// Borrow a UTF-8 ABI buffer, treating invalid UTF-8 as an empty string.
+ ///
+ /// # Safety
+@@ -129,6 +137,7 @@ pub unsafe extern "C" fn esp32sim_new(board: *const u8, board_len: usize, flash_
+         let _ = m.bus.set_psram_size(psram_bytes);
+         m.bus.periph.lcd_cam.frame_cycles = esp32s3::periph::CPU_HZ / 10;
+         prepare(&mut m);
++        if matches!(board.as_str(), "lyra-jc3248w535en" | "lyra") { m.web_restart = true; }
+         MachineKind::S3(Box::new(m))
+     };
+     // A worker reuses this WASM instance after deleting its previous emulator.
+@@ -186,6 +195,39 @@ pub unsafe extern "C" fn esp32sim_load(e: *mut Emu, kind: u32, ptr: *const u8, l
+     match e.m.load(kind, data) { Ok(()) => 0, Err(msg) => { log(&format!("[emu] load kind {}: {}", kind, msg)); 1 } }
+ }
+ 
++/// Insert a raw sector image as the SD card in the ESP32-S3 SDMMC slot. Size must be a multiple
++/// of 512 bytes. Returns 0 on success.
++#[no_mangle]
++pub unsafe extern "C" fn esp32sim_sdmmc_set_card(e: *mut Emu, ptr: *const u8, len: usize) -> u32 {
++    // SAFETY: The caller provides exclusive access to a live emulator.
++    let e = unsafe { &mut *e };
++    // SAFETY: The caller provides a readable image for this call.
++    let image = unsafe { bytes(ptr, len) };
++    let Some(m) = e.m.s3_mut() else { return 1 };
++    u32::from(!m.bus.periph.sdmmc.set_card(image))
++}
++
++/// Return the size in bytes of the inserted SD card image.
++#[no_mangle]
++pub unsafe extern "C" fn esp32sim_sdmmc_card_size(e: *mut Emu) -> usize {
++    // SAFETY: The caller provides exclusive access to a live emulator.
++    let e = unsafe { &mut *e };
++    e.m.s3_mut().map_or(0, |m| m.bus.periph.sdmmc.card().len())
++}
++
++/// Copy current card contents into caller-owned WebAssembly memory. Returns bytes copied.
++#[no_mangle]
++pub unsafe extern "C" fn esp32sim_sdmmc_copy_card(e: *mut Emu, ptr: *mut u8, cap: usize) -> usize {
++    // SAFETY: The caller provides exclusive access to a live emulator.
++    let e = unsafe { &mut *e };
++    let Some(m) = e.m.s3_mut() else { return 0 };
++    let card = m.bus.periph.sdmmc.card();
++    if cap < card.len() { return 0; }
++    // SAFETY: The caller provides an output allocation at least as large as the inserted image.
++    unsafe { bytes_mut(ptr, card.len()) }.copy_from_slice(card);
++    card.len()
++}
++
+ /// Write bytes into flash at an arbitrary offset (a data partition's contents).
+ ///
+ /// # Safety
+@@ -252,6 +294,8 @@ pub unsafe extern "C" fn esp32sim_reports(e: *mut Emu) {
+     let e = unsafe { &mut *e };
+     let r = e.m.reports();
+     if let Some(w) = e.m.web() { for line in r.lines() { w.send_text(&format!("{{\"t\":\"emu\",\"msg\":\"{}\"}}", json_escape(line))); } }
++    let r = e.m.hardware_report();
++    if let Some(w) = e.m.web() { for line in r.lines() { w.send_text(&format!("{{\"t\":\"emu\",\"msg\":\"{}\"}}", json_escape(line))); } }
+ }
+ 
+ /// Start from the mask ROM (the normal path) or, with `app_direct` set, straight into the app image.
+@@ -282,7 +326,8 @@ pub unsafe extern "C" fn esp32sim_run(e: *mut Emu, cycles: u32, unix_ms: f64) ->
+     if !e.booted { return 9; }
+     #[cfg(target_arch = "wasm32")] esp_soc::host::set_unix_time_ms(unix_ms as u64);
+     let _ = unix_ms;
+-    e.m.run_slice(cycles)
++    let rc = e.m.run_slice(cycles);
++    rc
+ }
+ 
+ /// The emulated CPU clock, so the driver paces the right chip: 240 MHz on the S3, 160 on the C3.
+diff --git a/wasm/src/machine.rs b/wasm/src/machine.rs
+index 882601d..728e686 100644
+--- a/wasm/src/machine.rs
++++ b/wasm/src/machine.rs
+@@ -18,6 +18,7 @@ pub(super) trait MachineApi {
+     fn stub(&mut self, name: &str, value: u32) -> u32;
+     fn observer(&mut self, name: &str, arg: &str) -> u32;
+     fn reports(&mut self) -> String;
++    fn hardware_report(&self) -> String;
+     fn set_jit(&mut self, enabled: bool);
+     fn approximate_jit_timing(&mut self, cpi: u32, quantum: u32) -> u32;
+ }
+@@ -65,6 +66,7 @@ impl<S: Soc> MachineApi for Machine<S> {
+         }
+     }
+     fn reports(&mut self) -> String { Machine::reports(self) }
++    fn hardware_report(&self) -> String { self.bus.report() }
+     fn approximate_jit_timing(&mut self, cpi: u32, quantum: u32) -> u32 {
+         match self.set_approximate_jit_timing(cpi, quantum) { Ok(()) => 0, Err(reason) => { log(&reason); 1 } }
+     }
+diff --git a/web/wasm/worker.js b/web/wasm/worker.js
+index 2f46ce1..7661834 100644
+--- a/web/wasm/worker.js
++++ b/web/wasm/worker.js
+@@ -136,9 +136,30 @@ onmessage = async (ev) => {
+       experiments = m.experiments === undefined ? [] : m.experiments;
+       smoothDisplay = m.smoothDisplay === true;
+       if (emu !== 0 && wasm.esp32sim_cpu_hz) CPU_HZ = wasm.esp32sim_cpu_hz(emu);
+-      postMessage({ created: emu !== 0 });
++      postMessage({ created: emu !== 0, requestId: m.requestId });
++    }
++    else if (m.op === 'load') { const rc = withBytes(new Uint8Array(m.data), (p, n) => m.at !== undefined ? wasm.esp32sim_load_at(emu, m.at >>> 0, p, n) : wasm.esp32sim_load(emu, m.kind, p, n)); postMessage({ loaded: m.at !== undefined ? 'at' + m.at : m.kind, ok: rc === 0, requestId: m.requestId }); }
++    else if (m.op === 'sd-card') { const rc = withBytes(new Uint8Array(m.data), (p, n) => wasm.esp32sim_sdmmc_set_card(emu, p, n)); postMessage({ sdCardReady: rc === 0, error: rc === 0 ? '' : 'SD image must be a 512-byte sector image', requestId: m.requestId }); }
++    else if (m.op === 'sd-card-save') {
++      const size = wasm.esp32sim_sdmmc_card_size(emu), ptr = wasm.esp32sim_alloc(size);
++      try {
++        const copied = wasm.esp32sim_sdmmc_copy_card(emu, ptr, size);
++        const data = mem().slice(ptr, ptr + copied).buffer;
++        postMessage({ sdCardImage: data, requestId: m.requestId }, [data]);
++      } finally { wasm.esp32sim_free(ptr, size); }
++    }
++    else if (m.op === 'restart') {
++      if (!emu) throw new Error('no emulator to restart');
++      if (wasm.esp32sim_reports) wasm.esp32sim_reports(emu);
++      withBytes(enc.encode(JSON.stringify({ t: 'reset' })), (p, n) => wasm.esp32sim_in_text(emu, p, n));
++      if (!running) {
++        running = true;
++        t0 = performance.now();
++        lastStat = { wall: t0, insns: wasm.esp32sim_insns(emu), cycles: wasm.esp32sim_cycles(emu) };
++        loop();
++      }
++      postMessage({ restarted: true, requestId: m.requestId });
+     }
+-    else if (m.op === 'load') { const rc = withBytes(new Uint8Array(m.data), (p, n) => m.at !== undefined ? wasm.esp32sim_load_at(emu, m.at >>> 0, p, n) : wasm.esp32sim_load(emu, m.kind, p, n)); postMessage({ loaded: m.at !== undefined ? 'at' + m.at : m.kind, ok: rc === 0 }); }
+     else if (m.op === 'stub') { if (withBytes(enc.encode(m.spec), (p, n) => wasm.esp32sim_stub_spec(emu, p, n)) !== 0) setupError ||= 'invalid stub: ' + m.spec; }
+     else if (m.op === 'wifi') { if (withBytes(enc.encode(m.spec), (p, n) => wasm.esp32sim_wifi(emu, p, n)) !== 0) setupError ||= 'invalid WiFi configuration (see console)'; }
+     else if (m.op === 'start') {
+@@ -148,7 +169,7 @@ onmessage = async (ev) => {
+       if (setupError) throw new Error(setupError);
+       applyExperiments(wasm, emu, experiments);
+       if (smoothDisplay && (!wasm.esp32sim_set_smooth_display || wasm.esp32sim_set_smooth_display(emu, 1) !== 0)) throw new Error('smooth display publication is unsupported');
+-      const rc = wasm.esp32sim_boot(emu, m.appDirect ? 1 : 0); if (rc === 0) { running = true; t0 = performance.now(); lastStat = { wall: t0, insns: wasm.esp32sim_insns(emu), cycles: wasm.esp32sim_cycles(emu) }; loop(); } postMessage({ started: rc === 0 }); }
++      const rc = wasm.esp32sim_boot(emu, m.appDirect ? 1 : 0); if (rc === 0) { running = true; t0 = performance.now(); lastStat = { wall: t0, insns: wasm.esp32sim_insns(emu), cycles: wasm.esp32sim_cycles(emu) }; loop(); } postMessage({ started: rc === 0, requestId: m.requestId }); }
+     else if (m.op === 'net-create') {
+       setupError = null;
+       running = false;
+@@ -182,5 +203,5 @@ onmessage = async (ev) => {
+       withBytes(enc.encode(m.data), (p, n) => wasm.esp32sim_in_text(emu, p, n));
+     }
+     else if (m.op === 'bin') { pacing.input(performance.now()); withBytes(new Uint8Array(m.data), (p, n) => wasm.esp32sim_in_bin(emu, p, n)); }
+-  } catch (err) { postMessage({ log: '[worker] ' + (err && err.stack || err) }); running = false; if (m.op === 'start' || m.op === 'net-start') postMessage({ started: false, error: err.message || String(err) }); }
++  } catch (err) { postMessage({ log: '[worker] ' + (err && err.stack || err) }); running = false; if (m.op === 'start' || m.op === 'net-start') postMessage({ started: false, error: err.message || String(err), requestId: m.requestId }); }
+ };

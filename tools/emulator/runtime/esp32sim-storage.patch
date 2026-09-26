@@ -1,0 +1,312 @@
+diff --git a/esp32s3/src/bus.rs b/esp32s3/src/bus.rs
+index 6195f55cac3997e5038c9e3a186ba9a8613e5d38..d07bb07f93908972f5be476c20496bbf2a5fa8a8 100644
+--- a/esp32s3/src/bus.rs
++++ b/esp32s3/src/bus.rs
+@@ -48,6 +48,8 @@ pub struct SocBus {
+     pub rtc_fast: Vec<u8>,
+     pub rtc_slow: Vec<u8>,
+     pub flash: Vec<u8>,
++    flash_dirty_versions: Vec<u32>,
++    flash_write_generation: u32,
+     pub psram: Vec<u8>,
+     pub mmu: [u32; MMU_ENTRIES],
+     pub periph: Peripherals,
+@@ -142,7 +144,7 @@ impl SocBus {
+     pub fn with_sizes(flash_size: usize, psram_size: usize, mac: [u8; 6]) -> Self {
+         let bus_uninit = SocBus {
+             sram: vec![0; SRAM_SIZE], irom: vec![0; (IROM_MASK_HIGH - IROM_MASK_LOW) as usize], drom: vec![0; (DROM_MASK_HIGH - DROM_MASK_LOW) as usize],
+-            rtc_fast: vec![0; 8192], rtc_slow: vec![0; 8192], flash: vec![0xff; flash_size], psram: vec![0; psram_size],
++            rtc_fast: vec![0; 8192], rtc_slow: vec![0; 8192], flash: vec![0xff; flash_size], flash_dirty_versions: vec![0; flash_size.div_ceil(4096)], flash_write_generation: 0, psram: vec![0; psram_size],
+             mmu: [MMU_INVALID; MMU_ENTRIES], periph: Peripherals::new(mac), board: Box::new(crate::board::Atech14::new()), cycles: 0, last_fault: None, spi2_dma_fault: None, irq_dirty: false, gpio_events: None, debug: Default::default(),
+             spi2_timing: false, spi2_scheduled: None,
+             tlb: vec![TlbEntry::EMPTY; TLB_SIZE], page_ver: Vec::new(), ver_base: [0; 7], flash_epoch: BUS_EPOCHS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) << 32, code_blk: Vec::new(), tick_pending: 0, tick_budget: 0, defer_mmio: false, mmio_deferred: false, vq_violations: 0,
+@@ -410,6 +412,12 @@ impl SocBus {
+     /// Record a write done behind the bus's back (image loaders, the SPI flash controller).
+     pub fn note_written(&mut self, src: u8, off: usize, len: usize) {
+         if len == 0 { return; }
++        if src == SRC_FLASH && off < self.flash.len() {
++            self.flash_write_generation = self.flash_write_generation.wrapping_add(1).max(1);
++            let first = off / 4096;
++            let last = (off + len.min(self.flash.len() - off) - 1) / 4096;
++            for version in self.flash_dirty_versions.get_mut(first..=last).into_iter().flatten() { *version = self.flash_write_generation; }
++        }
+         let vbase = self.ver_base[src as usize];
+         let (first, last) = (off >> VPAGE_SHIFT, (off + len - 1) >> VPAGE_SHIFT);
+         for p in first..=last { let i = vbase as usize + p; if i < self.page_ver.len() { self.page_ver[i] = self.page_ver[i].wrapping_add(1); } }
+@@ -417,6 +425,37 @@ impl SocBus {
+         self.touched((vbase as usize + first).saturating_sub(1), vbase as usize + last);
+     }
+ 
++    pub fn flash_dirty_page_count(&self) -> usize { self.flash_dirty_versions.iter().filter(|version| **version != 0).count() }
++    pub fn copy_dirty_flash_pages(&self, output: &mut [u8]) -> usize {
++        const PAGE_SIZE: usize = 4096;
++        const RECORD_SIZE: usize = 8 + PAGE_SIZE;
++        let capacity = output.len() / RECORD_SIZE;
++        let mut copied = 0;
++        for (page, version) in self.flash_dirty_versions.iter().copied().enumerate() {
++            if version == 0 || copied == capacity { continue; }
++            let offset = page * PAGE_SIZE;
++            if offset + PAGE_SIZE > self.flash.len() { continue; }
++            let record = &mut output[copied * RECORD_SIZE..(copied + 1) * RECORD_SIZE];
++            record[..4].copy_from_slice(&(offset as u32).to_le_bytes());
++            record[4..8].copy_from_slice(&version.to_le_bytes());
++            record[8..].copy_from_slice(&self.flash[offset..offset + PAGE_SIZE]);
++            copied += 1;
++        }
++        copied
++    }
++    pub fn ack_dirty_flash_pages(&mut self, records: &[u8]) {
++        for record in records.chunks_exact(8) {
++            let offset = u32::from_le_bytes(record[..4].try_into().unwrap()) as usize;
++            let version = u32::from_le_bytes(record[4..8].try_into().unwrap());
++            if offset.is_multiple_of(4096) {
++                if let Some(current) = self.flash_dirty_versions.get_mut(offset / 4096) {
++                    if *current == version { *current = 0; }
++                }
++            }
++        }
++    }
++    pub fn clear_dirty_flash_pages(&mut self) { self.flash_dirty_versions.fill(0); }
++
+     #[inline]
+     fn is_periph(addr: u32) -> bool { (PERIPH_BASE..PERIPH_END).contains(&addr) }
+ 
+diff --git a/esp32s3/src/bus/dma.rs b/esp32s3/src/bus/dma.rs
+index 7eb9181e9906a9caee8d6daf241b4f100d7451fb..ef7c3a8b58ab91d95bfa386a7f99f530206c977f 100644
+--- a/esp32s3/src/bus/dma.rs
++++ b/esp32s3/src/bus/dma.rs
+@@ -65,9 +65,15 @@ impl SocBus {
+             if self.sdmmc_dma_transfer(&mut data, host_writes) {
+                 if host_writes && matches!(command.index, 24 | 25) {
+                     let start = command.arg as usize * 512;
+-                    let card = self.periph.sdmmc.card_mut();
+-                    if start <= card.len() && data.len() <= card.len() - start {
+-                        card[start..start + data.len()].copy_from_slice(&data);
++                    let wrote = {
++                        let card = self.periph.sdmmc.card_mut();
++                        if start <= card.len() && data.len() <= card.len() - start {
++                            card[start..start + data.len()].copy_from_slice(&data);
++                            true
++                        } else { false }
++                    };
++                    if wrote {
++                        self.periph.sdmmc.mark_card_dirty(start, data.len());
+                     }
+                 }
+                 transferred = byte_count;
+diff --git a/esp32s3/src/sdmmc.rs b/esp32s3/src/sdmmc.rs
+index 40455342a53846c49b104e6dfc9c1f83f6d30ce5..f5fe78d05b06c249b03a5e6bc8305e232be801e8 100644
+--- a/esp32s3/src/sdmmc.rs
++++ b/esp32s3/src/sdmmc.rs
+@@ -26,6 +26,8 @@ pub struct CommandResult {
+ pub struct Sdmmc {
+     regs: RegRam,
+     card: Vec<u8>,
++    dirty_versions: Vec<u32>,
++    write_generation: u32,
+     pending: Option<PendingCommand>,
+     app_command: bool,
+     idle: bool,
+@@ -39,13 +41,16 @@ impl Default for Sdmmc {
+ 
+ impl Sdmmc {
+     pub fn new() -> Self {
+-        Self { regs: RegRam::new(), card: Vec::new(), pending: None, app_command: false, idle: true, selected: false, rca: 0x1234 }
++        Self { regs: RegRam::new(), card: Vec::new(), dirty_versions: Vec::new(), write_generation: 0, pending: None, app_command: false, idle: true, selected: false, rca: 0x1234 }
+     }
+ 
+     pub fn set_card(&mut self, image: &[u8]) -> bool {
+         if image.len() < CARD_SECTOR || !image.len().is_multiple_of(CARD_SECTOR) { return false; }
+         self.card.clear();
+         self.card.extend_from_slice(image);
++        self.dirty_versions.clear();
++        self.dirty_versions.resize(image.len() / CARD_SECTOR, 0);
++        self.write_generation = 0;
+         self.pending = None;
+         self.app_command = false;
+         self.idle = true;
+@@ -55,6 +60,51 @@ impl Sdmmc {
+ 
+     pub fn card(&self) -> &[u8] { &self.card }
+     pub fn card_mut(&mut self) -> &mut [u8] { &mut self.card }
++    pub fn mark_card_dirty(&mut self, offset: usize, len: usize) {
++        if len == 0 || offset >= self.card.len() { return; }
++        self.write_generation = self.write_generation.wrapping_add(1).max(1);
++        let first = offset / CARD_SECTOR;
++        let last = (offset + len.min(self.card.len() - offset) - 1) / CARD_SECTOR;
++        for version in self.dirty_versions.get_mut(first..=last).into_iter().flatten() { *version = self.write_generation; }
++    }
++    pub fn dirty_sector_count(&self) -> usize { self.dirty_versions.iter().filter(|version| **version != 0).count() }
++    pub fn copy_dirty_sectors(&self, output: &mut [u8]) -> usize {
++        const RECORD_SIZE: usize = 8 + CARD_SECTOR;
++        let capacity = output.len() / RECORD_SIZE;
++        let mut copied = 0;
++        for (sector, version) in self.dirty_versions.iter().copied().enumerate() {
++            if version == 0 || copied == capacity { continue; }
++            let record = &mut output[copied * RECORD_SIZE..(copied + 1) * RECORD_SIZE];
++            record[..4].copy_from_slice(&(sector as u32).to_le_bytes());
++            record[4..8].copy_from_slice(&version.to_le_bytes());
++            let start = sector * CARD_SECTOR;
++            record[8..].copy_from_slice(&self.card[start..start + CARD_SECTOR]);
++            copied += 1;
++        }
++        copied
++    }
++    pub fn ack_dirty_sectors(&mut self, records: &[u8]) {
++        for record in records.chunks_exact(8) {
++            let sector = u32::from_le_bytes(record[..4].try_into().unwrap()) as usize;
++            let version = u32::from_le_bytes(record[4..8].try_into().unwrap());
++            if self.dirty_versions.get(sector) == Some(&version) { self.dirty_versions[sector] = 0; }
++        }
++    }
++    pub fn apply_sector_patches(&mut self, records: &[u8]) -> bool {
++        const RECORD_SIZE: usize = 8 + CARD_SECTOR;
++        if !records.len().is_multiple_of(RECORD_SIZE) { return false; }
++        if records.chunks_exact(RECORD_SIZE).any(|record| {
++            let sector = u32::from_le_bytes(record[..4].try_into().unwrap()) as usize;
++            sector >= self.dirty_versions.len()
++        }) { return false; }
++        for record in records.chunks_exact(RECORD_SIZE) {
++            let sector = u32::from_le_bytes(record[..4].try_into().unwrap()) as usize;
++            let start = sector * CARD_SECTOR;
++            self.card[start..start + CARD_SECTOR].copy_from_slice(&record[8..]);
++            self.mark_card_dirty(start, CARD_SECTOR);
++        }
++        true
++    }
+     pub fn take_pending(&mut self) -> Option<PendingCommand> { self.pending.take() }
+     pub fn dma_base(&self) -> u32 { self.regs.read(0x88) }
+     pub fn descriptor_skip(&self) -> u32 { (self.regs.read(0x80) >> 2) & 0x1f }
+diff --git a/wasm/src/lib.rs b/wasm/src/lib.rs
+index cceb62d1ad8e340095c1486fa639e414149e06b1..6a6bdba8eb9bf8e2fecc6b340335c506d3ecfd16 100644
+--- a/wasm/src/lib.rs
++++ b/wasm/src/lib.rs
+@@ -228,6 +228,85 @@ pub unsafe extern "C" fn esp32sim_sdmmc_copy_card(e: *mut Emu, ptr: *mut u8, cap
+     card.len()
+ }
+ 
++/// Patch whole 512-byte sectors using 520-byte records: sector, version, then sector contents.
++#[no_mangle]
++pub unsafe extern "C" fn esp32sim_sdmmc_patch_card(e: *mut Emu, ptr: *const u8, len: usize) -> u32 {
++    let e = unsafe { &mut *e };
++    let records = unsafe { bytes(ptr, len) };
++    let Some(m) = e.m.s3_mut() else { return 1 };
++    u32::from(!m.bus.periph.sdmmc.apply_sector_patches(records))
++}
++
++/// Return the number of card sectors changed by guest firmware writes.
++#[no_mangle]
++pub unsafe extern "C" fn esp32sim_sdmmc_dirty_count(e: *mut Emu) -> usize {
++    let e = unsafe { &mut *e };
++    e.m.s3_mut().map_or(0, |m| m.bus.periph.sdmmc.dirty_sector_count())
++}
++
++/// Copy dirty card sectors to 520-byte records: sector, generation, and 512 bytes of data.
++#[no_mangle]
++pub unsafe extern "C" fn esp32sim_sdmmc_copy_dirty(e: *mut Emu, ptr: *mut u8, cap: usize) -> usize {
++    let e = unsafe { &mut *e };
++    let Some(m) = e.m.s3_mut() else { return 0 };
++    unsafe { m.bus.periph.sdmmc.copy_dirty_sectors(bytes_mut(ptr, cap)) }
++}
++
++/// Acknowledge saved card sectors; versions prevent a concurrent guest write from being lost.
++#[no_mangle]
++pub unsafe extern "C" fn esp32sim_sdmmc_ack_dirty(e: *mut Emu, ptr: *const u8, len: usize) {
++    let e = unsafe { &mut *e };
++    let records = unsafe { bytes(ptr, len) };
++    if let Some(m) = e.m.s3_mut() { m.bus.periph.sdmmc.ack_dirty_sectors(records); }
++}
++
++/// Return the size of the emulated SPI flash.
++#[no_mangle]
++pub unsafe extern "C" fn esp32sim_flash_size(e: *mut Emu) -> usize {
++    let e = unsafe { &mut *e };
++    e.m.s3_mut().map_or(0, |m| m.bus.flash.len())
++}
++
++/// Copy the complete emulated SPI flash into caller-owned WebAssembly memory.
++#[no_mangle]
++pub unsafe extern "C" fn esp32sim_flash_copy(e: *mut Emu, ptr: *mut u8, cap: usize) -> usize {
++    let e = unsafe { &mut *e };
++    let Some(m) = e.m.s3_mut() else { return 0 };
++    if cap < m.bus.flash.len() { return 0; }
++    unsafe { bytes_mut(ptr, m.bus.flash.len()) }.copy_from_slice(&m.bus.flash);
++    m.bus.flash.len()
++}
++
++/// Return the number of changed 4 KiB flash pages.
++#[no_mangle]
++pub unsafe extern "C" fn esp32sim_flash_dirty_count(e: *mut Emu) -> usize {
++    let e = unsafe { &mut *e };
++    e.m.s3_mut().map_or(0, |m| m.bus.flash_dirty_page_count())
++}
++
++/// Copy changed 4 KiB flash pages to 4104-byte records: offset, generation, and page data.
++#[no_mangle]
++pub unsafe extern "C" fn esp32sim_flash_copy_dirty(e: *mut Emu, ptr: *mut u8, cap: usize) -> usize {
++    let e = unsafe { &mut *e };
++    let Some(m) = e.m.s3_mut() else { return 0 };
++    unsafe { m.bus.copy_dirty_flash_pages(bytes_mut(ptr, cap)) }
++}
++
++/// Acknowledge flash pages that were persisted without discarding newer guest writes.
++#[no_mangle]
++pub unsafe extern "C" fn esp32sim_flash_ack_dirty(e: *mut Emu, ptr: *const u8, len: usize) {
++    let e = unsafe { &mut *e };
++    let records = unsafe { bytes(ptr, len) };
++    if let Some(m) = e.m.s3_mut() { m.bus.ack_dirty_flash_pages(records); }
++}
++
++/// Clear dirty tracking after the browser restores a saved flash image.
++#[no_mangle]
++pub unsafe extern "C" fn esp32sim_flash_clear_dirty(e: *mut Emu) {
++    let e = unsafe { &mut *e };
++    if let Some(m) = e.m.s3_mut() { m.bus.clear_dirty_flash_pages(); }
++}
++
+ /// Write bytes into flash at an arbitrary offset (a data partition's contents).
+ ///
+ /// # Safety
+diff --git a/web/wasm/worker.js b/web/wasm/worker.js
+index 7661834d05af4755a96c7e5925981ff17adc81c3..60298d14e4d9ce55fa91d267def2c27e50f6281d 100644
+--- a/web/wasm/worker.js
++++ b/web/wasm/worker.js
+@@ -148,6 +148,38 @@ onmessage = async (ev) => {
+         postMessage({ sdCardImage: data, requestId: m.requestId }, [data]);
+       } finally { wasm.esp32sim_free(ptr, size); }
+     }
++    else if (m.op === 'sd-card-patch') { const rc = withBytes(new Uint8Array(m.data), (p, n) => wasm.esp32sim_sdmmc_patch_card(emu, p, n)); postMessage({ patched: rc === 0, requestId: m.requestId }); }
++    else if (m.op === 'storage-dirty') {
++      let sdCardPatches = null, flashPatches = null;
++      const sdCount = wasm.esp32sim_sdmmc_dirty_count(emu);
++      if (sdCount) {
++        const size = sdCount * 520, ptr = wasm.esp32sim_alloc(size);
++        try { const count = wasm.esp32sim_sdmmc_copy_dirty(emu, ptr, size); sdCardPatches = mem().slice(ptr, ptr + count * 520).buffer; }
++        finally { wasm.esp32sim_free(ptr, size); }
++      }
++      const flashCount = wasm.esp32sim_flash_dirty_count(emu);
++      if (flashCount) {
++        const size = flashCount * 4104, ptr = wasm.esp32sim_alloc(size);
++        try { const count = wasm.esp32sim_flash_copy_dirty(emu, ptr, size); flashPatches = mem().slice(ptr, ptr + count * 4104).buffer; }
++        finally { wasm.esp32sim_free(ptr, size); }
++      }
++      const transfer = [sdCardPatches, flashPatches].filter(Boolean);
++      postMessage({ sdCardPatches, flashPatches, requestId: m.requestId }, transfer);
++    }
++    else if (m.op === 'storage-ack') {
++      if (m.sdRecords) withBytes(new Uint8Array(m.sdRecords), (p, n) => wasm.esp32sim_sdmmc_ack_dirty(emu, p, n));
++      if (m.flashRecords) withBytes(new Uint8Array(m.flashRecords), (p, n) => wasm.esp32sim_flash_ack_dirty(emu, p, n));
++      postMessage({ acknowledged: true, requestId: m.requestId });
++    }
++    else if (m.op === 'flash-save') {
++      const size = wasm.esp32sim_flash_size(emu), ptr = wasm.esp32sim_alloc(size);
++      try {
++        const copied = wasm.esp32sim_flash_copy(emu, ptr, size);
++        const data = mem().slice(ptr, ptr + copied).buffer;
++        postMessage({ flashImage: data, requestId: m.requestId }, [data]);
++      } finally { wasm.esp32sim_free(ptr, size); }
++    }
++    else if (m.op === 'flash-clear-dirty') { wasm.esp32sim_flash_clear_dirty(emu); postMessage({ cleared: true, requestId: m.requestId }); }
+     else if (m.op === 'restart') {
+       if (!emu) throw new Error('no emulator to restart');
+       if (wasm.esp32sim_reports) wasm.esp32sim_reports(emu);

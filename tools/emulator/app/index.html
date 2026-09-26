@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Lyra firmware emulator</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-mark" aria-hidden="true">L</div>
+      <div class="brand-copy">
+        <h1>Lyra firmware emulator</h1>
+        <p>ESP32-S3 <span>·</span> JC3248W535EN <span>·</span> 320 × 480</p>
+      </div>
+      <div class="run-state" id="runState"><i></i><span>Starting emulator</span></div>
+    </header>
+
+    <main class="workspace">
+      <section class="preview-column" aria-label="Firmware screen preview">
+        <div class="preview-toolbar">
+          <div class="section-label"><span>Device preview</span><span id="frameInfo">320 × 480</span></div>
+          <div class="preview-actions">
+            <div class="scale-selector" role="group" aria-label="Preview scale">
+              <button class="scale-button" id="fitScale" type="button" aria-pressed="true">Fit</button>
+              <button class="scale-button" id="nativeScale" type="button" aria-pressed="false">1×</button>
+            </div>
+            <button class="button" id="captureScreen" type="button" disabled>Capture PNG</button>
+          </div>
+        </div>
+        <div class="device-viewport" id="deviceViewport">
+          <div class="device-shell" id="deviceShell">
+            <div class="camera-dot" aria-hidden="true"></div>
+            <div class="screen-wrap">
+              <canvas id="screen" width="320" height="480" aria-label="Lyra touchscreen. Click or drag to interact."></canvas>
+              <div class="screen-overlay" id="screenOverlay">
+                <div class="spinner"></div>
+                <strong>Booting firmware</strong>
+                <span>The first screen comes from the loaded .bin image.</span>
+              </div>
+            </div>
+            <div class="device-chin" aria-hidden="true"></div>
+          </div>
+        </div>
+        <div class="touch-hint"><span class="pointer-icon">●</span> Click, press, or drag on the display to use the firmware.</div>
+        <div class="runtime-stats" aria-label="Emulator performance">
+          <span>Speed <strong id="paceSpeed">—</strong></span>
+          <span>CPU <strong id="paceMips">—</strong></span>
+          <span>Resyncs <strong id="paceResyncs">—</strong></span>
+        </div>
+      </section>
+
+      <aside class="side-panel">
+        <section class="panel-card firmware-card">
+          <div class="panel-heading">
+            <div><span class="eyebrow">Flash image</span><h2>Firmware</h2></div>
+            <span class="live-tag" id="firmwareTag">LOADING</span>
+          </div>
+          <div class="firmware-file" id="firmwareSummary">
+            <div class="file-icon">BIN</div>
+            <div class="file-copy"><strong id="firmwareName">lyra_firmware_merged.bin</strong><span id="firmwareDetail">Reading the merged flash image…</span></div>
+          </div>
+          <div class="button-row">
+            <button class="button button-primary" id="chooseFirmware">Open .bin</button>
+            <button class="button button-subtle" id="restartFirmware" disabled>Restart</button>
+            <button class="button button-subtle" id="pauseFirmware" disabled>Pause</button>
+          </div>
+          <input type="file" id="firmwarePicker" accept=".bin,application/octet-stream" hidden>
+          <div class="helper-text">Restart keeps NVS and MicroSD contents. Opening a .bin or changing the auto-loaded firmware starts with a fresh flash image.</div>
+        </section>
+
+        <section class="panel-card flash-launcher-card">
+          <div class="panel-heading">
+            <div><span class="eyebrow">Internal storage</span><h2>Flash partitions</h2></div>
+            <span class="live-tag" id="flashTag">WAITING</span>
+          </div>
+          <p class="flash-launcher-copy">Manage partitions and full-flash images.</p>
+          <button class="button button-subtle" id="manageFlash" type="button">Manage Flash</button>
+        </section>
+
+        <dialog class="storage-modal" id="flashModal" aria-labelledby="flashModalTitle">
+          <section class="panel-card modal-panel flash-card">
+            <div class="panel-heading">
+              <div><span class="eyebrow">Internal storage</span><h2 id="flashModalTitle">Flash partitions</h2></div>
+              <div class="modal-heading-actions">
+                <span class="live-tag" id="flashModalTag">WAITING</span>
+                <button class="modal-close" id="closeFlashManager" type="button" aria-label="Close flash manager">×</button>
+              </div>
+            </div>
+            <label class="partition-label" for="partitionSelect">Partition</label>
+            <select class="partition-select" id="partitionSelect" disabled></select>
+            <div class="partition-detail" id="partitionDetail">Load firmware to manage the 16 MiB flash partitions.</div>
+            <div class="partition-controls">
+              <label class="partition-label" for="partitionFormat">Export format (.bin or .img)</label>
+              <select class="partition-select" id="partitionFormat" disabled>
+                <option value="bin">Raw binary (.bin)</option>
+                <option value="img">Raw image (.img)</option>
+              </select>
+            </div>
+            <div class="button-row">
+              <button class="button button-subtle" id="exportPartition" disabled>Export partition</button>
+              <button class="button button-subtle" id="importPartition" disabled>Import partition</button>
+              <button class="button button-danger" id="clearPartition" disabled>Clear partition</button>
+            </div>
+            <input type="file" id="partitionPicker" accept=".bin,.img,application/octet-stream" hidden>
+            <div class="full-flash-tools">
+              <div class="partition-label">Full internal flash · 16 MiB · uses format above</div>
+              <div class="button-row">
+                <button class="button button-subtle" id="exportFullFlash" disabled>Export full flash</button>
+                <button class="button button-subtle" id="importFullFlash" disabled>Import full flash</button>
+              </div>
+              <input type="file" id="fullFlashPicker" accept=".bin,.img,application/octet-stream" hidden>
+            </div>
+            <div class="flash-reset">
+              <button class="button button-danger" id="resetFlash" disabled>Reset full 16 MiB flash</button>
+            </div>
+            <div class="helper-text">Choose a partition to clear, export, or import. Imports must match that partition’s exact size. Clearing erases it to 0xFF; each change restarts the firmware. Full reset rebuilds flash from the loaded firmware image and erases saved NVS, OTA data, and LittleFS contents.</div>
+          </section>
+        </dialog>
+
+        <section class="panel-card sd-launcher-card">
+          <div class="panel-heading">
+            <div><span class="eyebrow">Virtual storage</span><h2>MicroSD card</h2></div>
+            <span class="live-tag live-green" id="sdTag">INSERTING</span>
+          </div>
+          <p class="sd-launcher-copy">Manage the virtual card image and its files.</p>
+          <button class="button button-subtle" id="manageCard" type="button">Manage MicroSD</button>
+        </section>
+
+        <dialog class="storage-modal" id="sdModal" aria-labelledby="sdModalTitle">
+          <section class="panel-card sd-card-panel">
+            <div class="panel-heading">
+              <div><span class="eyebrow">Virtual storage</span><h2 id="sdModalTitle">MicroSD card</h2></div>
+              <button class="modal-close" id="closeCardManager" type="button" aria-label="Close MicroSD manager">×</button>
+            </div>
+            <div class="sd-summary">
+              <div class="sd-art" aria-hidden="true"><div class="sd-grooves"></div><b>micro<br>SD</b><small id="sdCapacity">256 MB</small></div>
+              <div class="sd-copy"><strong id="sdName">LYRA_AUDIO.img</strong><span id="sdDetail">FAT16 · initializing</span><span class="sd-presence"><i></i> Inserted in SDMMC slot</span></div>
+            </div>
+            <div class="file-manager" aria-label="MicroSD file manager">
+              <div class="manager-toolbar">
+                <button class="button button-subtle" id="fileBack" disabled>← Back</button>
+                <span id="filePath">/</span>
+              </div>
+              <div class="file-list" id="fileList" aria-live="polite"><div class="file-empty">Loading card files…</div></div>
+              <div class="button-row manager-actions">
+                <button class="button button-subtle" id="uploadFiles" disabled>Upload files</button>
+                <button class="button button-subtle" id="createFolder" disabled>New folder</button>
+                <button class="button button-subtle" id="downloadItem" disabled>Download selected</button>
+                <button class="button button-subtle" id="deleteItem" disabled>Delete selected</button>
+              </div>
+              <input type="file" id="filesPicker" multiple hidden>
+            </div>
+            <div class="button-row">
+              <button class="button button-subtle" id="chooseCard">Open card image</button>
+              <button class="button button-subtle" id="saveCard" disabled>Save card</button>
+            </div>
+            <input type="file" id="cardPicker" accept=".img,.bin,.raw,application/octet-stream" hidden>
+            <div class="helper-text">The 256 MB FAT16 card and firmware writes persist in the emulator’s storage folder. Double click a folder to open it; deleting a folder also deletes its contents.</div>
+          </section>
+        </dialog>
+
+        <section class="panel-card console-card">
+          <div class="panel-heading compact-heading">
+            <div><span class="eyebrow">Device output</span><h2>Serial console</h2></div>
+            <div class="console-actions">
+              <button class="clear-button" id="saveConsole" type="button">Save log</button>
+              <button class="clear-button" id="clearConsole" title="Clear console">Clear</button>
+            </div>
+          </div>
+          <pre id="console" aria-live="polite">Starting the browser emulator…</pre>
+        </section>
+      </aside>
+    </main>
+    <footer><span>Firmware screen is rendered from the running ESP32-S3 image.</span><span>Runs locally in this browser</span></footer>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
