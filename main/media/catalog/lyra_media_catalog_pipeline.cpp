@@ -7,6 +7,8 @@
 
 #include <ctime>
 
+#include "freertos/idf_additions.h"
+
 namespace lyra::media::internal {
 
 uint64_t recorded_modified_time(const struct stat &info)
@@ -116,7 +118,7 @@ void artwork_task(void *)
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
-    vTaskDelete(nullptr);
+    vTaskDeleteWithCaps(nullptr);
 }
 
 bool playlist_line_to_absolute(const char *line, char *absolute, size_t capacity);

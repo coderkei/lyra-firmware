@@ -412,8 +412,12 @@ esp_err_t request_artwork(const Track &track, ArtworkSize size)
             start_worker = true;
         }
     }
-    if (start_worker && xTaskCreatePinnedToCore(artwork_task, "lyra_artwork", kScanStack,
-                                                nullptr, 1, nullptr, kArtworkCore) != pdPASS) {
+    // Cover decoding overlaps LCD refresh and uses PSRAM for its large
+    // buffers. Keep its 24 KB stack there too, leaving internal DMA memory
+    // available to the LCD and I2S paths.
+    if (start_worker && xTaskCreatePinnedToCoreWithCaps(
+            artwork_task, "lyra_artwork", kScanStack, nullptr, 1, nullptr,
+            kArtworkCore, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         Lock lock;
         s_artwork_task_running = false;
         s_status.artwork_busy = false;

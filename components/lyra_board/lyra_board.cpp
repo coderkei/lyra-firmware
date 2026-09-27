@@ -32,7 +32,10 @@ constexpr uint32_t kPixelClockHz = 50 * 1000 * 1000;
 // 50 MHz quad rate, so the panel driver copies bounded chunks through an
 // internal DMA buffer. Keep that private allocation small enough to coexist
 // with the I2S buffers and avoid starving the allocator once playback starts.
-constexpr uint32_t kTransportBufferLines = 8;
+// Keep each PSRAM-to-internal-DMA copy small. Track changes can overlap decode
+// and artwork work while playback and LVGL are already using internal RAM, so
+// a smaller chunk makes the panel transfer less sensitive to fragmentation.
+constexpr uint32_t kTransportBufferLines = 4;
 constexpr uint32_t kDisplayQueueDepth = 1;
 constexpr uint32_t kLvglTickMs = 2;
 constexpr uint32_t kDisplayRefreshMs = 16;
@@ -94,7 +97,12 @@ static void lvgl_flush(lv_display_t *display, const lv_area_t *, uint8_t *px_map
                                                     LYRA_BOARD_DISPLAY_WIDTH,
                                                     LYRA_BOARD_DISPLAY_HEIGHT, px_map);
     if (ret != ESP_OK) {
-        ESP_LOGE(kTag, "LCD flush failed: %s", esp_err_to_name(ret));
+        ESP_LOGE(kTag, "LCD flush failed: %s (DMA free=%u largest=%u max_chunk=%u)",
+                 esp_err_to_name(ret),
+                 static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_DMA)),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_DMA)),
+                 static_cast<unsigned>(LYRA_BOARD_DISPLAY_WIDTH * kTransportBufferLines *
+                                       sizeof(uint16_t)));
         lv_display_flush_ready(display);
     }
 }
