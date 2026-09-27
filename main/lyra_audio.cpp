@@ -191,6 +191,11 @@ esp_err_t play_from_position(const char *path, uint32_t position_ms, bool paused
     s_requested_seek_ms = position_ms;
     s_requested_pause_after_seek = false;
     ++s_request_generation;
+    ++s_status.playback_serial;
+    s_status.transitioned = false;
+    s_status.transitioning = false;
+    s_next_track.path[0] = '\0';
+    ++s_next_track.version;
     s_status.last_error = ESP_OK;
     s_status.playing = true;
     s_status.eof = false;
@@ -208,6 +213,58 @@ esp_err_t play_from_position(const char *path, uint32_t position_ms, bool paused
     return ESP_OK;
 }
 
+esp_err_t prepare_next(const char *path, uint32_t playback_serial,
+                       uint32_t queue_cookie, uint32_t crossfade_ms,
+                       int16_t replay_gain_tenths_db, bool immediate)
+{
+    if (!s_initialized || !s_state_mutex) return ESP_ERR_INVALID_STATE;
+    AudioFormat format{};
+    if (path && (!has_sdcard_prefix(path) || !get_audio_format(path, &format))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (path && std::strlen(path) >= kMaxPath) return ESP_ERR_INVALID_SIZE;
+    if (crossfade_ms > 10000) return ESP_ERR_INVALID_ARG;
+    bool changed = false;
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    if (playback_serial != s_status.playback_serial || !s_status.playing) {
+        xSemaphoreGive(s_state_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    // Once overlap begins both streams belong to that transition. A later
+    // queue edit is applied to the successor after promotion.
+    if (s_status.transitioning) {
+        xSemaphoreGive(s_state_mutex);
+        return ESP_OK;
+    }
+    // A manual skip has priority over the periodic automatic prefetch poll.
+    if (!immediate && s_next_track.immediate &&
+        s_next_track.parent_serial == playback_serial) {
+        xSemaphoreGive(s_state_mutex);
+        return ESP_OK;
+    }
+    const char *next_path = path ? path : "";
+    replay_gain_tenths_db = std::clamp<int16_t>(replay_gain_tenths_db, -120, 120);
+    if (std::strcmp(s_next_track.path, next_path) != 0 ||
+        s_next_track.parent_serial != playback_serial ||
+        s_next_track.queue_cookie != queue_cookie ||
+        s_next_track.crossfade_ms != crossfade_ms ||
+        s_next_track.replay_gain_tenths_db != replay_gain_tenths_db ||
+        s_next_track.immediate != immediate) {
+        const size_t path_length = std::strlen(next_path);
+        std::memcpy(s_next_track.path, next_path, path_length + 1);
+        s_next_track.parent_serial = playback_serial;
+        s_next_track.queue_cookie = queue_cookie;
+        s_next_track.crossfade_ms = crossfade_ms;
+        s_next_track.replay_gain_tenths_db = replay_gain_tenths_db;
+        s_next_track.immediate = immediate;
+        ++s_next_track.version;
+        changed = true;
+    }
+    xSemaphoreGive(s_state_mutex);
+    if (changed) xTaskNotifyGive(s_audio_task);
+    return ESP_OK;
+}
+
 esp_err_t stop()
 {
     if (!s_initialized || s_state_mutex == nullptr) return ESP_ERR_INVALID_STATE;
@@ -216,6 +273,9 @@ esp_err_t stop()
     s_requested_seek_ms = 0;
     s_requested_pause_after_seek = false;
     ++s_request_generation;
+    s_next_track.path[0] = '\0';
+    ++s_next_track.version;
+    s_status.playing = false;
     s_status.paused = false;
     s_status.path[0] = '\0';
     s_status.position_ms = 0;
@@ -238,9 +298,15 @@ esp_err_t seek(uint32_t position_ms)
     const uint32_t target_ms = position_ms >= duration_ms ?
         (duration_ms > 250 ? duration_ms - 250 : 0) : position_ms;
     const bool paused = s_status.paused;
+    std::memcpy(s_requested_path, s_status.path, sizeof(s_requested_path));
     s_requested_seek_ms = target_ms;
     s_requested_pause_after_seek = paused;
     ++s_request_generation;
+    ++s_status.playback_serial;
+    s_status.transitioned = false;
+    s_status.transitioning = false;
+    s_next_track.path[0] = '\0';
+    ++s_next_track.version;
     s_status.playing = true;
     s_status.eof = false;
     s_status.position_ms = target_ms;
@@ -405,6 +471,8 @@ Diagnostics diagnostics()
         copy.average_sd_read_us = static_cast<uint32_t>(
             copy.total_sd_read_us / copy.sd_read_count);
     }
+    if (copy.sd_read_count != 0) copy.average_sd_lock_wait_us =
+        static_cast<uint32_t>(copy.total_sd_lock_wait_us / copy.sd_read_count);
     return copy;
 }
 

@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstddef>
+#include <atomic>
 #include <cstdint>
 
 #include "esp_err.h"
@@ -47,10 +48,10 @@ struct PcmOutput {
     StaticStreamBuffer_t stream_storage;
     SemaphoreHandle_t done;
     TaskHandle_t task;
-    volatile bool stop_requested;
-    volatile bool drain_on_stop;
-    volatile bool finished;
-    volatile bool error;
+    std::atomic<bool> stop_requested{false};
+    std::atomic<bool> drain_on_stop{false};
+    std::atomic<bool> finished{false};
+    std::atomic<bool> error{false};
     esp_err_t error_code;
     int32_t gain_q15;
     uint32_t sample_rate;

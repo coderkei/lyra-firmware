@@ -46,6 +46,11 @@ struct Status {
     uint32_t duration_ms;
     uint8_t volume_percent;
     char path[kMaxPath];
+    // Changes on every start or automatic handoff, including repeat-song.
+    uint32_t playback_serial;
+    uint32_t queue_cookie;
+    bool transitioned;
+    bool transitioning;
 };
 
 struct Diagnostics {
@@ -63,6 +68,18 @@ struct Diagnostics {
     bool read_ahead_internal;
     bool pcm_internal;
     bool stereo_internal;
+    uint32_t gapless_transitions;
+    uint32_t crossfade_transitions;
+    uint32_t format_transitions;
+    uint32_t resampled_transitions;
+    uint32_t preload_failures;
+    uint32_t late_preloads;
+    uint64_t mixed_frames;
+    uint32_t max_mix_block_us;
+    size_t min_internal_free_bytes;
+    size_t min_psram_free_bytes;
+    size_t min_internal_largest_block;
+    uint32_t output_sample_rate;
 };
 
 // Initializes the native decoder registry, PCM5102A I2S output, and optional
@@ -78,6 +95,13 @@ esp_err_t play(const char *path);
 // is prepared at that position without producing audio until the caller
 // resumes it.
 esp_err_t play_from_position(const char *path, uint32_t position_ms, bool paused);
+// Prepares the successor without changing the playing track. The serial guards
+// against stale GUI queue decisions. Repeating the same request is a no-op.
+// A null path cancels a pending successor. crossfade_ms=0 concatenates PCM;
+// immediate starts an overlapping manual transition once the decoder is ready.
+esp_err_t prepare_next(const char *path, uint32_t playback_serial,
+                       uint32_t queue_cookie, uint32_t crossfade_ms,
+                       int16_t replay_gain_tenths_db, bool immediate = false);
 esp_err_t stop();
 esp_err_t toggle_pause();
 esp_err_t seek(uint32_t position_ms);

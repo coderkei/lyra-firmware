@@ -12,8 +12,8 @@ using lyra::audio::pcm::PcmOutput;
 bool fail_pcm_output(PcmOutput *output, esp_err_t error)
 {
     if (!output) return false;
-    output->error = true;
     output->error_code = error;
+    output->error = true;
     output->stop_requested = true;
     output->drain_on_stop = false;
     return false;
@@ -25,7 +25,8 @@ lyra::audio::pcm::ProcessingSettings pcm_processing_settings()
     xSemaphoreTake(s_state_mutex, portMAX_DELAY);
     settings.volume_percent = s_status.volume_percent;
     settings.maximum_volume_percent = s_maximum_volume_percent;
-    settings.replay_gain_tenths_db = s_replay_gain_tenths_db;
+    // ReplayGain is applied independently to each stream by the mixer.
+    settings.replay_gain_tenths_db = 0;
     settings.transition_gain_percent = s_transition_gain_percent;
     settings.equalizer = s_equalizer;
     settings.equalizer_generation = s_equalizer_generation;
@@ -253,11 +254,19 @@ esp_err_t save_volume_to_nvs(uint8_t volume)
 
 void *alloc_audio_buffer(size_t size)
 {
-    // Decoder input, PCM, and the I2S staging buffer are on the realtime path.
-    // Prefer internal SRAM (and DMA-capable SRAM for the final staging buffer)
-    // before considering PSRAM.
+    // Generic audio fallback allocation. Decoder scratch uses the separate
+    // PSRAM-first allocator below so it cannot crowd out display DMA.
     void *buffer = heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (buffer == nullptr) buffer = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return buffer;
+}
+
+void *alloc_decoder_buffer(size_t size)
+{
+    // Decoder PCM and stereo conversion scratch are CPU-only. Keep internal
+    // DMA-capable RAM available for the LCD and the two I2S channels.
+    void *buffer = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (buffer == nullptr) buffer = heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     return buffer;
 }
 

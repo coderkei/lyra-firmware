@@ -712,8 +712,7 @@ void update_player_progress()
         s_player_seek_preview_duration_ms : audio_status.duration_ms;
     const uint32_t requested_position_ms = s_player_seek_preview_active ?
         s_player_seek_preview_position_ms : audio_status.position_ms;
-    const uint32_t position_ms = duration_ms > 0 && requested_position_ms > duration_ms ?
-                                 duration_ms : requested_position_ms;
+    const uint32_t position_ms = requested_position_ms;
     if (s_player_progress_dragging) return;
     if (s_player_progress_bar) {
         const int progress = duration_ms > 0 ? static_cast<int>(

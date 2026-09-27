@@ -12,8 +12,8 @@ void pcm_output_task(void *context)
     auto *output = static_cast<PcmOutput *>(context);
     if (!output || !output->staging_buffer) {
         if (output) {
-            output->error = true;
             output->error_code = ESP_ERR_NO_MEM;
+            output->error = true;
             output->stop_requested = true;
             output->drain_on_stop = false;
             output->finished = true;
@@ -24,6 +24,7 @@ void pcm_output_task(void *context)
     }
 
     bool channel_started = false;
+    bool fifo_starved = false;
     while (true) {
         if (output->stop_requested && !output->drain_on_stop) break;
 
@@ -41,17 +42,23 @@ void pcm_output_task(void *context)
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
             continue;
         }
+        xSemaphoreTake(s_state_mutex, portMAX_DELAY);
         if (available < s_diagnostics.pcm_buffer_low_watermark) {
             s_diagnostics.pcm_buffer_low_watermark = available;
         }
+        xSemaphoreGive(s_state_mutex);
         if (available == 0) {
             // On normal EOF, stop_requested means the producer is finished;
             // drain the last buffered PCM before allowing the channel to stop.
             if (output->stop_requested) break;
-            ++s_diagnostics.pcm_underrun_count;
+            xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+            if (!fifo_starved) ++s_diagnostics.pcm_underrun_count;
+            xSemaphoreGive(s_state_mutex);
+            fifo_starved = true;
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
             continue;
         }
+        fifo_starved = false;
 
         if (!channel_started) {
             if (!preload_and_start_i2s(output)) break;
@@ -62,8 +69,8 @@ void pcm_output_task(void *context)
         size_t wanted = std::min(available, kPcmOutputChunkBytes);
         wanted -= wanted % kI2sFrameBytes;
         if (wanted == 0) {
-            fail_pcm_output(output, ESP_ERR_INVALID_SIZE);
-            break;
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2));
+            continue;
         }
 
         const size_t received = xStreamBufferReceive(
@@ -173,6 +180,7 @@ esp_err_t queue_pcm(const uint8_t *pcm, size_t pcm_bytes, PcmOutput *output,
     size_t sent_total = 0;
     while (sent_total < pcm_bytes) {
         if (!generation_is_current(generation)) return ESP_ERR_INVALID_STATE;
+        if (output->stop_requested) return ESP_ERR_INVALID_STATE;
         if (output->error) return output->error_code;
         if (output->finished) return ESP_ERR_INVALID_STATE;
 
@@ -185,35 +193,6 @@ esp_err_t queue_pcm(const uint8_t *pcm, size_t pcm_bytes, PcmOutput *output,
         }
     }
     return ESP_OK;
-}
-
-bool read_pause_state(uint32_t generation)
-{
-    while (true) {
-        bool paused;
-        bool current;
-        xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-        current = generation == s_request_generation;
-        paused = s_status.paused;
-        xSemaphoreGive(s_state_mutex);
-        if (!current) return false;
-        if (!paused) return true;
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(250));
-    }
-}
-
-void set_error(esp_err_t error, const char *path)
-{
-    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-    s_status.last_error = error;
-    s_status.playing = false;
-    s_status.paused = false;
-    s_status.eof = false;
-    if (path) {
-        std::strncpy(s_status.path, path, sizeof(s_status.path) - 1);
-        s_status.path[sizeof(s_status.path) - 1] = '\0';
-    }
-    xSemaphoreGive(s_state_mutex);
 }
 
 esp_err_t configure_i2s(uint32_t sample_rate)
@@ -324,7 +303,6 @@ esp_err_t write_pcm(const uint8_t *pcm, size_t pcm_bytes, uint8_t channels,
             reinterpret_cast<const uint8_t *>(stereo_buffer), output_bytes, output, generation);
         if (queue_result != ESP_OK) return queue_result;
         input_offset += chunk_bytes;
-        vTaskDelay(1);
     }
     return ESP_OK;
 }

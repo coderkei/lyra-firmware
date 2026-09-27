@@ -6,6 +6,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <climits>
 #include <cmath>
 #include <cstddef>
@@ -21,6 +22,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/semphr.h"
 #include "freertos/stream_buffer.h"
 #include "freertos/task.h"
@@ -40,11 +42,13 @@ constexpr const char *kTag = "lyra.audio";
 constexpr size_t kReadAheadBufferBytes = 256 * 1024;
 constexpr size_t kReadAheadChunkBytes = 32 * 1024;
 constexpr size_t kM4aReadAheadChunkBytes = kReadAheadBufferBytes - 1;
-constexpr size_t kFlacReadAheadChunkBytes = 64 * 1024;
+constexpr size_t kFlacReadAheadChunkBytes = 16 * 1024;
 constexpr size_t kInitialPcmBufferBytes = 8192;
 constexpr size_t kMaximumPcmBufferBytes = 128 * 1024;
-constexpr size_t kStereoBufferBytes = kMaximumPcmBufferBytes * 2;
+// Conversion handles at most 8192 mono 8-bit samples per chunk. This scratch
+// buffer is CPU-only; each decoder needs just 32 KiB, rather than 256 KiB DMA.
 constexpr size_t kPcmConvertChunkBytes = 8192;
+constexpr size_t kStereoBufferBytes = kPcmConvertChunkBytes * 4;
 constexpr size_t kSimpleDecoderInputChunkBytes = 4096;
 constexpr size_t kMaximumOggOpusPacketBytes = 64 * 1024;
 constexpr size_t kMaximumOggPageBytes = 65307;
@@ -52,7 +56,8 @@ constexpr size_t kOggSeekWindowBytes = 256 * 1024;
 constexpr size_t kMaximumM4aStscEntries = 32;
 constexpr size_t kMaximumM4aSttsEntries = 32;
 constexpr size_t kPcmOutputBufferBytes = 256 * 1024;
-constexpr size_t kPcmOutputChunkBytes = 16 * 1024;
+constexpr size_t kDecodedTrackBufferBytes = 128 * 1024;
+constexpr size_t kPcmOutputChunkBytes = 8 * 1024;
 constexpr size_t kI2sDmaDescriptorCount = 16;
 constexpr size_t kI2sDmaFrameCount = 512;
 constexpr size_t kI2sFrameBytes = sizeof(int16_t) * 2;
@@ -83,7 +88,7 @@ extern uint8_t s_transition_gain_percent;
 extern lyra::audio::EqualizerSettings s_equalizer;
 extern uint32_t s_equalizer_generation;
 extern char s_requested_path[lyra::audio::kMaxPath];
-extern uint32_t s_request_generation;
+extern std::atomic<uint32_t> s_request_generation;
 extern uint32_t s_requested_seek_ms;
 extern bool s_requested_pause_after_seek;
 extern uint8_t s_duration_scan_buffer[kDurationScanBufferBytes];
@@ -91,6 +96,48 @@ extern lyra::audio::Status s_status;
 extern lyra::audio::Diagnostics s_diagnostics;
 
 using lyra::audio::pcm::PcmOutput;
+
+struct NextTrackRequest {
+    char path[kMaxPath]{};
+    uint32_t version = 0;
+    uint32_t parent_serial = 0;
+    uint32_t queue_cookie = 0;
+    uint32_t crossfade_ms = 0;
+    int16_t replay_gain_tenths_db = 0;
+    bool immediate = false;
+};
+extern NextTrackRequest s_next_track;
+
+// Owned by the mixer until the worker signals done. Only the worker produces
+// native-rate stereo PCM; only the mixer consumes it. No worker touches I2S.
+struct DecoderStream {
+    PcmOutput pcm{};
+    Status status{}; // guarded by s_state_mutex
+    char path[kMaxPath]{};
+    uint32_t generation = 0;
+    uint32_t start_position_ms = 0;
+    bool pause_after_seek = false;
+    std::atomic<bool> done{false};
+    std::atomic<uint32_t> native_rate{0};
+    esp_err_t result = ESP_OK; // published by done.store(release)
+    int16_t replay_gain_tenths_db = 0; // mixer-owned
+    float linear_gain = 1.0f;
+    TaskHandle_t worker_task = nullptr;
+    uint64_t emitted_frames = 0;
+    // Resampler state, exclusively accessed by the mixer.
+    int16_t cache[512 * 2]{};
+    size_t cache_index = 0;
+    size_t cache_frames = 0;
+    int16_t left[2]{};
+    int16_t right[2]{};
+    uint64_t phase = 0;
+    bool have_left = false;
+    bool have_right = false;
+    bool right_is_last = false;
+};
+bool decoder_is_current(DecoderStream *track);
+void decoder_set_error(DecoderStream *track, esp_err_t error);
+void sample_audio_memory();
 
 size_t audio_read(FILE *file, void *buffer, size_t size);
 int audio_seek(FILE *file, long offset, int origin);
@@ -841,9 +888,11 @@ struct AudioReadAhead {
 
     void update_low_watermark()
     {
+        xSemaphoreTake(s_state_mutex, portMAX_DELAY);
         if (available < s_diagnostics.audio_buffer_low_watermark) {
             s_diagnostics.audio_buffer_low_watermark = available;
         }
+        xSemaphoreGive(s_state_mutex);
     }
 
     bool fill()
@@ -918,21 +967,26 @@ struct AudioReadAhead {
 
         const int64_t transaction_started = esp_timer_get_time();
         if (!lyra::sd::acquire(lyra::sd::Client::Audio)) {
+            xSemaphoreTake(s_state_mutex, portMAX_DELAY);
             ++s_diagnostics.underrun_count;
+            xSemaphoreGive(s_state_mutex);
             return false;
         }
         const uint32_t lock_wait = static_cast<uint32_t>(std::max<int64_t>(
             0, esp_timer_get_time() - transaction_started));
+        const int64_t read_started = esp_timer_get_time();
         const size_t count = std::fread(buffer + write_index, 1, wanted, file);
         const uint32_t elapsed = static_cast<uint32_t>(std::max<int64_t>(
-            0, esp_timer_get_time() - transaction_started));
+            0, esp_timer_get_time() - read_started));
         lyra::sd::release(lyra::sd::Client::Audio);
+        xSemaphoreTake(s_state_mutex, portMAX_DELAY);
         ++s_diagnostics.sd_read_count;
         s_diagnostics.total_sd_read_us += elapsed;
         s_diagnostics.max_sd_read_us = std::max(s_diagnostics.max_sd_read_us, elapsed);
         s_diagnostics.total_sd_lock_wait_us += lock_wait;
         s_diagnostics.max_sd_lock_wait_us = std::max(
             s_diagnostics.max_sd_lock_wait_us, lock_wait);
+        xSemaphoreGive(s_state_mutex);
 
         if (count > 0) {
             if (bounded_source && !source_little_endian && source_bytes_per_sample > 1) {
@@ -1055,6 +1109,7 @@ uint8_t load_saved_volume();
 void load_saved_maximum_volume();
 esp_err_t save_volume_to_nvs(uint8_t volume);
 void *alloc_audio_buffer(size_t size);
+void *alloc_decoder_buffer(size_t size);
 void *alloc_audio_dma_buffer(size_t size);
 bool buffer_is_internal(const void *buffer);
 size_t audio_read(FILE *file, void *buffer, size_t size);
@@ -1103,6 +1158,8 @@ uint32_t read_flac_duration_ms(FILE *file);
 uint8_t flac_crc8(const uint8_t *bytes, size_t length);
 size_t flac_utf8_value_bytes(uint8_t first);
 bool valid_flac_frame_header(const uint8_t *bytes, size_t length);
+bool read_flac_frame_start_sample(FILE *file, long frame_offset,
+                                  const FlacStreamInfo &info, uint64_t *sample);
 bool find_flac_frame_offset(FILE *file, long estimated_offset, long first_frame_offset, long file_end, uint8_t *scan_buffer, size_t scan_capacity, long *frame_offset);
 bool seek_mp3_file(FILE *file, uint32_t position_ms, uint32_t duration_ms);
 bool generation_is_current(uint32_t generation);
@@ -1110,11 +1167,9 @@ void pcm_output_task(void *context);
 bool start_pcm_output(PcmOutput *output);
 void stop_pcm_output(PcmOutput *output, bool drain, uint32_t generation);
 esp_err_t queue_pcm(const uint8_t *pcm, size_t pcm_bytes, PcmOutput *output, uint32_t generation);
-bool read_pause_state(uint32_t generation);
-void set_error(esp_err_t error, const char *path);
 esp_err_t configure_i2s(uint32_t sample_rate);
 esp_err_t write_pcm(const uint8_t *pcm, size_t pcm_bytes, uint8_t channels, uint8_t bits_per_sample, int16_t *stereo_buffer, size_t stereo_buffer_bytes, PcmOutput *output, uint32_t generation, bool unsigned_8bit = false);
-esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_position_ms, bool start_paused, bool pause_after_seek);
+esp_err_t decode_file(DecoderStream *track);
 void audio_task(void *);
 
 } // namespace lyra::audio::internal

@@ -95,11 +95,11 @@ bool advance_after_track_end()
 {
     const bool advanced = s_repeat_mode == RepeatMode::Song ? restart_current_track() :
                           move_in_playback_queue(1, true);
-    if (advanced) begin_crossfade_fade_in();
+    if (advanced && s_crossfade_seconds) begin_crossfade_fade_in();
     return advanced;
 }
 
-void update_crossfade_gain(const lyra::audio::Status &audio_status, int64_t now_us)
+void update_crossfade_gain(int64_t now_us)
 {
     if (s_crossfade_fade_in_ends_us != 0) {
         if (now_us >= s_crossfade_fade_in_ends_us) {
@@ -115,16 +115,8 @@ void update_crossfade_gain(const lyra::audio::Status &audio_status, int64_t now_
         }
         return;
     }
-    if (s_crossfade_seconds == 0 || !automatic_track_advance_available() ||
-        audio_status.duration_ms == 0 || audio_status.position_ms >= audio_status.duration_ms) {
-        lyra::audio::set_transition_gain(100);
-        return;
-    }
-    const uint32_t crossfade_ms = static_cast<uint32_t>(s_crossfade_seconds) * 1000;
-    const uint32_t remaining_ms = audio_status.duration_ms - audio_status.position_ms;
-    const uint8_t gain = remaining_ms >= crossfade_ms ? 100 : static_cast<uint8_t>(
-        (static_cast<uint64_t>(remaining_ms) * 100u) / crossfade_ms);
-    lyra::audio::set_transition_gain(gain);
+    // Automatic transitions are mixed per sample by the audio task. This
+    // timer only retains the pause/resume fade for one stream.
 }
 
 void crossfade_poll_cb(lv_timer_t *)
@@ -157,14 +149,21 @@ void crossfade_poll_cb(lv_timer_t *)
     }
     const lyra::audio::Status audio_status = lyra::audio::status();
     if (!audio_status.playing || audio_status.paused || audio_status.eof) return;
-    update_crossfade_gain(audio_status, now_us);
+    update_crossfade_gain(now_us);
 }
 
 void player_progress_poll_cb(lv_timer_t *)
 {
     update_status_time_label();
-    const lyra::audio::Status audio_status = lyra::audio::status();
+    lyra::audio::Status audio_status = lyra::audio::status();
     const int64_t now_us = esp_timer_get_time();
+    static uint32_t observed_serial = 0;
+    if (audio_status.playback_serial != observed_serial) {
+        observed_serial = audio_status.playback_serial;
+        sync_audio_handoff(audio_status);
+        audio_status = lyra::audio::status();
+    }
+    prepare_automatic_successor(audio_status);
     if (s_sleep_timer_deadline_us != 0 && now_us >= s_sleep_timer_deadline_us) {
         s_sleep_timer_deadline_us = 0;
         s_sleep_timer_minutes = 0;

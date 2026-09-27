@@ -95,6 +95,11 @@ stored in NVS and enabled by default.
 ESP-IDF decoders handle MP3, FLAC, AAC, M4A/ALAC, WAV, OGG, and Opus-in-Ogg;
 Lyra also handles uncompressed AIFF/AIFC PCM. Playback supports play, pause,
 seek, queue navigation, volume, and per-track ReplayGain adjustment.
+The audio task preloads the queued successor in a second decoder and keeps one
+PCM/I2S output stream across track boundaries. Configured crossfades mix both
+decoded streams before output processing. See
+[audio transition validation](AUDIO_TRANSITION_VALIDATION.md) for the device
+measurements and codec limitations.
 
 The five EQ bands are centred at 60 Hz, 250 Hz, 1 kHz, 4 kHz, and 16 kHz.
 Custom EQ and the included Flat, Full Bass, Full Treble, Bass & Treble, Rock,

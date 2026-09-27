@@ -749,19 +749,99 @@ bool can_move_in_playback_queue(int direction)
 
 bool begin_manual_crossfade(int direction)
 {
-    if (s_crossfade_seconds == 0 || s_crossfade_transition_direction != 0 ||
-        s_crossfade_pause_pending ||
+    if (s_crossfade_seconds == 0 || s_crossfade_pause_pending ||
         !can_move_in_playback_queue(direction)) return false;
     const lyra::audio::Status audio_status = lyra::audio::status();
     if (!audio_status.playing || audio_status.paused || audio_status.eof) return false;
-    s_crossfade_fade_in_started_us = 0;
-    s_crossfade_fade_in_ends_us = 0;
-    s_crossfade_fade_out_started_us = esp_timer_get_time();
-    s_crossfade_fade_out_ends_us = s_crossfade_fade_out_started_us +
-        static_cast<int64_t>(s_crossfade_seconds) * 1000 * 1000;
-    s_crossfade_transition_direction = direction;
-    lyra::audio::set_transition_gain(100);
-    return true;
+    const size_t count = playback_queue_count();
+    size_t position = 0;
+    if (!current_queue_position(&position) || !count) return false;
+    const int64_t candidate = static_cast<int64_t>(position) + direction;
+    const size_t next_position = candidate < 0 ? count - 1 :
+        candidate >= static_cast<int64_t>(count) ? 0 : static_cast<size_t>(candidate);
+    size_t track_index = 0;
+    lyra::media::Track track{};
+    if (!queue_track_at(next_position, &track_index) ||
+        !lyra::media::track_at(track_index, &track)) return false;
+    return lyra::audio::prepare_next(track.path, audio_status.playback_serial,
+        static_cast<uint32_t>(next_position + 1),
+        static_cast<uint32_t>(s_crossfade_seconds) * 1000u,
+        s_replay_gain ? track.replay_gain_tenths_db : 0, true) == ESP_OK;
+}
+
+void prepare_automatic_successor(const lyra::audio::Status &audio_status)
+{
+    if (!audio_status.playing || audio_status.eof || audio_status.transitioning ||
+        !s_has_active_queue) return;
+    if (!s_gapless && !s_crossfade_seconds) {
+        lyra::audio::prepare_next(nullptr, audio_status.playback_serial, 0, 0, 0);
+        return;
+    }
+    // The next decoder needs only a short lead to fill its PCM FIFO. Keeping
+    // it open for an entire album track wastes heap and competes with the UI.
+    constexpr uint32_t kPreloadLeadMs = 20'000;
+    if (audio_status.duration_ms > audio_status.position_ms &&
+        audio_status.duration_ms - audio_status.position_ms > kPreloadLeadMs) return;
+    const size_t count = playback_queue_count();
+    size_t position = 0;
+    if (!count || !current_queue_position(&position)) return;
+    size_t next_position = position;
+    if (s_repeat_mode != RepeatMode::Song) {
+        if (position + 1 < count) next_position = position + 1;
+        else if (s_repeat_mode == RepeatMode::All) next_position = 0;
+        else {
+            lyra::audio::prepare_next(nullptr, audio_status.playback_serial, 0, 0, 0);
+            return;
+        }
+    }
+    size_t track_index = 0;
+    lyra::media::Track track{};
+    if (!queue_track_at(next_position, &track_index) ||
+        !lyra::media::track_at(track_index, &track)) return;
+    lyra::audio::prepare_next(track.path, audio_status.playback_serial,
+        static_cast<uint32_t>(next_position + 1),
+        static_cast<uint32_t>(s_crossfade_seconds) * 1000u,
+        s_replay_gain ? track.replay_gain_tenths_db : 0);
+}
+
+void sync_audio_handoff(const lyra::audio::Status &audio_status)
+{
+    if (!audio_status.transitioned || !audio_status.queue_cookie ||
+        !s_has_active_queue) return;
+    size_t position = audio_status.queue_cookie - 1u;
+    size_t track_index = 0;
+    lyra::media::Track track{};
+    bool found = queue_track_at(position, &track_index) &&
+        lyra::media::track_at(track_index, &track) &&
+        std::strcmp(track.path, audio_status.path) == 0;
+    if (!found) {
+        // The queue can be edited while the already prepared track overlaps.
+        for (size_t candidate = 0; candidate < playback_queue_count(); ++candidate) {
+            if (queue_track_at(candidate, &track_index) &&
+                lyra::media::track_at(track_index, &track) &&
+                std::strcmp(track.path, audio_status.path) == 0) {
+                position = candidate;
+                found = true;
+                break;
+            }
+        }
+    }
+    if (!found) return;
+    s_queue_position = position;
+    s_queue_position_valid = true;
+    if (s_shuffle) s_shuffle_cursor = position;
+    s_current_track = track_index;
+    s_audio_eof_seen = false;
+    s_pending_track_advance = false;
+    s_pending_track_advance_us = 0;
+    lyra::audio::set_replay_gain_adjustment(
+        s_replay_gain ? track.replay_gain_tenths_db : 0);
+    const esp_err_t stats_result = lyra::media::record_track_play(s_current_track);
+    if (stats_result != ESP_OK) {
+        ESP_LOGW(kTag, "could not record playback for %s: %s", track.path,
+                 esp_err_to_name(stats_result));
+    }
+    if (s_view == View::Player) render(View::Player);
 }
 
 bool begin_crossfade_pause()

@@ -987,6 +987,7 @@ size_t flac_utf8_value_bytes(uint8_t first)
     if ((first & 0xF8u) == 0xF0u) return 4;
     if ((first & 0xFCu) == 0xF8u) return 5;
     if ((first & 0xFEu) == 0xFCu) return 6;
+    if (first == 0xFEu) return 7;
     return 0;
 }
 
@@ -1023,6 +1024,38 @@ bool valid_flac_frame_header(const uint8_t *bytes, size_t length)
     }
     if (cursor >= length) return false;
     return flac_crc8(bytes, cursor) == bytes[cursor];
+}
+
+bool read_flac_frame_start_sample(FILE *file, long frame_offset,
+                                  const FlacStreamInfo &info, uint64_t *sample)
+{
+    if (!file || !sample || frame_offset < info.first_frame_offset ||
+        audio_seek(file, frame_offset, SEEK_SET) != 0) return false;
+
+    uint8_t header[16]{};
+    const size_t length = audio_read(file, header, sizeof(header));
+    if (!valid_flac_frame_header(header, length)) return false;
+
+    const size_t count = flac_utf8_value_bytes(header[4]);
+    if (count == 0 || count > 7) return false;
+    uint64_t number = count == 1 ? header[4] :
+        static_cast<uint64_t>(header[4] & ((1u << (7u - count)) - 1u));
+    for (size_t index = 1; index < count; ++index) {
+        number = (number << 6) | (header[4 + index] & 0x3Fu);
+    }
+
+    if ((header[1] & 0x01u) != 0) {
+        *sample = number; // variable block size: encoded sample number
+    } else {
+        // Fixed block size encodes a frame number. The STREAMINFO maximum is
+        // the normal frame size, even when the final frame is shorter.
+        const uint16_t block_size = static_cast<uint16_t>(
+            (static_cast<uint16_t>(info.stream_info_block[2]) << 8) |
+            info.stream_info_block[3]);
+        if (block_size == 0 || number > UINT64_MAX / block_size) return false;
+        *sample = number * block_size;
+    }
+    return info.total_samples == 0 || *sample < info.total_samples;
 }
 
 bool find_flac_frame_offset(FILE *file, long estimated_offset, long first_frame_offset,
@@ -1086,11 +1119,7 @@ bool seek_mp3_file(FILE *file, uint32_t position_ms, uint32_t duration_ms)
 
 bool generation_is_current(uint32_t generation)
 {
-    bool current;
-    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-    current = generation == s_request_generation;
-    xSemaphoreGive(s_state_mutex);
-    return current;
+    return generation == s_request_generation.load(std::memory_order_acquire);
 }
 
 } // namespace lyra::audio::internal

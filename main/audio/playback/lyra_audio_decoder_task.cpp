@@ -7,16 +7,19 @@
 
 namespace lyra::audio::internal {
 
-esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_position_ms,
-                    bool start_paused, bool pause_after_seek)
+esp_err_t decode_file(DecoderStream *track)
 {
+    const char *path = track->path;
+    const uint32_t generation = track->generation;
+    uint32_t start_position_ms = track->start_position_ms;
+    const bool pause_after_seek = track->pause_after_seek;
     AudioFormat format{};
     if (!get_audio_format(path, &format)) return ESP_ERR_NOT_SUPPORTED;
 
     FILE *file = lyra::sd::open(path, "rb", lyra::sd::Client::Audio);
     if (file == nullptr) {
         ESP_LOGE(kTag, "failed to open %s: %s", audio_format_name(format), path);
-        set_error(ESP_ERR_NOT_FOUND, path);
+        decoder_set_error(track, ESP_ERR_NOT_FOUND);
         return ESP_ERR_NOT_FOUND;
     }
 
@@ -32,7 +35,7 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
             // packet (and produces misleading decoder-length errors).
             ESP_LOGE(kTag, "unsupported raw or corrupt OPUS stream: %s", path);
             lyra::sd::close(file, lyra::sd::Client::Audio);
-            set_error(ESP_ERR_NOT_SUPPORTED, path);
+            decoder_set_error(track, ESP_ERR_NOT_SUPPORTED);
             return ESP_ERR_NOT_SUPPORTED;
         }
     }
@@ -45,7 +48,7 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
     if (format == AudioFormat::kAiff && !read_aiff_stream_info(file, &aiff_info)) {
         ESP_LOGE(kTag, "unsupported or corrupt AIFF PCM stream: %s", path);
         lyra::sd::close(file, lyra::sd::Client::Audio);
-        set_error(ESP_ERR_NOT_SUPPORTED, path);
+        decoder_set_error(track, ESP_ERR_NOT_SUPPORTED);
         return ESP_ERR_NOT_SUPPORTED;
     }
 
@@ -129,7 +132,7 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
             if (opus_decoder) esp_opus_dec_close(opus_decoder);
             if (aac_decoder) esp_aac_dec_close(aac_decoder);
             lyra::sd::close(file, lyra::sd::Client::Audio);
-            set_error(ESP_FAIL, path);
+            decoder_set_error(track, ESP_FAIL);
             return ESP_FAIL;
         }
     }
@@ -143,8 +146,8 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
             kReadAheadBufferBytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     }
     auto *pcm = format == AudioFormat::kAiff ? nullptr :
-        static_cast<uint8_t *>(alloc_audio_buffer(kInitialPcmBufferBytes));
-    auto *stereo = static_cast<int16_t *>(alloc_audio_dma_buffer(kStereoBufferBytes));
+        static_cast<uint8_t *>(alloc_decoder_buffer(kInitialPcmBufferBytes));
+    auto *stereo = static_cast<int16_t *>(alloc_decoder_buffer(kStereoBufferBytes));
     size_t pcm_capacity = kInitialPcmBufferBytes;
     if (read_ahead_buffer == nullptr || (format != AudioFormat::kAiff && pcm == nullptr) ||
         stereo == nullptr) {
@@ -156,7 +159,7 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
         if (opus_decoder) esp_opus_dec_close(opus_decoder);
         if (aac_decoder) esp_aac_dec_close(aac_decoder);
         lyra::sd::close(file, lyra::sd::Client::Audio);
-        set_error(ESP_ERR_NO_MEM, path);
+        decoder_set_error(track, ESP_ERR_NO_MEM);
         return ESP_ERR_NO_MEM;
     }
 
@@ -192,7 +195,7 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
             heap_caps_free(read_ahead_buffer);
             heap_caps_free(stereo);
             lyra::sd::close(file, lyra::sd::Client::Audio);
-            set_error(ESP_ERR_INVALID_SIZE, path);
+            decoder_set_error(track, ESP_ERR_INVALID_SIZE);
             return ESP_ERR_INVALID_SIZE;
         }
         input.bounded_source = true;
@@ -201,7 +204,7 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
         input.source_channels = aiff_info.channels;
         input.source_remaining = aiff_info.data_bytes;
     }
-    PcmOutput pcm_sink{};
+    PcmOutput &pcm_sink = track->pcm;
 
     uint64_t discard_pcm_bytes = 0;
     bool replay_seek_pending = false;
@@ -246,6 +249,12 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
                 const uint64_t target_samples = std::min<uint64_t>(
                     stream_info.total_samples,
                     (static_cast<uint64_t>(start_position_ms) * stream_info.sample_rate) / 1000u);
+                // The first pass obtains the sample rate. The second pass can
+                // select a real seek-table point for that exact sample.
+                FlacStreamInfo seek_info{};
+                if (read_flac_stream_info(file, &seek_info, target_samples)) {
+                    stream_info = seek_info;
+                }
                 const uint8_t bytes_per_sample = stream_info.bits_per_sample / 8;
                 long file_end = -1;
                 long seek_frame = -1;
@@ -267,16 +276,33 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
                     const uint64_t estimated_delta = static_cast<uint64_t>(
                         (static_cast<double>(encoded_bytes) * target_samples) /
                         stream_info.total_samples);
-                    const long estimated_frame = stream_info.first_frame_offset +
+                    long estimated_frame = stream_info.first_frame_offset +
                         static_cast<long>(std::min<uint64_t>(estimated_delta, encoded_bytes));
-                    have_fast_seek = find_flac_frame_offset(
-                        file, estimated_frame, stream_info.first_frame_offset, file_end,
-                        read_ahead_buffer, kReadAheadBufferBytes, &seek_frame);
-                    // Without a seek table the frame scanner gives us a
-                    // close encoded position, but not its exact sample number.
-                    // Starting at that frame is preferable to replaying minutes
-                    // of audio; the result is within one FLAC frame of target.
-                    seek_base_samples = target_samples;
+                    for (unsigned attempt = 0; attempt < 4; ++attempt) {
+                        if (!find_flac_frame_offset(
+                                file, estimated_frame, stream_info.first_frame_offset,
+                                file_end, read_ahead_buffer, kReadAheadBufferBytes,
+                                &seek_frame) ||
+                            !read_flac_frame_start_sample(
+                                file, seek_frame, stream_info, &seek_base_samples)) {
+                            break;
+                        }
+                        if (seek_base_samples <= target_samples) {
+                            have_fast_seek = true;
+                            break;
+                        }
+                        // A VBR file can put the byte estimate many seconds
+                        // after the requested sample. Move back using the
+                        // observed average bytes per sample, then rescan.
+                        const uint64_t retreat = static_cast<uint64_t>(
+                            static_cast<double>(seek_base_samples - target_samples) *
+                            (seek_frame - stream_info.first_frame_offset) /
+                            seek_base_samples) + kReadAheadBufferBytes / 2;
+                        estimated_frame = static_cast<long>(std::max<int64_t>(
+                            stream_info.first_frame_offset,
+                            static_cast<int64_t>(seek_frame) -
+                                static_cast<int64_t>(retreat)));
+                    }
                 }
 
                 if (have_fast_seek && seek_frame >= stream_info.first_frame_offset &&
@@ -286,8 +312,9 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
                         discard_pcm_bytes = (target_samples - seek_base_samples) *
                                             stream_info.channels * bytes_per_sample;
                     }
-                    ESP_LOGI(kTag, "FLAC seek %u ms using frame at %ld (discard=%llu bytes)",
+                    ESP_LOGI(kTag, "FLAC seek %u ms using frame at %ld (base=%llu samples, discard=%llu bytes)",
                              static_cast<unsigned>(start_position_ms), seek_frame,
+                             static_cast<unsigned long long>(seek_base_samples),
                              static_cast<unsigned long long>(discard_pcm_bytes));
                 } else {
                     // Fallback for files with no usable seek point. This
@@ -377,26 +404,28 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
         }
     }
 
+    // The mixer derives audible position from this origin. A failed seek can
+    // reset playback to zero, so publish the actual origin before PCM starts.
+    track->start_position_ms = start_position_ms;
+
     xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-    s_diagnostics = {};
-    s_diagnostics.audio_buffer_low_watermark = input.capacity;
-    s_diagnostics.pcm_buffer_low_watermark = kPcmOutputBufferBytes;
-    s_diagnostics.read_ahead_internal = buffer_is_internal(input.buffer);
-    s_diagnostics.pcm_internal = buffer_is_internal(pcm);
-    s_diagnostics.stereo_internal = buffer_is_internal(stereo);
-    s_status.playing = true;
-    s_status.paused = start_paused;
-    s_status.eof = false;
-    s_status.last_error = ESP_OK;
-    s_status.sample_rate = 0;
-    s_status.channels = 0;
-    s_status.bits_per_sample = 0;
-    s_status.decoded_bytes = 0;
-    s_status.position_ms = start_position_ms;
-    s_status.duration_ms = duration_ms;
-    std::strncpy(s_status.path, path, sizeof(s_status.path) - 1);
-    s_status.path[sizeof(s_status.path) - 1] = '\0';
+    s_diagnostics.read_ahead_internal |= buffer_is_internal(input.buffer);
+    s_diagnostics.pcm_internal |= buffer_is_internal(pcm);
+    s_diagnostics.stereo_internal |= buffer_is_internal(stereo);
+    track->status.playing = true;
+    track->status.paused = false;
+    track->status.eof = false;
+    track->status.last_error = ESP_OK;
+    track->status.sample_rate = 0;
+    track->status.channels = 0;
+    track->status.bits_per_sample = 0;
+    track->status.decoded_bytes = 0;
+    track->status.position_ms = start_position_ms;
+    track->status.duration_ms = duration_ms;
+    std::strncpy(track->status.path, path, sizeof(track->status.path) - 1);
+    track->status.path[sizeof(track->status.path) - 1] = '\0';
     xSemaphoreGive(s_state_mutex);
+    sample_audio_memory();
 
     bool have_audio_info = false;
     esp_err_t result = ESP_OK;
@@ -404,8 +433,7 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
     uint32_t replay_yield_count = 0;
     bool pause_after_seek_pending = pause_after_seek;
 
-    while (generation_is_current(generation)) {
-        if (!read_pause_state(generation)) break;
+    while (decoder_is_current(track)) {
 
         // Keep the ring mostly full while the decoder/I2S path is active.
         // Every iteration is still one bounded SD transaction, so artwork
@@ -426,7 +454,9 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
         if (result != ESP_OK) break;
         if (input.available == 0 && input.eof) break;
         if (input.available == 0) {
+            xSemaphoreTake(s_state_mutex, portMAX_DELAY);
             ++s_diagnostics.underrun_count;
+            xSemaphoreGive(s_state_mutex);
             vTaskDelay(1);
             continue;
         }
@@ -438,7 +468,7 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
         raw.eos = input.eof && input.available == input.contiguous() &&
                   input.available <= kSimpleDecoderInputChunkBytes;
 
-        while (raw.len > 0 && generation_is_current(generation)) {
+        while (raw.len > 0 && decoder_is_current(track)) {
             if (format == AudioFormat::kAiff) {
                 const size_t bytes_per_frame = static_cast<size_t>(aiff_info.channels) *
                                                (aiff_info.bits_per_sample / 8u);
@@ -447,17 +477,17 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
                 if (pcm_bytes == 0) break;
 
                 if (!have_audio_info) {
-                    result = configure_i2s(aiff_info.sample_rate);
                     pcm_sink.sample_rate = aiff_info.sample_rate;
-                    if (result != ESP_OK || !start_pcm_output(&pcm_sink)) {
+                    track->native_rate.store(aiff_info.sample_rate, std::memory_order_release);
+                    if (!pcm_sink.stream) {
                         ESP_LOGE(kTag, "AIFF I2S output setup failed for %s", path);
                         result = result == ESP_OK ? ESP_ERR_NO_MEM : result;
                         break;
                     }
                     xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-                    s_status.sample_rate = aiff_info.sample_rate;
-                    s_status.channels = aiff_info.channels;
-                    s_status.bits_per_sample = aiff_info.bits_per_sample;
+                    track->status.sample_rate = aiff_info.sample_rate;
+                    track->status.channels = aiff_info.channels;
+                    track->status.bits_per_sample = aiff_info.bits_per_sample;
                     xSemaphoreGive(s_state_mutex);
                     ESP_LOGI(kTag, "playing %s (%u Hz, %u channel, %u-bit)", path,
                              static_cast<unsigned>(aiff_info.sample_rate),
@@ -474,21 +504,21 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
                 raw.buffer += pcm_bytes;
                 raw.len -= static_cast<uint32_t>(pcm_bytes);
                 xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-                s_status.decoded_bytes += pcm_bytes;
+                track->status.decoded_bytes += pcm_bytes;
                 const uint32_t decoded_position_ms = pcm_bytes_to_milliseconds(
-                    s_status.decoded_bytes, s_status.sample_rate, s_status.channels,
-                    s_status.bits_per_sample);
+                    track->status.decoded_bytes, track->status.sample_rate, track->status.channels,
+                    track->status.bits_per_sample);
                 const uint64_t absolute_position_ms =
                     static_cast<uint64_t>(pcm_position_base_ms) + decoded_position_ms;
-                s_status.position_ms = absolute_position_ms > 0xFFFFFFFFu ?
+                track->status.position_ms = absolute_position_ms > 0xFFFFFFFFu ?
                     0xFFFFFFFFu : static_cast<uint32_t>(absolute_position_ms);
-                if (s_status.duration_ms > 0 && s_status.position_ms > s_status.duration_ms) {
-                    s_status.position_ms = s_status.duration_ms;
+                if (track->status.duration_ms > 0 && track->status.position_ms > track->status.duration_ms) {
+                    track->status.position_ms = track->status.duration_ms;
                 }
                 xSemaphoreGive(s_state_mutex);
                 if (pause_after_seek_pending) {
                     xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-                    s_status.paused = true;
+                    if (generation == s_request_generation) s_status.paused = true;
                     xSemaphoreGive(s_state_mutex);
                     pause_after_seek_pending = false;
                     break;
@@ -531,7 +561,7 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
             }
             if (decode_ret == ESP_AUDIO_ERR_BUFF_NOT_ENOUGH && frame.needed_size > pcm_capacity &&
                 frame.needed_size <= kMaximumPcmBufferBytes) {
-                auto *larger = static_cast<uint8_t *>(alloc_audio_buffer(frame.needed_size));
+                auto *larger = static_cast<uint8_t *>(alloc_decoder_buffer(frame.needed_size));
                 if (larger == nullptr) {
                     result = ESP_ERR_NO_MEM;
                     break;
@@ -539,7 +569,10 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
                 heap_caps_free(pcm);
                 pcm = larger;
                 pcm_capacity = frame.needed_size;
+                xSemaphoreTake(s_state_mutex, portMAX_DELAY);
                 s_diagnostics.pcm_internal = buffer_is_internal(pcm);
+                xSemaphoreGive(s_state_mutex);
+                sample_audio_memory();
                 continue;
             }
             if (decode_ret != ESP_AUDIO_ERR_OK) {
@@ -590,27 +623,23 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
                         result = ESP_ERR_NOT_SUPPORTED;
                         break;
                     }
-                    result = configure_i2s(info.sample_rate);
-                    if (result != ESP_OK) {
-                        ESP_LOGE(kTag, "I2S setup failed: %s", esp_err_to_name(result));
-                        break;
-                    }
                     pcm_sink.sample_rate = info.sample_rate;
-                    if (!start_pcm_output(&pcm_sink)) {
+                    track->native_rate.store(info.sample_rate, std::memory_order_release);
+                    if (!pcm_sink.stream) {
                         ESP_LOGE(kTag, "I2S PCM output buffer allocation failed");
                         result = ESP_ERR_NO_MEM;
                         break;
                     }
                     xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-                    s_status.sample_rate = info.sample_rate;
-                    s_status.channels = info.channel;
-                    s_status.bits_per_sample = info.bits_per_sample;
+                    track->status.sample_rate = info.sample_rate;
+                    track->status.channels = info.channel;
+                    track->status.bits_per_sample = info.bits_per_sample;
                     if (duration_ms == 0 && file_end > 0 && info.bitrate > 0) {
                         const uint64_t estimated_duration =
                             (static_cast<uint64_t>(file_end) * 8u * 1000u) / info.bitrate;
                         duration_ms = estimated_duration > 0xFFFFFFFFu ? 0xFFFFFFFFu :
                             static_cast<uint32_t>(estimated_duration);
-                        s_status.duration_ms = duration_ms;
+                        track->status.duration_ms = duration_ms;
                     }
                     xSemaphoreGive(s_state_mutex);
                     if (replay_seek_pending) {
@@ -645,6 +674,14 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
                     }
                 }
 
+                if (info.sample_rate != pcm_sink.sample_rate ||
+                    info.channel != track->status.channels ||
+                    info.bits_per_sample != track->status.bits_per_sample) {
+                    result = ESP_ERR_NOT_SUPPORTED;
+                    ESP_LOGE(kTag, "format changed inside %s", path);
+                    break;
+                }
+
                 const uint8_t *pcm_output = frame.buffer;
                 size_t pcm_output_bytes = frame.decoded_size;
                 if (discard_pcm_bytes > 0) {
@@ -661,16 +698,16 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
                                        &pcm_sink, generation, format == AudioFormat::kWav);
                     if (result != ESP_OK) break;
                     xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-                    s_status.decoded_bytes += pcm_output_bytes;
+                    track->status.decoded_bytes += pcm_output_bytes;
                     const uint32_t decoded_position_ms = pcm_bytes_to_milliseconds(
-                        s_status.decoded_bytes, s_status.sample_rate, s_status.channels,
-                        s_status.bits_per_sample);
+                        track->status.decoded_bytes, track->status.sample_rate, track->status.channels,
+                        track->status.bits_per_sample);
                     const uint64_t absolute_position_ms =
                         static_cast<uint64_t>(pcm_position_base_ms) + decoded_position_ms;
-                    s_status.position_ms = absolute_position_ms > 0xFFFFFFFFu ?
+                    track->status.position_ms = absolute_position_ms > 0xFFFFFFFFu ?
                         0xFFFFFFFFu : static_cast<uint32_t>(absolute_position_ms);
-                    if (s_status.duration_ms > 0 && s_status.position_ms > s_status.duration_ms) {
-                        s_status.position_ms = s_status.duration_ms;
+                    if (track->status.duration_ms > 0 && track->status.position_ms > track->status.duration_ms) {
+                        track->status.position_ms = track->status.duration_ms;
                     }
                     xSemaphoreGive(s_state_mutex);
                 }
@@ -679,7 +716,7 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
                     // requested position before pausing again. Otherwise the
                     // normal pause gate stops the FLAC replay at byte zero.
                     xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-                    s_status.paused = true;
+                    if (generation == s_request_generation) s_status.paused = true;
                     xSemaphoreGive(s_state_mutex);
                     pause_after_seek_pending = false;
                     break;
@@ -725,54 +762,10 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
         if (result != ESP_OK) break;
     }
 
-    const bool request_still_current = generation_is_current(generation);
-    stop_pcm_output(&pcm_sink, request_still_current && result == ESP_OK, generation);
-    if (pcm_sink.error && result == ESP_OK) result = pcm_sink.error_code;
-
-    if (!generation_is_current(generation)) {
-        if (s_i2s_started) {
-            i2s_channel_disable(s_i2s_tx);
-            s_i2s_started = false;
-        }
-        disable_speaker_i2s();
-        result = ESP_OK;
-    } else if (result == ESP_OK) {
-        xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-        s_status.playing = false;
-        s_status.paused = false;
-        s_status.eof = true;
-        if (s_status.duration_ms > 0) s_status.position_ms = s_status.duration_ms;
-        xSemaphoreGive(s_state_mutex);
-        ESP_LOGI(kTag, "finished %s", path);
-    } else {
-        if (s_i2s_started) {
-            i2s_channel_disable(s_i2s_tx);
-            s_i2s_started = false;
-        }
-        disable_speaker_i2s();
-        set_error(result, path);
-    }
-
-    s_diagnostics.average_sd_read_us = s_diagnostics.sd_read_count == 0 ? 0 :
-        static_cast<uint32_t>(s_diagnostics.total_sd_read_us /
-                              s_diagnostics.sd_read_count);
-    s_diagnostics.average_sd_lock_wait_us = s_diagnostics.sd_read_count == 0 ? 0 :
-        static_cast<uint32_t>(s_diagnostics.total_sd_lock_wait_us /
-                              s_diagnostics.sd_read_count);
-    ESP_LOGI(kTag, "read-ahead: max=%u us avg=%u us lock-max=%u us lock-avg=%u us "
-             "low=%u bytes underruns=%u; pcm-low=%u bytes pcm-underruns=%u; "
-             "buffers read-ahead=%s pcm=%s stereo=%s",
-             static_cast<unsigned>(s_diagnostics.max_sd_read_us),
-             static_cast<unsigned>(s_diagnostics.average_sd_read_us),
-             static_cast<unsigned>(s_diagnostics.max_sd_lock_wait_us),
-             static_cast<unsigned>(s_diagnostics.average_sd_lock_wait_us),
-             static_cast<unsigned>(s_diagnostics.audio_buffer_low_watermark),
-             static_cast<unsigned>(s_diagnostics.underrun_count),
-             static_cast<unsigned>(s_diagnostics.pcm_buffer_low_watermark),
-             static_cast<unsigned>(s_diagnostics.pcm_underrun_count),
-             s_diagnostics.read_ahead_internal ? "internal" : "psram",
-             s_diagnostics.pcm_internal ? "internal" : "psram",
-             s_diagnostics.stereo_internal ? "internal" : "psram");
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    track->status.eof = result == ESP_OK && (generation == s_request_generation && !track->pcm.stop_requested);
+    track->status.last_error = result;
+    xSemaphoreGive(s_state_mutex);
 
     heap_caps_free(read_ahead_buffer);
     heap_caps_free(pcm);
@@ -782,49 +775,6 @@ esp_err_t play_file(const char *path, uint32_t generation, uint32_t start_positi
     if (aac_decoder) esp_aac_dec_close(aac_decoder);
     lyra::sd::close(file, lyra::sd::Client::Audio);
     return result;
-}
-
-void audio_task(void *)
-{
-    uint32_t handled_generation = 0;
-    while (true) {
-        char path[lyra::audio::kMaxPath];
-        uint32_t generation;
-        uint32_t seek_position_ms;
-        bool paused;
-        bool pause_after_seek;
-        xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-        generation = s_request_generation;
-        seek_position_ms = s_requested_seek_ms;
-        paused = s_status.paused;
-        pause_after_seek = s_requested_pause_after_seek;
-        std::strncpy(path, s_requested_path, sizeof(path) - 1);
-        path[sizeof(path) - 1] = '\0';
-        xSemaphoreGive(s_state_mutex);
-
-        if (generation == handled_generation) {
-            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-            continue;
-        }
-        handled_generation = generation;
-        if (!path[0]) {
-            if (s_i2s_started) {
-                i2s_channel_disable(s_i2s_tx);
-                s_i2s_started = false;
-            }
-            disable_speaker_i2s();
-            xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-            s_status.playing = false;
-            s_status.paused = false;
-            s_status.eof = false;
-            s_status.position_ms = 0;
-            s_status.duration_ms = 0;
-            s_status.path[0] = '\0';
-            xSemaphoreGive(s_state_mutex);
-            continue;
-        }
-        play_file(path, generation, seek_position_ms, paused, pause_after_seek);
-    }
 }
 
 } // namespace lyra::audio::internal

@@ -24,12 +24,13 @@ lyra::audio::EqualizerSettings s_equalizer{};
 uint32_t s_equalizer_generation = 1;
 
 char s_requested_path[lyra::audio::kMaxPath];
-uint32_t s_request_generation;
+std::atomic<uint32_t> s_request_generation{0};
 uint32_t s_requested_seek_ms;
 bool s_requested_pause_after_seek;
 uint8_t s_duration_scan_buffer[kDurationScanBufferBytes];
 
 lyra::audio::Status s_status{};
 lyra::audio::Diagnostics s_diagnostics{};
+NextTrackRequest s_next_track{};
 
 } // namespace lyra::audio::internal
