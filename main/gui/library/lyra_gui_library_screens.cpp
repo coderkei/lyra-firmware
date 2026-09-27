@@ -140,25 +140,27 @@ void make_album_row(lv_obj_t *parent, int y, size_t group_index)
     if (!lyra::media::track_at(representative, &track)) return;
     lv_obj_t *row = make_button(parent, 7, y, 306, 60, kSurface, 5, true);
     lv_obj_t *title = make_label(row, group.name, kTextPrimary);
-    make_marquee(title, 236);
+    make_marquee(title, s_queue_add_mode ? 236 : 282);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -10);
     char subtitle[lyra::media::kMaxName + 24];
     format_text_u32(group.track_count == 1 ? lyra::i18n::StringId::AlbumSummaryOne :
                     lyra::i18n::StringId::AlbumSummaryMany, track.artist,
                     static_cast<uint32_t>(group.track_count), subtitle, sizeof(subtitle));
     lv_obj_t *sub = make_label(row, subtitle, kTextSecondary);
-    make_marquee(sub, 236);
+    make_marquee(sub, s_queue_add_mode ? 236 : 282);
     lv_obj_align(sub, LV_ALIGN_LEFT_MID, 12, 12);
     lv_obj_add_event_cb(row, open_album_detail_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(group_index));
-    lv_obj_t *queue_button = make_button(row, 260, 12, 34, 36, kAccentDark, 5);
-    lv_obj_t *queue_icon = make_label(queue_button, LV_SYMBOL_PLUS, kTextOnAccent);
-    lv_obj_center(queue_icon);
-    lv_obj_add_event_cb(queue_button, [](lv_event_t *event) {
-        lv_event_stop_bubbling(event);
-        show_queue_add_picker_for_album(reinterpret_cast<uintptr_t>(
-            lv_event_get_user_data(event)));
-    }, LV_EVENT_CLICKED, reinterpret_cast<void *>(group_index));
+    if (s_queue_add_mode) {
+        lv_obj_t *queue_button = make_button(row, 260, 12, 34, 36, kAccentDark, 5);
+        lv_obj_t *queue_icon = make_label(queue_button, LV_SYMBOL_PLUS, kTextOnAccent);
+        lv_obj_center(queue_icon);
+        lv_obj_add_event_cb(queue_button, [](lv_event_t *event) {
+            lv_event_stop_bubbling(event);
+            show_queue_add_picker_for_album(reinterpret_cast<uintptr_t>(
+                lv_event_get_user_data(event)));
+        }, LV_EVENT_CLICKED, reinterpret_cast<void *>(group_index));
+    }
 }
 
 void render_library_section(LibraryTab section)
@@ -397,14 +399,16 @@ void render_album_detail()
                  static_cast<uint32_t>(album.track_count), count, sizeof(count));
     lv_obj_t *count_label = make_label(summary, count, kAccent);
     lv_obj_set_pos(count_label, 124, 91);
-    lv_obj_t *queue_button = make_button(summary, 259, 80, 38, 34, kAccentDark, 5);
-    lv_obj_t *queue_icon = make_label(queue_button, LV_SYMBOL_PLUS, kTextOnAccent);
-    lv_obj_center(queue_icon);
-    lv_obj_add_event_cb(queue_button, [](lv_event_t *event) {
-        lv_event_stop_bubbling(event);
-        show_queue_add_picker_for_album(reinterpret_cast<uintptr_t>(
-            lv_event_get_user_data(event)));
-    }, LV_EVENT_CLICKED, reinterpret_cast<void *>(s_selected_group));
+    if (s_queue_add_mode) {
+        lv_obj_t *queue_button = make_button(summary, 259, 80, 38, 34, kAccentDark, 5);
+        lv_obj_t *queue_icon = make_label(queue_button, LV_SYMBOL_PLUS, kTextOnAccent);
+        lv_obj_center(queue_icon);
+        lv_obj_add_event_cb(queue_button, [](lv_event_t *event) {
+            lv_event_stop_bubbling(event);
+            show_queue_add_picker_for_album(reinterpret_cast<uintptr_t>(
+                lv_event_get_user_data(event)));
+        }, LV_EVENT_CLICKED, reinterpret_cast<void *>(s_selected_group));
+    }
 
     auto *context = static_cast<AlbumListContext *>(lv_malloc_zeroed(sizeof(AlbumListContext)));
     if (context) {
@@ -456,8 +460,8 @@ void render_folders(bool detail)
     if (pages && s_list_page >= pages) s_list_page = pages - 1;
     const size_t first_entry = s_list_page * lyra::media::kTrackPageSize;
     const size_t last_entry = std::min(first_entry + lyra::media::kTrackPageSize, total_entries);
-    const int detail_offset = detail ? 50 : 0;
-    if (detail) {
+    const int detail_offset = detail && s_queue_add_mode ? 50 : 0;
+    if (detail && s_queue_add_mode) {
         lv_obj_t *add_folder = make_button(list, 7, 0, 306, 42, kSurfaceRaised, 6, true);
         lv_obj_t *add_icon = make_label(add_folder, LV_SYMBOL_PLUS, kAccent);
         lv_obj_align(add_icon, LV_ALIGN_LEFT_MID, 14, 0);
@@ -487,7 +491,7 @@ void render_folders(bool detail)
         copy_ui_text(child_path, sizeof(child_path), s_folder_path);
         if (append_ui_text(child_path, sizeof(child_path), "/") &&
             append_ui_text(child_path, sizeof(child_path), s_folder_names[i])) {
-            add_folder_queue_button(folder, child_path);
+            if (s_queue_add_mode) add_folder_queue_button(folder, child_path);
         }
     }
     size_t indices[lyra::media::kTrackPageSize];

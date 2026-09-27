@@ -111,6 +111,8 @@ bool s_playlists_from_library = false;
 bool s_playlist_add_mode = false;
 bool s_playlist_manage_mode = false;
 bool s_playlist_create_from_queue = false;
+bool s_queue_add_mode = false;
+bool s_queue_edit_mode = false;
 // The JC3248W535EN dev kit has no Lyra hardware key matrix, so keep the
 // simulator-equivalent touch dock available from first boot.
 bool s_show_nav = true;

@@ -38,6 +38,11 @@ void make_status_bar()
 lv_obj_t *make_header(const char *title, View back, bool show_back, const char *right,
                       lv_event_cb_t custom_back)
 {
+    const bool queue_add_toggle = !s_playlist_add_mode &&
+        (s_view == View::LibrarySongs || s_view == View::LibraryAlbums ||
+         s_view == View::AlbumDetail || s_view == View::ArtistDetail ||
+         s_view == View::TrackList || s_view == View::Folders ||
+         s_view == View::FolderDetail || s_view == View::PlaylistDetail);
     lv_obj_t *header = make_box(s_screen, 0, kStatusHeight, kScreenWidth, 44, kBackground);
     lv_obj_t *divider = make_box(header, 8, 43, 304, 1, kDivider);
     (void)divider;
@@ -53,14 +58,34 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
     }
     lv_obj_t *label = make_label(header, title, kTextPrimary);
     lv_obj_set_style_text_font(label, lyra::font::ui(), 0);
-    make_marquee(label, right ? 180 : 245);
+    const bool show_right_label = right != nullptr && (!queue_add_toggle || right[0] != '\0');
+    make_marquee(label, queue_add_toggle ? (show_right_label ? 150 : 180) :
+                 (right ? 180 : 245));
     lv_obj_align(label, LV_ALIGN_LEFT_MID, show_back ? 45 : 10, 0);
-    if (right != nullptr) {
+    if (show_right_label) {
         lv_obj_t *right_label = make_label(header, right, kAccent);
-        make_marquee(right_label, 84);
-        lv_obj_align(right_label, LV_ALIGN_RIGHT_MID, -12, 0);
+        make_marquee(right_label, queue_add_toggle ? 64 : 84);
+        lv_obj_align(right_label, LV_ALIGN_RIGHT_MID,
+                     queue_add_toggle ? -52 : -12, 0);
     }
+    if (queue_add_toggle) make_queue_add_mode_toggle(header, 274, 4);
     return header;
+}
+
+void queue_add_mode_toggle_cb(lv_event_t *)
+{
+    s_queue_add_mode = !s_queue_add_mode;
+    render(s_view);
+}
+
+void make_queue_add_mode_toggle(lv_obj_t *parent, int x, int y, int width, int height)
+{
+    lv_obj_t *button = make_button(parent, x, y, width, height,
+        s_queue_add_mode ? kAccentDark : kBackground, 5);
+    lv_obj_t *icon = make_label(button, LV_SYMBOL_LIST,
+                                s_queue_add_mode ? kTextOnAccent : kTextSecondary);
+    lv_obj_center(icon);
+    lv_obj_add_event_cb(button, queue_add_mode_toggle_cb, LV_EVENT_CLICKED, nullptr);
 }
 
 void dismiss_overlay_cb(lv_event_t *event)

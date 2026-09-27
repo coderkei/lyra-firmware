@@ -259,7 +259,8 @@ void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height,
     if (!lyra::media::track_at(track_index, &track)) return;
     lv_obj_t *row = make_button(parent, 7, y, 306, height, kSurface, 5, true);
     lv_obj_t *title = make_label(row, track.title, kTextPrimary);
-    make_marquee(title, s_playlist_add_mode ? 244 : 236);
+    const int text_width = s_playlist_add_mode ? 244 : (s_queue_add_mode ? 236 : 282);
+    make_marquee(title, text_width);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -9);
     char subtitle[lyra::media::kMaxName + 32];
     if (show_play_count) {
@@ -270,7 +271,7 @@ void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height,
         copy_ui_text(subtitle, sizeof(subtitle), track.artist);
     }
     lv_obj_t *artist = make_label(row, subtitle, kTextSecondary);
-    make_marquee(artist, s_playlist_add_mode ? 244 : 236);
+    make_marquee(artist, text_width);
     lv_obj_align(artist, LV_ALIGN_LEFT_MID, 12, 11);
     if (s_playlist_add_mode) {
         lv_obj_t *add = make_label(row, LV_SYMBOL_PLUS, kAccent);
@@ -280,7 +281,9 @@ void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height,
                             reinterpret_cast<void *>(track_index));
     } else {
         add_track_route(row, track_index, force_single);
-        add_queue_source_button(row, QueueAddSourceKind::Track, track_index);
+        if (s_queue_add_mode) {
+            add_queue_source_button(row, QueueAddSourceKind::Track, track_index);
+        }
     }
 }
 
@@ -366,7 +369,7 @@ void make_file_row(lv_obj_t *parent, int y, size_t track_index, int height)
     lv_obj_t *icon = make_label(row, LV_SYMBOL_FILE, kAccent);
     lv_obj_align(icon, LV_ALIGN_LEFT_MID, 12, 0);
     lv_obj_t *name = make_label(row, filename, kTextPrimary);
-    make_marquee(name, 202);
+    make_marquee(name, s_queue_add_mode ? 202 : 251);
     lv_obj_align(name, LV_ALIGN_LEFT_MID, 43, -9);
     char size[24];
     if (track.size_bytes < 1024u * 1024u) {
@@ -379,7 +382,7 @@ void make_file_row(lv_obj_t *parent, int y, size_t track_index, int height)
     lv_obj_t *size_label = make_label(row, size, kTextSecondary);
     lv_obj_align(size_label, LV_ALIGN_LEFT_MID, 43, 11);
     add_track_route(row, track_index);
-    add_queue_source_button(row, QueueAddSourceKind::Track, track_index);
+    if (s_queue_add_mode) add_queue_source_button(row, QueueAddSourceKind::Track, track_index);
 }
 
 void make_album_art(lv_obj_t *parent, int x, int y, int width, int height,

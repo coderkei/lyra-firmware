@@ -657,7 +657,7 @@ esp_err_t start_track_audio(const lyra::media::Track &track,
     return play_result;
 }
 
-void play_queue_position(size_t queue_position)
+void play_queue_position(size_t queue_position, bool navigate_to_player)
 {
     size_t track_index;
     if (!queue_track_at(queue_position, &track_index)) return;
@@ -674,7 +674,8 @@ void play_queue_position(size_t queue_position)
             ESP_LOGW(kTag, "cannot start %s: %s", track.path, esp_err_to_name(audio_ret));
         }
     }
-    navigate_to(View::Player);
+    if (navigate_to_player) navigate_to(View::Player);
+    else render(View::Queue);
 }
 
 bool move_in_playback_queue(int direction, bool automatic)

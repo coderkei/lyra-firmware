@@ -110,16 +110,18 @@ void populate_search_results()
                 kind == lyra::media::GroupKind::Album ? search_album_result_cb : search_artist_result_cb,
                 LV_EVENT_CLICKED, reinterpret_cast<void *>(result.group_index));
             if (kind == lyra::media::GroupKind::Album) {
-                lv_obj_t *queue_button = make_button(row, 270, 12, 24, 30,
-                                                      kAccentDark, 5);
-                lv_obj_t *queue_icon = make_label(queue_button, LV_SYMBOL_PLUS,
-                                                  kTextOnAccent);
-                lv_obj_center(queue_icon);
-                lv_obj_add_event_cb(queue_button, [](lv_event_t *event) {
-                    lv_event_stop_bubbling(event);
-                    show_queue_add_picker_for_album(reinterpret_cast<uintptr_t>(
-                        lv_event_get_user_data(event)));
-                }, LV_EVENT_CLICKED, reinterpret_cast<void *>(result.group_index));
+                if (s_queue_add_mode) {
+                    lv_obj_t *queue_button = make_button(row, 270, 12, 24, 30,
+                                                          kAccentDark, 5);
+                    lv_obj_t *queue_icon = make_label(queue_button, LV_SYMBOL_PLUS,
+                                                      kTextOnAccent);
+                    lv_obj_center(queue_icon);
+                    lv_obj_add_event_cb(queue_button, [](lv_event_t *event) {
+                        lv_event_stop_bubbling(event);
+                        show_queue_add_picker_for_album(reinterpret_cast<uintptr_t>(
+                            lv_event_get_user_data(event)));
+                    }, LV_EVENT_CLICKED, reinterpret_cast<void *>(result.group_index));
+                }
             }
         }
     }
@@ -287,13 +289,14 @@ void make_library_keyboard(lv_obj_t *keyboard, const char *action)
 void render_search()
 {
     lv_obj_t *body = make_box(s_screen, 0, kStatusHeight, 320, content_height(kStatusHeight), kBackground);
-    lv_obj_t *input = make_box(body, 9, 4, 224, 43, kSurfaceRaised, 7);
+    lv_obj_t *input = make_box(body, 9, 4, 178, 43, kSurfaceRaised, 7);
     lv_obj_t *magnifier = make_label(input, LV_SYMBOL_EDIT, kTextSecondary);
     lv_obj_align(magnifier, LV_ALIGN_LEFT_MID, 10, 0);
     s_search_label = make_label(input, "", kTextMuted);
-    make_marquee(s_search_label, 171);
+    make_marquee(s_search_label, 125);
     lv_obj_align(s_search_label, LV_ALIGN_LEFT_MID, 37, 0);
     update_search_label();
+    make_queue_add_mode_toggle(body, 193, 4);
     // Four 16 px CJK glyphs need 64 px before any internal spacing. Keep a
     // full 72 px action button so translated keyboard labels cannot clip.
     lv_obj_t *toggle = make_button(body, 239, 4, 72, 43, kSurfaceRaised, 7);

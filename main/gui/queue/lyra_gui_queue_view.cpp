@@ -67,6 +67,26 @@ void clear_queue_cb(lv_event_t *)
     show_clear_queue_confirmation();
 }
 
+void toggle_queue_edit_mode_cb(lv_event_t *)
+{
+    s_queue_edit_mode = !s_queue_edit_mode;
+    render(View::Queue);
+}
+
+void make_queue_edit_mode_toggle(lv_obj_t *header)
+{
+    lv_obj_t *button = make_button(header, 274, 4, 40, 36,
+        s_queue_edit_mode ? kAccentDark : kBackground, 5);
+    lv_obj_t *icon = make_label(button,
+        s_queue_edit_mode ? LV_SYMBOL_CLOSE : LV_SYMBOL_EDIT,
+        s_queue_edit_mode ? kTextOnAccent : kTextSecondary);
+    lv_obj_center(icon);
+    lv_obj_add_event_cb(button, [](lv_event_t *event) {
+        lv_event_stop_bubbling(event);
+        toggle_queue_edit_mode_cb(event);
+    }, LV_EVENT_CLICKED, nullptr);
+}
+
 void save_queue_as_playlist_cb(lv_event_t *)
 {
     if (!s_has_active_queue || playback_queue_count() == 0) return;
@@ -123,6 +143,7 @@ void open_queue_cb(lv_event_t *)
         return;
     }
     push_navigation_state();
+    s_queue_edit_mode = false;
     const size_t page_size = library_page_size();
     size_t current = 0;
     s_list_page = current_queue_position(&current) ? current / page_size : 0;
@@ -201,7 +222,7 @@ void render_menu()
 
 void queue_track_cb(lv_event_t *event)
 {
-    play_queue_position(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    play_queue_position(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)), false);
 }
 
 void make_queue_song_row(lv_obj_t *parent, int y, size_t queue_position, bool current)
@@ -217,29 +238,33 @@ void make_queue_song_row(lv_obj_t *parent, int y, size_t queue_position, bool cu
     lv_obj_t *queue_number = make_label(row, queue_number_text,
                                         current ? kTextOnAccent : kTextMuted);
     lv_obj_set_width(queue_number, 40);
-    lv_obj_set_style_text_align(queue_number, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(queue_number, LV_ALIGN_LEFT_MID, current ? 22 : 0, 0);
+    lv_obj_set_style_text_align(queue_number, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(queue_number, LV_ALIGN_LEFT_MID, 0, 0);
     if (current) {
         lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, kTextOnAccent);
-        lv_obj_align(playing, LV_ALIGN_LEFT_MID, 5, 0);
+        lv_obj_align(playing, LV_ALIGN_LEFT_MID, 10, 0);
         lv_obj_clear_flag(playing, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(queue_number, LV_OBJ_FLAG_HIDDEN);
     }
-    const int text_x = current ? 62 : 42;
+    const int text_x = 42;
     lv_obj_t *title = make_label(row, track.title, current ? kTextOnAccent : kTextPrimary);
-    make_marquee(title, current ? 122 : 142);
+    const int text_width = s_queue_edit_mode ? 132 : 250;
+    make_marquee(title, text_width);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, text_x, -9);
     lv_obj_t *artist = make_label(row, track.artist, current ? kTextOnAccent : kTextSecondary);
-    make_marquee(artist, current ? 122 : 142);
+    make_marquee(artist, text_width);
     lv_obj_align(artist, LV_ALIGN_LEFT_MID, text_x, 11);
-    const lv_color_t up_color = queue_position > 0 ? kTextSecondary : kTextMuted;
-    const lv_color_t down_color = queue_position + 1 < playback_queue_count() ?
-                                  kTextSecondary : kTextMuted;
-    add_queue_row_action(row, 188, LV_SYMBOL_UP, up_color, queue_position,
-                         QueueRowAction::MoveUp);
-    add_queue_row_action(row, 220, LV_SYMBOL_DOWN, down_color, queue_position,
-                         QueueRowAction::MoveDown);
-    add_queue_row_action(row, 252, LV_SYMBOL_TRASH, kDangerSurface, queue_position,
-                         QueueRowAction::Remove);
+    if (s_queue_edit_mode) {
+        const lv_color_t up_color = queue_position > 0 ? kTextSecondary : kTextMuted;
+        const lv_color_t down_color = queue_position + 1 < playback_queue_count() ?
+                                      kTextSecondary : kTextMuted;
+        add_queue_row_action(row, 188, LV_SYMBOL_UP, up_color, queue_position,
+                             QueueRowAction::MoveUp);
+        add_queue_row_action(row, 220, LV_SYMBOL_DOWN, down_color, queue_position,
+                             QueueRowAction::MoveDown);
+        add_queue_row_action(row, 252, LV_SYMBOL_TRASH, kDangerSurface, queue_position,
+                             QueueRowAction::Remove);
+    }
     lv_obj_add_event_cb(row, queue_track_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(queue_position));
 }
@@ -247,18 +272,19 @@ void make_queue_song_row(lv_obj_t *parent, int y, size_t queue_position, bool cu
 void render_queue()
 {
     const size_t count = s_has_active_queue ? playback_queue_count() : 0;
-    char count_label[24];
-    format_count(lyra::i18n::StringId::TracksCount, static_cast<uint32_t>(count),
-                 count_label, sizeof(count_label));
-    make_header(tr(lyra::i18n::StringId::Queue), View::Menu, true, count_label);
+    lv_obj_t *header = make_header(tr(lyra::i18n::StringId::Queue), View::Menu, true, "");
+    make_queue_edit_mode_toggle(header);
     lv_obj_t *list = make_scroll_body(72);
-    add_queue_toolbar_button(list, 7, tr(lyra::i18n::StringId::Clear), clear_queue_cb);
-    add_queue_toolbar_button(list, 165,
-                             tr(lyra::i18n::StringId::SaveQueueAsPlaylist),
-                             save_queue_as_playlist_cb);
+    const int rows_top = s_queue_edit_mode ? 48 : 0;
+    if (s_queue_edit_mode) {
+        add_queue_toolbar_button(list, 7, tr(lyra::i18n::StringId::Clear), clear_queue_cb);
+        add_queue_toolbar_button(list, 165,
+                                 tr(lyra::i18n::StringId::SaveQueueAsPlaylist),
+                                 save_queue_as_playlist_cb);
+    }
     if (count == 0) {
         lv_obj_t *empty = make_label(list, tr(lyra::i18n::StringId::NoActiveQueue), kTextMuted);
-        lv_obj_set_pos(empty, 12, 50);
+        lv_obj_set_pos(empty, 12, rows_top + 2);
         return;
     }
 
@@ -270,10 +296,10 @@ void render_queue()
     const size_t first = s_list_page * page_size;
     const size_t shown = std::min(page_size, count - first);
     for (size_t i = 0; i < shown; ++i) {
-        make_queue_song_row(list, 48 + static_cast<int>(i) * 58, first + i,
+        make_queue_song_row(list, rows_top + static_cast<int>(i) * 58, first + i,
                             first + i == current);
     }
-    make_page_controls(list, 48 + static_cast<int>(shown) * 58 + 4, count, page_size);
+    make_page_controls(list, rows_top + static_cast<int>(shown) * 58 + 4, count, page_size);
 }
 
 View library_section_view(LibraryTab section)

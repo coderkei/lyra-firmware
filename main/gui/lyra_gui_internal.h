@@ -237,6 +237,8 @@ extern bool s_playlists_from_library;
 extern bool s_playlist_add_mode;
 extern bool s_playlist_manage_mode;
 extern bool s_playlist_create_from_queue;
+extern bool s_queue_add_mode;
+extern bool s_queue_edit_mode;
 extern bool s_show_nav;
 extern bool s_language_setup_pending;
 extern char s_search_query[48];
@@ -349,7 +351,7 @@ esp_err_t start_track_audio(const lyra::media::Track &track,
                             uint32_t start_position_ms = 0,
                             bool start_paused = false,
                             bool record_play = true);
-void play_queue_position(size_t queue_position);
+void play_queue_position(size_t queue_position, bool navigate_to_player = true);
 bool move_in_playback_queue(int direction, bool automatic = false);
 bool can_move_in_playback_queue(int direction);
 bool begin_manual_crossfade(int direction);
@@ -370,6 +372,7 @@ void volume_popup_slider_released_cb(lv_event_t *);
 void show_volume_popup_cb(lv_event_t *);
 void make_status_bar();
 lv_obj_t *make_header(const char *title, View back, bool show_back = false, const char *right = nullptr, lv_event_cb_t custom_back = nullptr);
+void make_queue_add_mode_toggle(lv_obj_t *parent, int x, int y, int width = 40, int height = 36);
 void dismiss_overlay_cb(lv_event_t *event);
 void show_notice(const char *title_text, const char *message_text);
 lv_obj_t *make_row(lv_obj_t *parent, int y, const char *icon_text, const char *title, const char *subtitle, View target, int height = 54);
