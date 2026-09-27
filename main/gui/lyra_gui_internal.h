@@ -75,6 +75,8 @@ constexpr uint32_t kNonGaplessTrackPauseMs = 500;
 
 extern const uint8_t boot_png_start[] asm("_binary_boot_png_start");
 extern const uint8_t boot_png_end[] asm("_binary_boot_png_end");
+extern const uint8_t boot_light_png_start[] asm("_binary_boot_light_png_start");
+extern const uint8_t boot_light_png_end[] asm("_binary_boot_light_png_end");
 
 struct AccentPalette {
     uint32_t dark_rgb;

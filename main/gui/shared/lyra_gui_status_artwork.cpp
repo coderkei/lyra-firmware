@@ -128,19 +128,32 @@ void release_boot_image()
 
 bool load_brand_logo()
 {
-    if (s_brand_logo_pixels) return true;
+    static bool cached_dark_mode = true;
+    if (s_brand_logo_pixels && cached_dark_mode == s_dark_mode) return true;
+    if (s_brand_logo_pixels) {
+        heap_caps_free(s_brand_logo_pixels);
+        s_brand_logo_pixels = nullptr;
+        s_brand_logo_descriptor = {};
+    }
+
+    const uint8_t *png_start = s_dark_mode ? boot_png_start : boot_light_png_start;
+    const uint8_t *png_end = s_dark_mode ? boot_png_end : boot_light_png_end;
+    constexpr uint32_t kLightBootBackgroundRgb = 0xF8FAFC;
+    const uint32_t background_rgb = s_dark_mode ? kBootBackgroundRgb :
+                                                  kLightBootBackgroundRgb;
     const size_t logo_bytes = static_cast<size_t>(kBootImageWidth) *
         kBootImageHeight * sizeof(uint16_t);
     auto *pixels = static_cast<uint16_t *>(heap_caps_malloc(
         logo_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!pixels || !lyra::media::decode_png(boot_png_start,
-                                             static_cast<size_t>(boot_png_end - boot_png_start),
+    if (!pixels || !lyra::media::decode_png(png_start,
+                                             static_cast<size_t>(png_end - png_start),
                                              pixels, kBootImageWidth, kBootImageHeight,
-                                             false, kBootBackgroundRgb)) {
+                                             false, background_rgb)) {
         heap_caps_free(pixels);
         return false;
     }
     s_brand_logo_pixels = reinterpret_cast<uint8_t *>(pixels);
+    cached_dark_mode = s_dark_mode;
     s_brand_logo_descriptor = {};
     s_brand_logo_descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
     s_brand_logo_descriptor.header.cf = LV_COLOR_FORMAT_RGB565;

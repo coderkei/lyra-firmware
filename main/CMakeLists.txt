@@ -49,6 +49,7 @@ idf_component_register(
         "i18n"
     EMBED_FILES
         "../graphics/boot.png"
+        "../graphics/boot_light.png"
     REQUIRES
         lyra_board
         lvgl
