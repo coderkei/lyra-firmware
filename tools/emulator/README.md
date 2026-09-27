@@ -2,11 +2,12 @@
 
 On Windows, run `Open Lyra GUI emulator.cmd`. On Linux, run `bash launch.sh`.
 Both launchers open the same local browser emulator and load
-`lyra_firmware_merged.bin` from the repository root when it is present. If the
-image is missing, the emulator opens and waits for you to choose a merged `.bin`
-with **Open .bin**. You can pass a different merged `.bin` as an argument to
-either launcher; on Windows, you can also drag it onto the `.cmd` file. The
-browser reads the image locally; it is not uploaded.
+`lyra_firmware_merged.bin` from the repository root when it is present, or from
+the `build` directory otherwise. If neither image is present, the emulator
+opens and waits for you to choose a merged `.bin` with **Open .bin**. You can
+pass a different merged `.bin` as an argument to either launcher; on Windows,
+you can also drag it onto the `.cmd` file. The browser reads the image locally;
+it is not uploaded.
 
 The launchers share `scripts/emulator.py` and need Python 3.8 or later. The
 server and launcher use only the Python standard library. Windows uses Python's

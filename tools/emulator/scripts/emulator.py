@@ -23,7 +23,11 @@ STORAGE_ROOT = EMULATOR_ROOT / "storage"
 SD_PATH = STORAGE_ROOT / "virtual-sd.img"
 FLASH_PATH = STORAGE_ROOT / "internal-flash.bin"
 FIRMWARE_HASH_PATH = STORAGE_ROOT / "firmware.sha256"
-DEFAULT_FIRMWARE_PATH = EMULATOR_ROOT.parent.parent / "lyra_firmware_merged.bin"
+PROJECT_ROOT = EMULATOR_ROOT.parent.parent
+DEFAULT_FIRMWARE_PATHS = (
+    PROJECT_ROOT / "lyra_firmware_merged.bin",
+    PROJECT_ROOT / "build" / "lyra_firmware_merged.bin",
+)
 
 
 class EmulatorServer(http.server.ThreadingHTTPServer):
@@ -279,7 +283,7 @@ def choose_firmware(path):
         if not firmware.is_file():
             raise FileNotFoundError("Firmware file not found: " + str(firmware))
         return firmware
-    return DEFAULT_FIRMWARE_PATH if DEFAULT_FIRMWARE_PATH.is_file() else None
+    return next((firmware for firmware in DEFAULT_FIRMWARE_PATHS if firmware.is_file()), None)
 
 
 def launch(firmware_argument):

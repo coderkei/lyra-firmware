@@ -298,7 +298,7 @@ LYRA_I18N_ENTRY(FactoryResetFailed, "Factory reset failed: %s", "Échec de la r�
 LYRA_I18N_ENTRY(LanguageSaveFailed, "Could not save the selected language: %s", "Impossible d'enregistrer la langue sélectionnée : %s", "Die ausgewählte Sprache konnte nicht gespeichert werden: %s", "No se pudo guardar el idioma seleccionado: %s", "Impossibile salvare la lingua selezionata: %s", "選択した言語を保存できませんでした：%s", "선택한 언어를 저장할 수 없습니다: %s", "Не удалось сохранить выбранный язык: %s", "无法保存所选语言：%s", "無法儲存選取的語言：%s")
 
 LYRA_I18N_ENTRY(About, "About", "À propos", "Über", "Acerca de", "Informazioni", "この端末について", "정보", "О программе", "关于", "關於")
-LYRA_I18N_ENTRY(FirmwareVersion, "FIRMWARE VERSION", "VERSION DU MICROLOGICIEL", "FIRMWAREVERSION", "VERSIÓN DEL FIRMWARE", "VERSIONE FIRMWARE", "ファームウェアバージョン", "펌웨어 버전", "ВЕРСИЯ ПРОШИВКИ", "固件版本", "韌體版本")
+LYRA_I18N_ENTRY(FirmwareVersion, "LyraOS Version", "Version de LyraOS", "LyraOS-Version", "Versión de LyraOS", "Versione di LyraOS", "LyraOS バージョン", "LyraOS 버전", "Версия LyraOS", "LyraOS 版本", "LyraOS 版本")
 LYRA_I18N_ENTRY(HardwareId, "HARDWARE ID", "ID DU MATÉRIEL", "HARDWARE-ID", "ID DEL HARDWARE", "ID HARDWARE", "ハードウェアID", "하드웨어 ID", "ИДЕНТИФИКАТОР ОБОРУДОВАНИЯ", "硬件 ID", "硬體 ID")
 LYRA_I18N_ENTRY(FirmwareUpdate, "FIRMWARE UPDATE", "MISE À JOUR DU MICROLOGICIEL", "FIRMWARE-UPDATE", "ACTUALIZACIÓN DEL FIRMWARE", "AGGIORNAMENTO FIRMWARE", "ファームウェア更新", "펌웨어 업데이트", "ОБНОВЛЕНИЕ ПРОШИВКИ", "固件更新", "韌體更新")
 LYRA_I18N_ENTRY(Licenses, "LICENSES", "LICENCES", "LIZENZEN", "LICENCIAS", "LICENZE", "ライセンス", "라이선스", "ЛИЦЕНЗИИ", "许可证", "授權條款")
