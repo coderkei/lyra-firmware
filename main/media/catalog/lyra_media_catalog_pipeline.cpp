@@ -48,6 +48,7 @@ void remove_stale_jpeg_work_files()
 void process_artwork_request(const ArtworkRequest &request)
 {
     const uint32_t key = artwork::key(request.track);
+    const uint32_t cache_key = artwork::cache_key(request.track);
     uint16_t artwork_size = kDefaultArtworkSize;
     bool sd_cache_enabled = true;
     {
@@ -59,7 +60,7 @@ void process_artwork_request(const ArtworkRequest &request)
     }
 
     uint16_t *pixels = nullptr;
-    if (!sd_cache_enabled || !artwork::read_cache(key, artwork_size, &pixels)) {
+    if (!sd_cache_enabled || !artwork::read_cache(cache_key, artwork_size, &pixels)) {
         bool used_sd_backing = false;
         if (!artwork::extract_and_decode(request.track, &pixels, artwork_size,
                                          &s_artwork_diagnostics, sd_cache_enabled,
@@ -69,9 +70,9 @@ void process_artwork_request(const ArtworkRequest &request)
             s_artwork_failed = true;
             return;
         }
-        if (used_sd_backing && !artwork::write_cache(key, artwork_size, pixels)) {
+        if (used_sd_backing && !artwork::write_cache(cache_key, artwork_size, pixels)) {
             ESP_LOGW(kTag, "could not persist SD-backed artwork cache: key=%08lx",
-                     static_cast<unsigned long>(key));
+                     static_cast<unsigned long>(cache_key));
         }
     }
     {

@@ -13,6 +13,7 @@
 namespace lyra::media::artwork {
 
 uint32_t key(const Track &track);
+uint32_t cache_key(const Track &track);
 uint64_t request_key(const Track &track, ArtworkSize size);
 bool read_cache(uint32_t key, uint16_t artwork_size, uint16_t **out_pixels);
 bool write_cache(uint32_t key, uint16_t artwork_size, const uint16_t *pixels);

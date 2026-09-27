@@ -29,9 +29,10 @@ constexpr const char *kTag = "lyra.media.artwork";
 constexpr const char *kDataDir = "/sdcard/.lyra";
 constexpr const char *kArtworkDir = "/sdcard/.lyra/covers";
 constexpr size_t kArtworkReadChunkBytes = 8192;
-constexpr size_t kMaximumEmbeddedImageBytes = 16u * 1024u * 1024u;
+constexpr size_t kMaximumArtworkSourceBytes = 16u * 1024u * 1024u;
 constexpr size_t kMaximumOggCommentPacketBytes = 2u * 1024u * 1024u;
-constexpr uint32_t kLargeArtworkCacheVersion = 1;
+constexpr uint32_t kLargeArtworkCacheVersion = 2;
+constexpr const char *kFolderArtworkNames[] = {"cover.jpg", "folder.jpg", "cover.png"};
 
 uint32_t read_be32(const uint8_t *bytes)
 {
@@ -132,20 +133,68 @@ bool ensure_directory(const char *path)
     return stat(path, &info) == 0 && S_ISDIR(info.st_mode);
 }
 
+bool folder_artwork_path(const Track &track, const char *name, char *path, size_t capacity)
+{
+    if (!track.path[0] || !name || !path || capacity == 0) return false;
+    const char *separator = std::strrchr(track.path, '/');
+    if (!separator) return false;
+    const size_t directory_length = static_cast<size_t>(separator - track.path);
+    if (directory_length == 0 || directory_length + 1 + std::strlen(name) + 1 > capacity) {
+        return false;
+    }
+    std::memcpy(path, track.path, directory_length);
+    path[directory_length] = '/';
+    std::strcpy(path + directory_length + 1, name);
+    return true;
+}
+
+void hash_bytes(uint32_t *hash, const void *data, size_t length)
+{
+    if (!hash || (!data && length != 0)) return;
+    const auto *bytes = static_cast<const uint8_t *>(data);
+    for (size_t index = 0; index < length; ++index) {
+        *hash = (*hash ^ bytes[index]) * 16777619u;
+    }
+}
+
+void hash_text(uint32_t *hash, const char *text)
+{
+    if (!hash || !text) return;
+    hash_bytes(hash, text, std::strlen(text) + 1);
+}
+
 } // namespace
 
 uint32_t key(const Track &track)
 {
     uint32_t hash = 2166136261u;
-    const auto update = [&hash](const char *text) {
-        for (const uint8_t *p = reinterpret_cast<const uint8_t *>(text); *p; ++p) {
-            hash = (hash ^ *p) * 16777619u;
-        }
-    };
-    // The Albums browser groups on Track::album, so use the same identity
-    // here. This guarantees every song in an album resolves to one shared
-    // decoded source and one in-memory display asset.
-    update(track.album);
+    // Keep songs from one album in a folder grouped, while separating same-
+    // named albums in different folders that can have different folder covers.
+    hash_text(&hash, track.album);
+    const char *separator = std::strrchr(track.path, '/');
+    if (separator) hash_bytes(&hash, track.path, static_cast<size_t>(separator - track.path) + 1);
+    else hash_text(&hash, track.path);
+    return hash;
+}
+
+uint32_t cache_key(const Track &track)
+{
+    uint32_t hash = key(track);
+    hash_bytes(&hash, &track.size_bytes, sizeof(track.size_bytes));
+    hash_bytes(&hash, &track.modified_time, sizeof(track.modified_time));
+
+    // The persistent cache is used only by large JPEG decodes. Include the
+    // metadata of every candidate so replacing or adding a folder image makes
+    // an old decoded cache entry unreachable after the next app start.
+    for (const char *name : kFolderArtworkNames) {
+        char path[kMaxPath + sizeof("/folder.jpg")];
+        if (!folder_artwork_path(track, name, path, sizeof(path))) continue;
+        struct stat info{};
+        if (stat(path, &info) != 0 || !S_ISREG(info.st_mode)) continue;
+        hash_text(&hash, path);
+        hash_bytes(&hash, &info.st_size, sizeof(info.st_size));
+        hash_bytes(&hash, &info.st_mtime, sizeof(info.st_mtime));
+    }
     return hash;
 }
 
@@ -183,12 +232,12 @@ void *alloc_artwork_pixels(size_t size)
 
 bool grow_artwork_blob(ArtworkBlob *blob, size_t wanted)
 {
-    if (!blob || wanted > kMaximumEmbeddedImageBytes) return false;
+    if (!blob || wanted > kMaximumArtworkSourceBytes) return false;
     if (wanted <= blob->capacity) return true;
     size_t capacity = blob->capacity == 0 ? 16 * 1024 : blob->capacity;
     while (capacity < wanted) {
-        if (capacity > kMaximumEmbeddedImageBytes / 2) {
-            capacity = kMaximumEmbeddedImageBytes;
+        if (capacity > kMaximumArtworkSourceBytes / 2) {
+            capacity = kMaximumArtworkSourceBytes;
             break;
         }
         capacity *= 2;
@@ -204,6 +253,51 @@ bool grow_artwork_blob(ArtworkBlob *blob, size_t wanted)
     blob->data = next;
     blob->capacity = capacity;
     return true;
+}
+
+bool read_folder_artwork_file(const char *path, ArtworkBlob *blob)
+{
+    if (!path || !blob) return false;
+    FILE *file = lyra::sd::open(path, "rb", lyra::sd::Client::Artwork);
+    if (!file) return false;
+
+    bool success = false;
+    if (lyra::sd::seek(file, 0, SEEK_END, lyra::sd::Client::Artwork) == 0) {
+        const long file_size = std::ftell(file);
+        if (file_size >= 4 && static_cast<size_t>(file_size) <= kMaximumArtworkSourceBytes &&
+            lyra::sd::seek(file, 0, SEEK_SET, lyra::sd::Client::Artwork) == 0 &&
+            grow_artwork_blob(blob, static_cast<size_t>(file_size))) {
+            blob->psram = true;
+            size_t remaining = static_cast<size_t>(file_size);
+            size_t offset = 0;
+            while (remaining > 0) {
+                const size_t wanted = std::min(remaining, kArtworkReadChunkBytes);
+                const size_t count = lyra::sd::read(file, blob->data + offset, wanted,
+                                                     lyra::sd::Client::Artwork);
+                if (count == 0) break;
+                offset += count;
+                remaining -= count;
+                if (remaining > 0) vTaskDelay(1);
+            }
+            if (remaining == 0) {
+                constexpr uint8_t kPngSignature[] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+                if (offset >= sizeof(kPngSignature) &&
+                    std::memcmp(blob->data, kPngSignature, sizeof(kPngSignature)) == 0) {
+                    blob->format = ArtworkFormat::Png;
+                    blob->length = offset;
+                    success = true;
+                } else if (offset >= 3 && blob->data[0] == 0xFF &&
+                           blob->data[1] == 0xD8 && blob->data[2] == 0xFF) {
+                    blob->format = ArtworkFormat::Jpeg;
+                    blob->length = offset;
+                    success = true;
+                }
+            }
+        }
+    }
+    lyra::sd::close(file, lyra::sd::Client::Artwork);
+    if (!success) free_artwork_blob(blob);
+    return success;
 }
 
 bool append_artwork_byte(ArtworkBlob *blob, uint8_t value)
@@ -233,7 +327,7 @@ bool copy_embedded_image_from_memory(const uint8_t *data, size_t length,
             break;
         }
     }
-    if (image_start == SIZE_MAX || length - image_start > kMaximumEmbeddedImageBytes) return false;
+    if (image_start == SIZE_MAX || length - image_start > kMaximumArtworkSourceBytes) return false;
     const bool prefer_psram = blob->psram;
     free_artwork_blob(blob);
     blob->psram = prefer_psram;
@@ -327,7 +421,7 @@ bool extract_ogg_image(FILE *file, ArtworkBlob *blob)
                 find_ogg_comment(packet, packet_length, comment_start,
                                  "COVERART", &encoded, &encoded_length)) {
                 const size_t capacity = std::min<size_t>(
-                    kMaximumEmbeddedImageBytes + 1024,
+                    kMaximumArtworkSourceBytes + 1024,
                     (encoded_length / 4u) * 3u + 4u);
                 auto *decoded = static_cast<uint8_t *>(heap_caps_malloc(
                     capacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -352,7 +446,7 @@ bool extract_ogg_image(FILE *file, ArtworkBlob *blob)
 bool read_embedded_image(FILE *source, uint64_t offset, uint32_t max_length,
                          ArtworkBlob *blob)
 {
-    if (!source || !blob || max_length < 4 || max_length > kMaximumEmbeddedImageBytes) return false;
+    if (!source || !blob || max_length < 4 || max_length > kMaximumArtworkSourceBytes) return false;
 
     // A tag can contain more than one picture. Do not let a malformed first
     // candidate contaminate the next candidate's in-memory source.
@@ -482,7 +576,7 @@ bool read_embedded_image(FILE *source, uint64_t offset, uint32_t max_length,
                             (static_cast<uint32_t>(png_header[2]) << 8) | png_header[3];
                         std::memcpy(png_chunk_type, png_header + 4, 4);
                         png_chunk_type[4] = '\0';
-                        if (png_chunk_length > kMaximumEmbeddedImageBytes) return false;
+                        if (png_chunk_length > kMaximumArtworkSourceBytes) return false;
                         png_chunk_remaining = png_chunk_length;
                         png_crc_remaining = 4;
                     }
@@ -853,24 +947,23 @@ bool extract_and_decode(const Track &track, uint16_t **out_pixels,
     if (!out_pixels || !diagnostics) return false;
     *out_pixels = nullptr;
     if (used_sd_backing) *used_sd_backing = false;
-    FILE *file = lyra::sd::open(track.path, "rb", lyra::sd::Client::Artwork);
-    if (!file) return false;
-    uint8_t header[10]{};
     const int64_t source_started = esp_timer_get_time();
-    const size_t header_read = lyra::sd::read(file, header, sizeof(header),
-                                               lyra::sd::Client::Artwork);
+    FILE *file = lyra::sd::open(track.path, "rb", lyra::sd::Client::Artwork);
     ArtworkBlob blob{};
     blob.psram = true;
-    const bool extracted = header_read == sizeof(header) &&
-        extract_embedded_image_from_track(file, header, &blob);
-    lyra::sd::close(file, lyra::sd::Client::Artwork);
+    bool extracted = false;
+    if (file) {
+        uint8_t header[10]{};
+        const size_t header_read = lyra::sd::read(file, header, sizeof(header),
+                                                   lyra::sd::Client::Artwork);
+        extracted = header_read == sizeof(header) &&
+            extract_embedded_image_from_track(file, header, &blob);
+        lyra::sd::close(file, lyra::sd::Client::Artwork);
+    }
     diagnostics->source_read_us = static_cast<uint32_t>(std::max<int64_t>(
         0, esp_timer_get_time() - source_started));
     diagnostics->source_psram = blob.psram;
-    if (!extracted) {
-        free_artwork_blob(&blob);
-        return false;
-    }
+    if (!extracted) free_artwork_blob(&blob);
 
     const size_t player_pixels = static_cast<size_t>(artwork_size) * artwork_size;
     auto *player = static_cast<uint16_t *>(alloc_artwork_pixels(
@@ -882,22 +975,53 @@ bool extract_and_decode(const Track &track, uint16_t **out_pixels,
     }
 
     const int64_t decode_started = esp_timer_get_time();
-    const bool decoded = decode_artwork_blob(blob, player, artwork_size, true,
-                                             allow_sd_backing, used_sd_backing);
+    bool decoded = false;
+    bool embedded_decode_attempted = false;
+    if (extracted) {
+        embedded_decode_attempted = true;
+        decoded = decode_artwork_blob(blob, player, artwork_size, true,
+                                      allow_sd_backing, used_sd_backing);
+        ++diagnostics->decode_count;
+    }
+
+    const char *selected_source = "embedded";
+    if (!decoded) {
+        free_artwork_blob(&blob);
+        selected_source = "folder";
+        for (const char *name : kFolderArtworkNames) {
+            char path[kMaxPath + sizeof("/folder.jpg")];
+            if (!folder_artwork_path(track, name, path, sizeof(path))) continue;
+            const int64_t fallback_read_started = esp_timer_get_time();
+            const bool loaded = read_folder_artwork_file(path, &blob);
+            diagnostics->source_read_us += static_cast<uint32_t>(std::max<int64_t>(
+                0, esp_timer_get_time() - fallback_read_started));
+            if (!loaded) continue;
+            bool fallback_used_sd_backing = false;
+            decoded = decode_artwork_blob(blob, player, artwork_size, true,
+                                          allow_sd_backing, &fallback_used_sd_backing);
+            ++diagnostics->decode_count;
+            if (decoded) {
+                if (used_sd_backing) *used_sd_backing = fallback_used_sd_backing;
+                break;
+            }
+            free_artwork_blob(&blob);
+        }
+    }
     diagnostics->decode_us = static_cast<uint32_t>(std::max<int64_t>(
         0, esp_timer_get_time() - decode_started));
-    ++diagnostics->decode_count;
     diagnostics->player_pixels_internal = esp_ptr_internal(player);
     if (!decoded) {
-        ESP_LOGW(kTag, "artwork decode failed: format=%s bytes=%u",
+        ESP_LOGW(kTag, "artwork decode failed: embedded_attempted=%u format=%s bytes=%u",
+                 embedded_decode_attempted ? 1u : 0u,
                  blob.format == ArtworkFormat::Png ? "png" : "jpeg",
                  static_cast<unsigned>(blob.length));
         heap_caps_free(player);
         free_artwork_blob(&blob);
         return false;
     }
-    ESP_LOGI(kTag, "artwork album decode: source=%u us decode=%u us "
+    ESP_LOGI(kTag, "artwork %s decode: source=%u us decode=%u us "
              "compressed=%u bytes source=%s player=%s workspace=%s output=%ux%u",
+             selected_source,
              static_cast<unsigned>(diagnostics->source_read_us),
              static_cast<unsigned>(diagnostics->decode_us),
              static_cast<unsigned>(blob.length), blob.psram ? "psram" : "internal",

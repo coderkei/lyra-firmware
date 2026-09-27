@@ -77,8 +77,10 @@ reported to the UI instead of preventing the system shell from starting.
 - The active queue is stored separately at `/sdcard/.lyra/queue-v1.m3u8`.
 - Settings, volume, equalizer preferences, sort choices, and artwork-cache
   choices use the `lyra` NVS namespace.
-- Embedded album art is loaded on demand. Lyra keeps the display image in
-  memory and can retain selected decoded artwork in `/sdcard/.lyra/covers`.
+- Album art is loaded on demand. Embedded artwork takes priority; tracks
+  without embedded artwork can use `cover.jpg`, `folder.jpg`, or `cover.png`
+  from their containing folder. Lyra keeps the display image in memory and
+  can retain selected decoded artwork in `/sdcard/.lyra/covers`.
 - Track catalog records capture each file's filesystem modification timestamp
   and refresh the size/date when file metadata is read, so files created or
   changed by Lyra receive the active clock date.
