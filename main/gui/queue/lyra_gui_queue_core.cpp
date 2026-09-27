@@ -443,6 +443,176 @@ bool current_queue_position(size_t *queue_position)
     return true;
 }
 
+namespace {
+
+size_t *allocate_session_queue()
+{
+    auto *queue = static_cast<size_t *>(heap_caps_malloc(
+        lyra::media::kMaxTracks * sizeof(size_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!queue) {
+        queue = static_cast<size_t *>(heap_caps_malloc(
+            lyra::media::kMaxTracks * sizeof(size_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    }
+    return queue;
+}
+
+bool make_queue_editable()
+{
+    if (s_playback_scope == PlaybackScope::SavedQueue) {
+        if (s_saved_queue) return true;
+        if (s_saved_queue_count != 0) return false;
+        s_saved_queue = allocate_session_queue();
+        return s_saved_queue != nullptr;
+    }
+
+    const size_t count = s_has_active_queue ? playback_queue_count() : 0;
+    if (count > lyra::media::kMaxTracks) return false;
+    size_t current = 0;
+    const bool have_current = count > 0 && current_queue_position(&current);
+    size_t *queue = allocate_session_queue();
+    if (!queue) return false;
+    for (size_t i = 0; i < count; ++i) {
+        if (!queue_track_at(i, &queue[i])) {
+            heap_caps_free(queue);
+            return false;
+        }
+    }
+
+    clear_saved_queue();
+    s_saved_queue = queue;
+    s_saved_queue_count = count;
+    s_playback_scope = PlaybackScope::SavedQueue;
+    s_shuffle = false;
+    reset_shuffle_queue();
+    s_queue_position = count == 0 ? 0 : (have_current ? std::min(current, count - 1) : 0);
+    s_queue_position_valid = count > 0;
+    s_has_active_queue = count > 0;
+    return true;
+}
+
+void start_queue_track(size_t position)
+{
+    if (position >= s_saved_queue_count) return;
+    s_queue_position = position;
+    s_queue_position_valid = true;
+    s_current_track = s_saved_queue[position];
+    s_has_active_queue = true;
+    s_audio_eof_seen = false;
+    lyra::media::Track track{};
+    if (!lyra::media::track_at(s_current_track, &track)) return;
+    const esp_err_t result = start_track_audio(track);
+    if (result != ESP_OK) {
+        ESP_LOGW(kTag, "cannot start %s: %s", track.path, esp_err_to_name(result));
+    }
+}
+
+} // namespace
+
+bool add_tracks_to_queue(const size_t *track_indices, size_t count, QueueInsertMode mode)
+{
+    if (!track_indices || count == 0 || count > lyra::media::kMaxTracks) return false;
+    if (!s_has_active_queue && s_saved_queue_pending && restore_saved_queue_if_pending()) {
+        resume_saved_track_if_pending();
+    }
+    const size_t existing_count = s_has_active_queue ? playback_queue_count() : 0;
+    if (existing_count > lyra::media::kMaxTracks ||
+        count > lyra::media::kMaxTracks - existing_count) return false;
+    if (!make_queue_editable() ||
+        count > lyra::media::kMaxTracks - s_saved_queue_count) return false;
+
+    const size_t previous_count = s_saved_queue_count;
+    size_t insertion = previous_count;
+    if (previous_count > 0 && mode == QueueInsertMode::PlayNext) {
+        size_t current = 0;
+        if (!current_queue_position(&current)) return false;
+        insertion = current + 1;
+    } else if (previous_count == 0) {
+        insertion = 0;
+    }
+
+    std::memmove(s_saved_queue + insertion + count, s_saved_queue + insertion,
+                 (previous_count - insertion) * sizeof(size_t));
+    std::memcpy(s_saved_queue + insertion, track_indices, count * sizeof(size_t));
+    s_saved_queue_count += count;
+
+    if (previous_count == 0) {
+        s_playback_scope = PlaybackScope::SavedQueue;
+        s_shuffle = false;
+        reset_shuffle_queue();
+        start_queue_track(0);
+    }
+    return true;
+}
+
+bool move_queue_entry(size_t queue_position, int direction)
+{
+    if ((direction != -1 && direction != 1) || !s_has_active_queue) return false;
+    const size_t count = playback_queue_count();
+    if (queue_position >= count) return false;
+    const int64_t target = static_cast<int64_t>(queue_position) + direction;
+    if (target < 0 || target >= static_cast<int64_t>(count) || !make_queue_editable()) return false;
+    const size_t other = static_cast<size_t>(target);
+    size_t current = 0;
+    const bool have_current = current_queue_position(&current);
+    std::swap(s_saved_queue[queue_position], s_saved_queue[other]);
+    if (have_current) {
+        if (current == queue_position) s_queue_position = other;
+        else if (current == other) s_queue_position = queue_position;
+        else s_queue_position = current;
+        s_queue_position_valid = true;
+    }
+    return true;
+}
+
+bool remove_queue_entry(size_t queue_position)
+{
+    if (!s_has_active_queue || queue_position >= playback_queue_count() ||
+        !make_queue_editable()) return false;
+    size_t current = 0;
+    const bool have_current = current_queue_position(&current);
+    const bool removing_current = have_current && current == queue_position;
+    const size_t old_count = s_saved_queue_count;
+    std::memmove(s_saved_queue + queue_position, s_saved_queue + queue_position + 1,
+                 (old_count - queue_position - 1) * sizeof(size_t));
+    --s_saved_queue_count;
+
+    if (s_saved_queue_count == 0) {
+        clear_active_queue();
+        return true;
+    }
+    if (removing_current) {
+        start_queue_track(std::min(queue_position, s_saved_queue_count - 1));
+    } else if (have_current) {
+        s_queue_position = current > queue_position ? current - 1 : current;
+        s_queue_position_valid = true;
+    }
+    return true;
+}
+
+void clear_active_queue()
+{
+    const esp_err_t stop_result = lyra::audio::stop();
+    if (stop_result != ESP_OK && stop_result != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "could not stop playback while clearing queue: %s",
+                 esp_err_to_name(stop_result));
+    }
+    clear_saved_queue();
+    s_playback_scope = PlaybackScope::Single;
+    s_has_active_queue = false;
+    s_queue_position = 0;
+    s_queue_position_valid = false;
+    s_saved_queue_pending = false;
+    s_saved_playback_position_ms = 0;
+    s_saved_playback_position_pending = false;
+    s_audio_eof_seen = false;
+    s_shuffle = false;
+    reset_shuffle_queue();
+    const esp_err_t snapshot_result = lyra::media::clear_queue_snapshot();
+    if (snapshot_result != ESP_OK && snapshot_result != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "could not clear saved queue: %s", esp_err_to_name(snapshot_result));
+    }
+}
+
 void apply_replay_gain_to_current_track()
 {
     lyra::media::Track track{};
@@ -509,7 +679,7 @@ void play_queue_position(size_t queue_position)
 
 bool move_in_playback_queue(int direction, bool automatic)
 {
-    if (direction == 0) return false;
+    if (direction == 0 || !s_has_active_queue) return false;
     const size_t count = playback_queue_count();
     if (count == 0) return false;
 
@@ -558,7 +728,7 @@ bool move_in_playback_queue(int direction, bool automatic)
 
 bool can_move_in_playback_queue(int direction)
 {
-    if (direction == 0) return false;
+    if (direction == 0 || !s_has_active_queue) return false;
     const size_t count = playback_queue_count();
     if (count == 0) return false;
     if (s_shuffle) {

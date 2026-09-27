@@ -7,6 +7,30 @@
 
 namespace lyra::gui::internal {
 
+namespace {
+
+void add_folder_queue_button(lv_obj_t *row, const char *folder_path)
+{
+    auto *saved_path = static_cast<char *>(lv_malloc(std::strlen(folder_path) + 1));
+    if (!saved_path) return;
+    std::strcpy(saved_path, folder_path);
+    lv_obj_t *button = make_button(row, 270, 12, 24, 30, kAccentDark, 5);
+    lv_obj_t *icon = make_label(button, LV_SYMBOL_PLUS, kTextOnAccent);
+    lv_obj_center(icon);
+    lv_obj_add_event_cb(button, [](lv_event_t *event) {
+        lv_event_stop_bubbling(event);
+        const char *path = static_cast<const char *>(lv_event_get_user_data(event));
+        show_queue_add_picker_for_folder(path);
+    }, LV_EVENT_CLICKED, saved_path);
+    lv_obj_add_event_cb(button, [](lv_event_t *event) {
+        if (lv_event_get_code(event) == LV_EVENT_DELETE) {
+            lv_free(lv_event_get_user_data(event));
+        }
+    }, LV_EVENT_DELETE, saved_path);
+}
+
+} // namespace
+
 const char *smart_playlist_title(lyra::media::SmartPlaylistKind kind)
 {
     switch (kind) {
@@ -116,17 +140,25 @@ void make_album_row(lv_obj_t *parent, int y, size_t group_index)
     if (!lyra::media::track_at(representative, &track)) return;
     lv_obj_t *row = make_button(parent, 7, y, 306, 60, kSurface, 5, true);
     lv_obj_t *title = make_label(row, group.name, kTextPrimary);
-    make_marquee(title, 282);
+    make_marquee(title, 236);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -10);
     char subtitle[lyra::media::kMaxName + 24];
     format_text_u32(group.track_count == 1 ? lyra::i18n::StringId::AlbumSummaryOne :
                     lyra::i18n::StringId::AlbumSummaryMany, track.artist,
                     static_cast<uint32_t>(group.track_count), subtitle, sizeof(subtitle));
     lv_obj_t *sub = make_label(row, subtitle, kTextSecondary);
-    make_marquee(sub, 282);
+    make_marquee(sub, 236);
     lv_obj_align(sub, LV_ALIGN_LEFT_MID, 12, 12);
     lv_obj_add_event_cb(row, open_album_detail_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(group_index));
+    lv_obj_t *queue_button = make_button(row, 260, 12, 34, 36, kAccentDark, 5);
+    lv_obj_t *queue_icon = make_label(queue_button, LV_SYMBOL_PLUS, kTextOnAccent);
+    lv_obj_center(queue_icon);
+    lv_obj_add_event_cb(queue_button, [](lv_event_t *event) {
+        lv_event_stop_bubbling(event);
+        show_queue_add_picker_for_album(reinterpret_cast<uintptr_t>(
+            lv_event_get_user_data(event)));
+    }, LV_EVENT_CLICKED, reinterpret_cast<void *>(group_index));
 }
 
 void render_library_section(LibraryTab section)
@@ -365,6 +397,14 @@ void render_album_detail()
                  static_cast<uint32_t>(album.track_count), count, sizeof(count));
     lv_obj_t *count_label = make_label(summary, count, kAccent);
     lv_obj_set_pos(count_label, 124, 91);
+    lv_obj_t *queue_button = make_button(summary, 259, 80, 38, 34, kAccentDark, 5);
+    lv_obj_t *queue_icon = make_label(queue_button, LV_SYMBOL_PLUS, kTextOnAccent);
+    lv_obj_center(queue_icon);
+    lv_obj_add_event_cb(queue_button, [](lv_event_t *event) {
+        lv_event_stop_bubbling(event);
+        show_queue_add_picker_for_album(reinterpret_cast<uintptr_t>(
+            lv_event_get_user_data(event)));
+    }, LV_EVENT_CLICKED, reinterpret_cast<void *>(s_selected_group));
 
     auto *context = static_cast<AlbumListContext *>(lv_malloc_zeroed(sizeof(AlbumListContext)));
     if (context) {
@@ -416,6 +456,20 @@ void render_folders(bool detail)
     if (pages && s_list_page >= pages) s_list_page = pages - 1;
     const size_t first_entry = s_list_page * lyra::media::kTrackPageSize;
     const size_t last_entry = std::min(first_entry + lyra::media::kTrackPageSize, total_entries);
+    const int detail_offset = detail ? 50 : 0;
+    if (detail) {
+        lv_obj_t *add_folder = make_button(list, 7, 0, 306, 42, kSurfaceRaised, 6, true);
+        lv_obj_t *add_icon = make_label(add_folder, LV_SYMBOL_PLUS, kAccent);
+        lv_obj_align(add_icon, LV_ALIGN_LEFT_MID, 14, 0);
+        lv_obj_t *add_label = make_label(add_folder,
+            tr(lyra::i18n::StringId::AddFolderToQueue), kTextPrimary);
+        make_marquee(add_label, 240);
+        lv_obj_align(add_label, LV_ALIGN_LEFT_MID, 42, 0);
+        lv_obj_add_event_cb(add_folder, [](lv_event_t *event) {
+            lv_event_stop_bubbling(event);
+            show_queue_add_picker_for_folder(s_folder_path);
+        }, LV_EVENT_CLICKED, nullptr);
+    }
     size_t row = 0;
     const size_t first_folder = std::min(first_entry, total_folders);
     const size_t last_folder = std::min(last_entry, total_folders);
@@ -423,11 +477,18 @@ void render_folders(bool detail)
     s_folder_count = folder_capacity == 0 ? 0 : lyra::media::child_folders(
         s_folder_path, first_folder, s_folder_names, folder_capacity, &total_folders);
     for (size_t i = 0; i < s_folder_count; ++i) {
-        lv_obj_t *folder = make_row(list, static_cast<int>(row++) * 58, LV_SYMBOL_DIRECTORY,
+        const int y = detail_offset + static_cast<int>(row++) * 58;
+        lv_obj_t *folder = make_row(list, y, LV_SYMBOL_DIRECTORY,
                                     s_folder_names[i], tr(lyra::i18n::StringId::Folder),
                                     View::FolderDetail, 54);
         lv_obj_remove_event_cb(folder, route_cb);
         lv_obj_add_event_cb(folder, folder_cb, LV_EVENT_CLICKED, reinterpret_cast<void *>(i));
+        char child_path[lyra::media::kMaxPath];
+        copy_ui_text(child_path, sizeof(child_path), s_folder_path);
+        if (append_ui_text(child_path, sizeof(child_path), "/") &&
+            append_ui_text(child_path, sizeof(child_path), s_folder_names[i])) {
+            add_folder_queue_button(folder, child_path);
+        }
     }
     size_t indices[lyra::media::kTrackPageSize];
     const size_t track_offset = first_entry > total_folders ? first_entry - total_folders : 0;
@@ -435,8 +496,10 @@ void render_folders(bool detail)
         last_entry - std::max(first_entry, total_folders) : 0;
     const size_t tracks = track_capacity == 0 ? 0 : lyra::media::folder_tracks(
         s_folder_path, track_offset, indices, track_capacity, &total_tracks);
-    for (size_t i = 0; i < tracks; ++i) make_file_row(list, static_cast<int>(row++) * 58, indices[i], 54);
-    make_page_controls(list, static_cast<int>(row) * 58 + 4, total_entries);
+    for (size_t i = 0; i < tracks; ++i) {
+        make_file_row(list, detail_offset + static_cast<int>(row++) * 58, indices[i], 54);
+    }
+    make_page_controls(list, detail_offset + static_cast<int>(row) * 58 + 4, total_entries);
     if (row == 0) make_label(list, tr(lyra::i18n::StringId::FolderNoScannedAudio), kTextMuted);
 }
 

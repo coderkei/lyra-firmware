@@ -7,6 +7,113 @@
 
 namespace lyra::gui::internal {
 
+namespace {
+
+enum class QueueRowAction : uintptr_t { MoveUp, MoveDown, Remove };
+
+void close_queue_confirmation(lv_event_t *event)
+{
+    lv_event_stop_bubbling(event);
+    lv_obj_t *overlay = static_cast<lv_obj_t *>(lv_event_get_user_data(event));
+    if (overlay) lv_obj_delete(overlay);
+}
+
+void confirm_clear_queue_cb(lv_event_t *event)
+{
+    lv_event_stop_bubbling(event);
+    clear_active_queue();
+    render(View::Queue);
+}
+
+void show_clear_queue_confirmation()
+{
+    lv_obj_t *overlay = make_box(s_screen, 0, 0, kScreenWidth, kScreenHeight, kOverlay);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_90, 0);
+    lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_move_foreground(overlay);
+    lv_obj_add_event_cb(overlay, [](lv_event_t *event) {
+        if (lv_event_get_target_obj(event) == lv_event_get_current_target_obj(event)) {
+            lv_obj_delete(lv_event_get_current_target_obj(event));
+        }
+    }, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *dialog = make_box(overlay, 20, 140, 280, 200, kSurfaceRaised, 12);
+    lv_obj_t *title = make_label(dialog, tr(lyra::i18n::StringId::ClearQueueQuestion),
+                                 kTextPrimary);
+    lv_obj_set_width(title, 248);
+    lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+    lv_obj_t *message = make_label(dialog, tr(lyra::i18n::StringId::ClearQueueMessage),
+                                   kTextSecondary);
+    lv_obj_set_width(message, 248);
+    lv_label_set_long_mode(message, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(message, LV_ALIGN_CENTER, 0, -4);
+
+    lv_obj_t *cancel = make_button(dialog, 14, 146, 116, 40, kSurface, 7);
+    lv_obj_t *cancel_label = make_label(cancel, tr(lyra::i18n::StringId::Cancel),
+                                        kTextSecondary);
+    lv_obj_center(cancel_label);
+    lv_obj_add_event_cb(cancel, close_queue_confirmation, LV_EVENT_CLICKED, overlay);
+    lv_obj_t *clear = make_button(dialog, 150, 146, 116, 40, kDangerSurface, 7);
+    lv_obj_t *clear_label = make_label(clear, tr(lyra::i18n::StringId::Clear), kTextOnAccent);
+    lv_obj_center(clear_label);
+    lv_obj_add_event_cb(clear, confirm_clear_queue_cb, LV_EVENT_CLICKED, nullptr);
+}
+
+void clear_queue_cb(lv_event_t *)
+{
+    show_clear_queue_confirmation();
+}
+
+void save_queue_as_playlist_cb(lv_event_t *)
+{
+    if (!s_has_active_queue || playback_queue_count() == 0) return;
+    s_playlist_create_from_queue = true;
+    s_playlist_name[0] = '\0';
+    navigate_to(View::PlaylistCreate);
+}
+
+void queue_row_action_cb(lv_event_t *event)
+{
+    lv_event_stop_bubbling(event);
+    const uintptr_t action_value = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
+    const size_t position = static_cast<size_t>(action_value >> 2);
+    const QueueRowAction action = static_cast<QueueRowAction>(action_value & 0x3u);
+    bool changed = false;
+    if (action == QueueRowAction::MoveUp) changed = move_queue_entry(position, -1);
+    else if (action == QueueRowAction::MoveDown) changed = move_queue_entry(position, 1);
+    else if (action == QueueRowAction::Remove) changed = remove_queue_entry(position);
+    if (changed) render(View::Queue);
+}
+
+void add_queue_row_action(lv_obj_t *row, int x, const char *symbol, lv_color_t color,
+                          size_t position, QueueRowAction action)
+{
+    const bool remove = action == QueueRowAction::Remove;
+    lv_obj_t *button = make_button(row, x, 10, 30, 34,
+                                   remove ? lv_color_hex(0x991B1B) : kSurfaceRaised, 5);
+    lv_obj_t *icon = make_label(button, symbol, remove ? kTextOnAccent : color);
+    lv_obj_center(icon);
+    const uintptr_t payload = (static_cast<uintptr_t>(position) << 2) |
+                              static_cast<uintptr_t>(action);
+    lv_obj_add_event_cb(button, queue_row_action_cb, LV_EVENT_CLICKED,
+                        reinterpret_cast<void *>(payload));
+}
+
+void add_queue_toolbar_button(lv_obj_t *parent, int x, const char *text,
+                              lv_event_cb_t callback)
+{
+    lv_obj_t *button = make_button(parent, x, 0, 148, 40, kSurfaceRaised, 6, true);
+    lv_obj_t *label = make_label(button, text, kAccent);
+    make_marquee(label, 132);
+    lv_obj_center(label);
+    lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, nullptr);
+}
+
+} // namespace
+
 void open_queue_cb(lv_event_t *)
 {
     if (s_view == View::Queue) return;
@@ -109,21 +216,30 @@ void make_queue_song_row(lv_obj_t *parent, int y, size_t queue_position, bool cu
                queue_number_text, sizeof(queue_number_text));
     lv_obj_t *queue_number = make_label(row, queue_number_text,
                                         current ? kTextOnAccent : kTextMuted);
-    lv_obj_set_width(queue_number, 48);
+    lv_obj_set_width(queue_number, 40);
     lv_obj_set_style_text_align(queue_number, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(queue_number, LV_ALIGN_LEFT_MID, current ? 27 : 4, 0);
-    const int text_x = current ? 80 : 60;
+    lv_obj_align(queue_number, LV_ALIGN_LEFT_MID, current ? 22 : 0, 0);
     if (current) {
         lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, kTextOnAccent);
-        lv_obj_align(playing, LV_ALIGN_LEFT_MID, 10, 0);
+        lv_obj_align(playing, LV_ALIGN_LEFT_MID, 5, 0);
         lv_obj_clear_flag(playing, LV_OBJ_FLAG_CLICKABLE);
     }
+    const int text_x = current ? 62 : 42;
     lv_obj_t *title = make_label(row, track.title, current ? kTextOnAccent : kTextPrimary);
-    make_marquee(title, current ? 214 : 234);
+    make_marquee(title, current ? 122 : 142);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, text_x, -9);
     lv_obj_t *artist = make_label(row, track.artist, current ? kTextOnAccent : kTextSecondary);
-    make_marquee(artist, current ? 214 : 234);
+    make_marquee(artist, current ? 122 : 142);
     lv_obj_align(artist, LV_ALIGN_LEFT_MID, text_x, 11);
+    const lv_color_t up_color = queue_position > 0 ? kTextSecondary : kTextMuted;
+    const lv_color_t down_color = queue_position + 1 < playback_queue_count() ?
+                                  kTextSecondary : kTextMuted;
+    add_queue_row_action(row, 188, LV_SYMBOL_UP, up_color, queue_position,
+                         QueueRowAction::MoveUp);
+    add_queue_row_action(row, 220, LV_SYMBOL_DOWN, down_color, queue_position,
+                         QueueRowAction::MoveDown);
+    add_queue_row_action(row, 252, LV_SYMBOL_TRASH, kDangerSurface, queue_position,
+                         QueueRowAction::Remove);
     lv_obj_add_event_cb(row, queue_track_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(queue_position));
 }
@@ -136,8 +252,13 @@ void render_queue()
                  count_label, sizeof(count_label));
     make_header(tr(lyra::i18n::StringId::Queue), View::Menu, true, count_label);
     lv_obj_t *list = make_scroll_body(72);
+    add_queue_toolbar_button(list, 7, tr(lyra::i18n::StringId::Clear), clear_queue_cb);
+    add_queue_toolbar_button(list, 165,
+                             tr(lyra::i18n::StringId::SaveQueueAsPlaylist),
+                             save_queue_as_playlist_cb);
     if (count == 0) {
-        make_label(list, tr(lyra::i18n::StringId::NoActiveQueue), kTextMuted);
+        lv_obj_t *empty = make_label(list, tr(lyra::i18n::StringId::NoActiveQueue), kTextMuted);
+        lv_obj_set_pos(empty, 12, 50);
         return;
     }
 
@@ -149,9 +270,10 @@ void render_queue()
     const size_t first = s_list_page * page_size;
     const size_t shown = std::min(page_size, count - first);
     for (size_t i = 0; i < shown; ++i) {
-        make_queue_song_row(list, static_cast<int>(i) * 58, first + i, first + i == current);
+        make_queue_song_row(list, 48 + static_cast<int>(i) * 58, first + i,
+                            first + i == current);
     }
-    make_page_controls(list, static_cast<int>(shown) * 58 + 4, count, page_size);
+    make_page_controls(list, 48 + static_cast<int>(shown) * 58 + 4, count, page_size);
 }
 
 View library_section_view(LibraryTab section)

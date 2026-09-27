@@ -265,6 +265,7 @@ void navigate_to(View target)
 
 void navigate_back(View fallback)
 {
+    if (s_view == View::PlaylistCreate) s_playlist_create_from_queue = false;
     if (s_navigation_depth) {
         restore_navigation_state(s_navigation[--s_navigation_depth]);
         return;
@@ -418,6 +419,7 @@ void route_cb(lv_event_t *event)
     const View target = static_cast<View>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
     if (target != s_view) {
         if (target == View::Menu) s_playlist_add_mode = false;
+        if (target == View::PlaylistCreate) s_playlist_create_from_queue = false;
         if (target == View::Playlists && s_view != View::PlaylistDetail &&
             s_view != View::PlaylistCreate) s_playlists_from_library = false;
         navigate_to(target);

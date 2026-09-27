@@ -239,6 +239,7 @@ bool queue_snapshot_exists();
 esp_err_t save_queue_snapshot(const size_t *track_indices, size_t track_count,
                               size_t current_position,
                               uint32_t playback_position_ms = 0);
+esp_err_t clear_queue_snapshot();
 size_t load_queue_snapshot(size_t *track_indices, size_t capacity,
                            size_t *current_position,
                            uint32_t *playback_position_ms = nullptr);

@@ -109,6 +109,18 @@ void populate_search_results()
             lv_obj_add_event_cb(row,
                 kind == lyra::media::GroupKind::Album ? search_album_result_cb : search_artist_result_cb,
                 LV_EVENT_CLICKED, reinterpret_cast<void *>(result.group_index));
+            if (kind == lyra::media::GroupKind::Album) {
+                lv_obj_t *queue_button = make_button(row, 270, 12, 24, 30,
+                                                      kAccentDark, 5);
+                lv_obj_t *queue_icon = make_label(queue_button, LV_SYMBOL_PLUS,
+                                                  kTextOnAccent);
+                lv_obj_center(queue_icon);
+                lv_obj_add_event_cb(queue_button, [](lv_event_t *event) {
+                    lv_event_stop_bubbling(event);
+                    show_queue_add_picker_for_album(reinterpret_cast<uintptr_t>(
+                        lv_event_get_user_data(event)));
+                }, LV_EVENT_CLICKED, reinterpret_cast<void *>(result.group_index));
+            }
         }
     }
     make_page_controls(s_search_results, static_cast<int>(count) * 58 + 4, total, page_size);
@@ -157,11 +169,35 @@ void keyboard_cb(lv_event_t *event)
         return;
     }
     if (std::strcmp(key, tr(lyra::i18n::StringId::SaveKey)) == 0) {
+        const bool from_queue = s_playlist_create_from_queue;
         size_t created = 0;
         if (lyra::media::create_playlist(s_playlist_name, &created) == ESP_OK) {
+            bool complete = true;
+            if (from_queue) {
+                const size_t queue_count = s_has_active_queue ? playback_queue_count() : 0;
+                for (size_t position = 0; position < queue_count; ++position) {
+                    size_t track_index = 0;
+                    if (!queue_track_at(position, &track_index) ||
+                        lyra::media::add_to_playlist(created, track_index) != ESP_OK) {
+                        complete = false;
+                        break;
+                    }
+                }
+            }
+            if (!complete) {
+                lyra::media::delete_playlist(created);
+                show_notice(tr(lyra::i18n::StringId::Queue),
+                            tr(lyra::i18n::StringId::QueueSaveFailed));
+                return;
+            }
             s_selected_playlist = created;
+            s_selected_playlist_is_smart = false;
             s_playlist_name[0] = '\0';
+            s_playlist_create_from_queue = false;
             render(View::PlaylistDetail);
+        } else if (from_queue) {
+            show_notice(tr(lyra::i18n::StringId::Queue),
+                        tr(lyra::i18n::StringId::QueueSaveFailed));
         }
         return;
     }
@@ -300,7 +336,9 @@ void render_search()
 
 void render_playlist_create()
 {
-    make_header(tr(lyra::i18n::StringId::NewPlaylist), View::Playlists, true);
+    make_header(s_playlist_create_from_queue ?
+                tr(lyra::i18n::StringId::SaveQueueAsPlaylist) :
+                tr(lyra::i18n::StringId::NewPlaylist), View::Playlists, true);
     lv_obj_t *body = make_box(s_screen, 0, 72, 320, content_height(72), kBackground);
     lv_obj_t *input = make_box(body, 9, 8, 302, 43, kSurfaceRaised, 7);
     s_search_label = make_label(input, "", kTextMuted);

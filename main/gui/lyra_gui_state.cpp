@@ -54,6 +54,7 @@ lv_obj_t *s_scan_phase_label = nullptr;
 lv_obj_t *s_sort_overlay = nullptr;
 lv_obj_t *s_sort_progress_label = nullptr;
 lv_obj_t *s_playlist_picker = nullptr;
+lv_obj_t *s_queue_add_popup = nullptr;
 lv_obj_t *s_volume_popup = nullptr;
 lv_obj_t *s_status_volume_label = nullptr;
 lv_obj_t *s_status_time_label = nullptr;
@@ -109,6 +110,7 @@ bool s_library_keyboard_symbols = false;
 bool s_playlists_from_library = false;
 bool s_playlist_add_mode = false;
 bool s_playlist_manage_mode = false;
+bool s_playlist_create_from_queue = false;
 // The JC3248W535EN dev kit has no Lyra hardware key matrix, so keep the
 // simulator-equivalent touch dock available from first boot.
 bool s_show_nav = true;

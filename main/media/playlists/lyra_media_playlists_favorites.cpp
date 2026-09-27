@@ -317,6 +317,20 @@ bool queue_snapshot_exists()
     return stat(kQueueSnapshotPath, &info) == 0 && S_ISREG(info.st_mode);
 }
 
+esp_err_t clear_queue_snapshot()
+{
+    {
+        Lock lock;
+        if (!s_status.mounted || s_shutdown_requested) return ESP_ERR_INVALID_STATE;
+        const char *paths[] = {kQueueSnapshotPath, kQueueSnapshotBackupPath,
+                               kQueueSnapshotTempPath};
+        for (const char *path : paths) {
+            if (std::remove(path) != 0 && errno != ENOENT) return ESP_FAIL;
+        }
+    }
+    return ESP_OK;
+}
+
 esp_err_t save_queue_snapshot(const size_t *track_indices, size_t track_count,
                               size_t current_position, uint32_t playback_position_ms)
 {

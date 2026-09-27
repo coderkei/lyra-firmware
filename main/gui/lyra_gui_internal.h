@@ -116,6 +116,7 @@ enum class PowerAction : uintptr_t { Reboot, PowerOff, FactoryReset };
 enum class DatabaseAction : uintptr_t { Playlists, Artwork, All };
 enum class ArtworkSetting : uintptr_t { SdCache, Size320 };
 enum class PlaylistManageAction : uint8_t { DeletePlaylist, RemoveTrack };
+enum class QueueInsertMode : uint8_t { PlayNext, AddToEnd };
 enum class DateFormat : uint8_t { DayMonthYear, MonthDayYear, YearMonthDay };
 enum class ClockInputKind : uint8_t { Time, Date };
 
@@ -180,6 +181,7 @@ extern lv_obj_t *s_scan_phase_label;
 extern lv_obj_t *s_sort_overlay;
 extern lv_obj_t *s_sort_progress_label;
 extern lv_obj_t *s_playlist_picker;
+extern lv_obj_t *s_queue_add_popup;
 extern lv_obj_t *s_volume_popup;
 extern lv_obj_t *s_status_volume_label;
 extern lv_obj_t *s_status_time_label;
@@ -234,6 +236,7 @@ extern bool s_library_keyboard_symbols;
 extern bool s_playlists_from_library;
 extern bool s_playlist_add_mode;
 extern bool s_playlist_manage_mode;
+extern bool s_playlist_create_from_queue;
 extern bool s_show_nav;
 extern bool s_language_setup_pending;
 extern char s_search_query[48];
@@ -337,6 +340,10 @@ bool playback_queue_position(size_t track_index, size_t *position);
 bool build_shuffle_queue();
 bool queue_track_at(size_t queue_position, size_t *track_index);
 bool current_queue_position(size_t *queue_position);
+bool add_tracks_to_queue(const size_t *track_indices, size_t count, QueueInsertMode mode);
+bool move_queue_entry(size_t queue_position, int direction);
+bool remove_queue_entry(size_t queue_position);
+void clear_active_queue();
 void apply_replay_gain_to_current_track();
 esp_err_t start_track_audio(const lyra::media::Track &track,
                             uint32_t start_position_ms = 0,
@@ -375,6 +382,9 @@ void play_track_from_row(size_t track_index, bool force_single);
 void track_route_cb(lv_event_t *event);
 void single_track_route_cb(lv_event_t *event);
 void add_track_route(lv_obj_t *row, size_t track_index, bool force_single = false);
+void show_queue_add_picker_for_track(size_t track_index);
+void show_queue_add_picker_for_album(size_t group_index);
+void show_queue_add_picker_for_folder(const char *folder_path);
 void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height = 54,
                    bool force_single = false, bool show_play_count = false);
 void add_search_playlist_route(lv_obj_t *row, size_t track_index, size_t playlist_index);
