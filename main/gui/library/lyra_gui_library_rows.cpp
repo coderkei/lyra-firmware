@@ -401,6 +401,27 @@ void page_cb(lv_event_t *event)
     render(s_view);
 }
 
+namespace {
+
+struct PageJumpRequest {
+    size_t total;
+    size_t page_size;
+    size_t page_count;
+};
+
+void page_jump_button_cb(lv_event_t *event)
+{
+    const auto *request = static_cast<const PageJumpRequest *>(lv_event_get_user_data(event));
+    if (request) open_page_jump(request->total, request->page_size, request->page_count);
+}
+
+void release_page_jump_request_cb(lv_event_t *event)
+{
+    lv_free(lv_event_get_user_data(event));
+}
+
+} // namespace
+
 void make_page_controls(lv_obj_t *parent, int y, size_t total,
                         size_t page_size)
 {
@@ -420,8 +441,16 @@ void make_page_controls(lv_obj_t *parent, int y, size_t total,
     char page_text[32];
     std::snprintf(page_text, sizeof(page_text), "%u / %u",
                   static_cast<unsigned>(s_list_page + 1), static_cast<unsigned>(pages));
-    lv_obj_t *page = make_label(parent, page_text, kTextSecondary);
-    lv_obj_align(page, LV_ALIGN_TOP_MID, 0, y + 13);
+    lv_obj_t *page_button = make_button(parent, 111, y, 98, 42, kBackground, 6);
+    lv_obj_t *page = make_label(page_button, page_text, kTextSecondary);
+    lv_obj_center(page);
+    auto *request = static_cast<PageJumpRequest *>(lv_malloc(sizeof(PageJumpRequest)));
+    if (request) {
+        *request = {total, page_size, pages};
+        lv_obj_add_event_cb(page_button, page_jump_button_cb, LV_EVENT_CLICKED, request);
+        lv_obj_add_event_cb(page_button, release_page_jump_request_cb, LV_EVENT_DELETE,
+                            request);
+    }
 
     lv_obj_t *next = make_button(parent, 213, y, 48, 42, kSurfaceRaised, 6);
     lv_obj_t *next_label = make_label(next, LV_SYMBOL_RIGHT,

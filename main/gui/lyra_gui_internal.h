@@ -98,7 +98,7 @@ enum class View : uintptr_t {
     PlaybackSettings, CrossfadeOptions, SleepTimerOptions, SoundSettings,
     DisplaySettings, SystemSettings, ClockSettings, ClockTimeSettings, ClockDateSettings,
     LanguageOptions, DatabaseStorage,
-    About, DebugMenu,
+    About, DebugMenu, PageJump,
     Licenses, TrackList,
 };
 enum class LibraryTab : uint8_t { Songs, Artists, Albums, Genres, Years };
@@ -312,6 +312,7 @@ bool append_ui_text(char *destination, size_t capacity, const char *suffix);
 NavigationState capture_navigation_state();
 void push_navigation_state();
 void restore_navigation_state(const NavigationState &state);
+void restore_navigation_state(const NavigationState &state, size_t list_page);
 void navigate_to(View target);
 void navigate_back(View fallback);
 int content_bottom();
@@ -400,6 +401,8 @@ void make_file_row(lv_obj_t *parent, int y, size_t track_index, int height = 54)
 void make_album_art(lv_obj_t *parent, int x, int y, int width, int height, const lyra::media::Track &track, bool preserve_aspect = false);
 void page_cb(lv_event_t *event);
 void make_page_controls(lv_obj_t *parent, int y, size_t total, size_t page_size = lyra::media::kTrackPageSize);
+void open_page_jump(size_t total, size_t page_size, size_t page_count);
+void render_page_jump();
 void open_queue_cb(lv_event_t *);
 bool show_now_playing();
 void open_library_cb(lv_event_t *);

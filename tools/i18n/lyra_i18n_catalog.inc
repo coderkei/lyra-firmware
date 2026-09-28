@@ -132,6 +132,10 @@ LYRA_I18N_ENTRY(DeletePlaylistMessage, "The playlist will be removed.\nMusic fil
 LYRA_I18N_ENTRY(Cancel, "CANCEL", "ANNULER", "ABBRECHEN", "CANCELAR", "ANNULLA", "キャンセル", "취소", "ОТМЕНА", "取消", "取消")
 LYRA_I18N_ENTRY(Remove, "REMOVE", "SUPPRIMER", "ENTFERNEN", "QUITAR", "RIMUOVI", "削除", "삭제", "УДАЛИТЬ", "移除", "移除")
 LYRA_I18N_ENTRY(Clear, "CLEAR", "EFFACER", "LÖSCHEN", "BORRAR", "CANCELLA", "消去", "지우기", "ОЧИСТИТЬ", "清除", "清除")
+LYRA_I18N_ENTRY(PageJumpTitle, "Jump to page", "Aller à la page", "Zu Seite springen", "Ir a la página", "Vai alla pagina", "ページへ移動", "페이지로 이동", "Перейти к странице", "跳转到页", "跳轉到頁")
+LYRA_I18N_ENTRY(PageJumpPageTab, "Page", "Page", "Seite", "Página", "Pagina", "ページ", "페이지", "Страница", "页", "頁")
+LYRA_I18N_ENTRY(PageJumpSortTab, "Sort", "Tri", "Sortierung", "Orden", "Ordina", "並べ替え", "정렬", "Сортировка", "排序", "排序")
+LYRA_I18N_ENTRY(PageJumpGo, "GO", "ALLER", "LOS", "IR", "VAI", "移動", "이동", "ПЕРЕЙТИ", "跳转", "跳轉")
 LYRA_I18N_ENTRY(Delete, "DELETE", "SUPPRIMER", "LÖSCHEN", "ELIMINAR", "ELIMINA", "削除", "삭제", "УДАЛИТЬ", "删除", "刪除")
 
 LYRA_I18N_ENTRY(NoTrackSelected, "No track selected", "Aucune piste sélectionnée", "Kein Titel ausgewählt", "No se ha seleccionado ninguna pista", "Nessuna traccia selezionata", "トラックが選択されていません", "선택한 트랙이 없습니다", "Трек не выбран", "未选择曲目", "未選擇曲目")

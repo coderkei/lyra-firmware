@@ -40,6 +40,7 @@ void render(View view)
         case View::AlbumDetail: render_album_detail(); break;
         case View::ArtistDetail: render_artist_detail(); break;
         case View::TrackList: render_track_list(); break;
+        case View::PageJump: render_page_jump(); break;
         case View::Folders: render_folders(false); break;
         case View::FolderDetail: render_folders(true); break;
         case View::Playlists: render_playlists(false); break;
@@ -304,6 +305,10 @@ void catalog_poll_cb(lv_timer_t *)
         lv_obj_delete(s_sort_overlay);
         s_sort_overlay = nullptr;
         s_sort_progress_label = nullptr;
+    }
+    if (sorting_changed && s_view == View::PageJump) {
+        render(View::PageJump);
+        return;
     }
     if (changed && s_view == View::SystemSettings) render(View::SystemSettings);
     if (sorting_changed &&

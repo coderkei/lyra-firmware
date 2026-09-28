@@ -1441,6 +1441,12 @@ esp_err_t clear_catalog_locked()
     bool removed = remove_existing_file(kCatalogPath);
     removed = remove_existing_file(kCatalogTempPath) && removed;
     removed = remove_existing_file(kCatalogBackupPath) && removed;
+    removed = remove_existing_file(kSongsJumpCachePath) && removed;
+    removed = remove_existing_file(kAlbumsJumpCachePath) && removed;
+    removed = remove_existing_file(kArtistsJumpCachePath) && removed;
+    removed = remove_existing_file(kSongsJumpCacheTempPath) && removed;
+    removed = remove_existing_file(kAlbumsJumpCacheTempPath) && removed;
+    removed = remove_existing_file(kArtistsJumpCacheTempPath) && removed;
     return removed ? ESP_OK : ESP_FAIL;
 }
 

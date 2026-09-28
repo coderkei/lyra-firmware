@@ -240,9 +240,14 @@ void push_navigation_state()
 
 void restore_navigation_state(const NavigationState &state)
 {
+    restore_navigation_state(state, state.list_page);
+}
+
+void restore_navigation_state(const NavigationState &state, size_t list_page)
+{
     s_library_tab = state.library_tab;
     s_artist_detail_tab = state.artist_detail_tab;
-    s_list_page = state.list_page;
+    s_list_page = list_page;
     s_selected_playlist = state.selected_playlist;
     s_selected_playlist_is_smart = state.selected_playlist_is_smart;
     s_selected_smart_playlist = state.selected_smart_playlist;
@@ -468,6 +473,7 @@ View back_view(View view)
         case View::About: return View::Settings;
         case View::DebugMenu: return View::About;
         case View::Licenses: return View::Settings;
+        case View::PageJump: return View::Menu;
         case View::DatabaseStorage: return View::SystemSettings;
         case View::EqualizerPresets: return View::Equalizer;
         case View::Playlists: return s_playlists_from_library ? View::Library : View::Menu;

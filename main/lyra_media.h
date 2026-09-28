@@ -113,6 +113,18 @@ struct SortSetting {
     SortDirection direction;
 };
 
+enum class SortLocationKind : uint8_t { Initial, Date, Duration, TrackNumber };
+
+// One destination in a menu's sort jump list. item_position is the sorted row
+// index; date and duration values remain raw so the UI can format them using
+// the user's display settings.
+struct SortLocation {
+    uint64_t value;
+    uint32_t item_position;
+    char initial[8];
+    SortLocationKind kind;
+};
+
 struct Group {
     char name[kMaxName];
     size_t track_count;
@@ -173,6 +185,11 @@ esp_err_t set_artwork_size(uint16_t size);
 SortSetting sort_setting(SortSection section);
 esp_err_t set_sort_setting(SortSection section, SortField field,
                            SortDirection direction);
+// Loads a saved jump list when available, otherwise builds one from a bulk
+// catalog snapshot and persists it. May return ESP_ERR_INVALID_STATE while the
+// requested sort or duration index is still being built.
+esp_err_t sort_locations(SortSection section, SortLocation *locations,
+                         size_t capacity, size_t *count);
 ArtworkDiagnostics artwork_diagnostics();
 // Stops accepting new work, waits for an active scan to finish, and unmounts
 // the card so reboot/deep-sleep cannot interrupt a filesystem transaction.

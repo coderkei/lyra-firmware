@@ -87,8 +87,16 @@ constexpr const char *kArtistsSortKey = "sort_artists";
 constexpr const char *kSongsSortCachePath = "/sdcard/.lyra/sort-songs-v1.bin";
 constexpr const char *kAlbumsSortCachePath = "/sdcard/.lyra/sort-albums-v1.bin";
 constexpr const char *kArtistsSortCachePath = "/sdcard/.lyra/sort-artists-v1.bin";
+constexpr const char *kSongsJumpCachePath = "/sdcard/.lyra/jump-songs-v1.bin";
+constexpr const char *kAlbumsJumpCachePath = "/sdcard/.lyra/jump-albums-v1.bin";
+constexpr const char *kArtistsJumpCachePath = "/sdcard/.lyra/jump-artists-v1.bin";
+constexpr const char *kSongsJumpCacheTempPath = "/sdcard/.lyra/jump-songs-v1.tmp";
+constexpr const char *kAlbumsJumpCacheTempPath = "/sdcard/.lyra/jump-albums-v1.tmp";
+constexpr const char *kArtistsJumpCacheTempPath = "/sdcard/.lyra/jump-artists-v1.tmp";
 constexpr char kSortCacheMagic[8] = {'L', 'Y', 'R', 'A', 'S', 'O', 'R', 'T'};
 constexpr uint32_t kSortCacheVersion = 1;
+constexpr char kJumpCacheMagic[8] = {'L', 'Y', 'R', 'A', 'J', 'M', 'P', '1'};
+constexpr uint32_t kJumpCacheVersion = 1;
 // Keep cover extraction and scaling off PRO_CPU, which owns realtime audio.
 constexpr BaseType_t kArtworkCore = 1;
 
