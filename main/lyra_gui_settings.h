@@ -34,6 +34,8 @@ struct Values {
     // False when the language key is absent or invalid, identifying the
     // first GUI boot after a factory reset.
     bool language_selected;
+    // Independent of the classic dark/light and accent preferences.
+    bool neon_hud = false;
 };
 
 // Loads only valid persisted values, leaving caller-provided defaults intact.

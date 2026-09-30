@@ -26,13 +26,14 @@ void make_status_bar()
     lv_obj_align(s_status_volume_label, LV_ALIGN_LEFT_MID, 9, 0);
     update_status_volume_label(audio_status.volume_percent);
     lv_obj_add_event_cb(volume_button, show_volume_popup_cb, LV_EVENT_CLICKED, nullptr);
-    s_status_time_label = make_label(bar, "", kTextPrimary);
+    s_status_time_label = make_label(bar, "", s_neon_hud ? kTextSecondary : kTextPrimary);
     lv_obj_align(s_status_time_label, LV_ALIGN_CENTER, 0, 0);
     update_status_time_label();
     // Battery ADC calibration is not yet available on the reference board, so
     // this status-bar value is a UI placeholder rather than a voltage reading.
     lv_obj_t *battery = make_label(bar, "100%  " LV_SYMBOL_BATTERY_FULL, kTextSecondary);
     lv_obj_align(battery, LV_ALIGN_RIGHT_MID, -9, 0);
+    if (s_neon_hud) make_box(bar, 8, kStatusHeight - 1, 304, 1, kAccent);
 }
 
 lv_obj_t *make_header(const char *title, View back, bool show_back, const char *right,
@@ -44,11 +45,11 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
          s_view == View::TrackList || s_view == View::Folders ||
          s_view == View::FolderDetail || s_view == View::PlaylistDetail);
     lv_obj_t *header = make_box(s_screen, 0, kStatusHeight, kScreenWidth, 44, kBackground);
-    lv_obj_t *divider = make_box(header, 8, 43, 304, 1, kDivider);
+    lv_obj_t *divider = make_box(header, 8, 43, 304, 1, s_neon_hud ? kAccent : kDivider);
     (void)divider;
     if (show_back) {
         lv_obj_t *back_button = make_button(header, 4, 4, 42, 36, kBackground, 0);
-        lv_obj_t *icon = make_label(back_button, LV_SYMBOL_LEFT, kTextPrimary);
+        lv_obj_t *icon = make_label(back_button, LV_SYMBOL_LEFT, s_neon_hud ? kAccent : kTextPrimary);
         lv_obj_center(icon);
         if (custom_back) lv_obj_add_event_cb(back_button, custom_back, LV_EVENT_CLICKED, nullptr);
         else lv_obj_add_event_cb(back_button, [](lv_event_t *event) {
@@ -56,14 +57,14 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
             navigate_back(fallback);
         }, LV_EVENT_CLICKED, reinterpret_cast<void *>(static_cast<uintptr_t>(back)));
     }
-    lv_obj_t *label = make_label(header, title, kTextPrimary);
+    lv_obj_t *label = make_label(header, title, s_neon_hud ? kAccent : kTextPrimary);
     lv_obj_set_style_text_font(label, lyra::font::ui(), 0);
     const bool show_right_label = right != nullptr && (!queue_add_toggle || right[0] != '\0');
     make_marquee(label, queue_add_toggle ? (show_right_label ? 150 : 180) :
                  (right ? 180 : 245));
     lv_obj_align(label, LV_ALIGN_LEFT_MID, show_back ? 45 : 10, 0);
     if (show_right_label) {
-        lv_obj_t *right_label = make_label(header, right, kAccent);
+        lv_obj_t *right_label = make_label(header, right, s_neon_hud ? kTextSecondary : kAccent);
         make_marquee(right_label, queue_add_toggle ? 64 : 84);
         lv_obj_align(right_label, LV_ALIGN_RIGHT_MID,
                      queue_add_toggle ? -52 : -12, 0);
@@ -103,7 +104,7 @@ void show_notice(const char *title_text, const char *message_text)
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_move_foreground(overlay);
     lv_obj_t *dialog = make_box(overlay, 24, 142, 272, 196, kSurfaceRaised, 12);
-    lv_obj_t *title = make_label(dialog, title_text, kTextPrimary);
+    lv_obj_t *title = make_label(dialog, title_text, s_neon_hud ? kAccent : kTextPrimary);
     lv_obj_set_width(title, 232);
     lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
@@ -123,13 +124,13 @@ lv_obj_t *make_row(lv_obj_t *parent, int y, const char *icon_text, const char *t
                    const char *subtitle, View target, int height)
 {
     lv_obj_t *row = make_button(parent, 7, y, 306, height, kSurface, 6, true);
-    lv_obj_set_style_bg_color(row, kSurfaceRaised, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(row, s_neon_hud ? kAccentSurface : kSurfaceRaised, LV_STATE_PRESSED);
     const int text_x = icon_text ? 45 : 12;
     if (icon_text) {
-        lv_obj_t *icon = make_label(row, icon_text, kAccent);
+        lv_obj_t *icon = make_label(row, icon_text, s_neon_hud ? kTextSecondary : kAccent);
         lv_obj_align(icon, LV_ALIGN_LEFT_MID, 12, subtitle == nullptr ? 0 : -1);
     }
-    lv_obj_t *title_label = make_label(row, title, kTextPrimary);
+    lv_obj_t *title_label = make_label(row, title, s_neon_hud ? kTextSecondary : kTextPrimary);
     lv_obj_set_style_text_font(title_label, lyra::font::ui(), 0);
     make_marquee(title_label, icon_text ? 220 : 253);
     lv_obj_align(title_label, LV_ALIGN_LEFT_MID, text_x, subtitle == nullptr ? 0 : -10);
@@ -154,17 +155,18 @@ void release_boot_image()
 bool load_brand_logo()
 {
     static bool cached_dark_mode = true;
-    if (s_brand_logo_pixels && cached_dark_mode == s_dark_mode) return true;
+    const bool dark = s_dark_mode || s_neon_hud;
+    if (s_brand_logo_pixels && cached_dark_mode == dark) return true;
     if (s_brand_logo_pixels) {
         heap_caps_free(s_brand_logo_pixels);
         s_brand_logo_pixels = nullptr;
         s_brand_logo_descriptor = {};
     }
 
-    const uint8_t *png_start = s_dark_mode ? boot_png_start : boot_light_png_start;
-    const uint8_t *png_end = s_dark_mode ? boot_png_end : boot_light_png_end;
+    const uint8_t *png_start = dark ? boot_png_start : boot_light_png_start;
+    const uint8_t *png_end = dark ? boot_png_end : boot_light_png_end;
     constexpr uint32_t kLightBootBackgroundRgb = 0xF8FAFC;
-    const uint32_t background_rgb = s_dark_mode ? kBootBackgroundRgb :
+    const uint32_t background_rgb = dark ? kBootBackgroundRgb :
                                                   kLightBootBackgroundRgb;
     const size_t logo_bytes = static_cast<size_t>(kBootImageWidth) *
         kBootImageHeight * sizeof(uint16_t);
@@ -178,7 +180,7 @@ bool load_brand_logo()
         return false;
     }
     s_brand_logo_pixels = reinterpret_cast<uint8_t *>(pixels);
-    cached_dark_mode = s_dark_mode;
+    cached_dark_mode = dark;
     s_brand_logo_descriptor = {};
     s_brand_logo_descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
     s_brand_logo_descriptor.header.cf = LV_COLOR_FORMAT_RGB565;
@@ -239,7 +241,7 @@ void make_artwork_contents(lv_obj_t *art, int width, int height,
     lv_obj_set_pos(image, 0, 0);
     lv_obj_set_size(image, width, height);
     lv_image_set_inner_align(image, preserve_aspect ? LV_IMAGE_ALIGN_CONTAIN : LV_IMAGE_ALIGN_STRETCH);
-    lv_obj_set_style_radius(image, radius, 0);
+    lv_obj_set_style_radius(image, s_neon_hud ? 0 : radius, 0);
     if (load_player_art(track)) {
         lv_image_set_src(image, &s_player_art_descriptor);
         lv_obj_add_flag(fallback, LV_OBJ_FLAG_HIDDEN);

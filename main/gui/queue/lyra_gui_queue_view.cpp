@@ -230,7 +230,8 @@ void make_queue_song_row(lv_obj_t *parent, int y, size_t queue_position, bool cu
     size_t track_index;
     lyra::media::Track track{};
     if (!queue_track_at(queue_position, &track_index) || !lyra::media::track_at(track_index, &track)) return;
-    lv_obj_t *row = make_button(parent, 7, y, 306, 54, current ? kAccentDark : kSurface, 5);
+    lv_obj_t *row = make_button(parent, 7, y, 306, 54,
+        current ? (s_neon_hud ? kAccentSurface : kAccentDark) : kSurface, 5);
     char queue_number_text[16];
     format_u32(lyra::i18n::StringId::QueueNumber,
                static_cast<uint32_t>(queue_position + 1),
@@ -241,17 +242,19 @@ void make_queue_song_row(lv_obj_t *parent, int y, size_t queue_position, bool cu
     lv_obj_set_style_text_align(queue_number, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(queue_number, LV_ALIGN_LEFT_MID, 0, 0);
     if (current) {
-        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, kTextOnAccent);
+        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, s_neon_hud ? kAccent : kTextOnAccent);
         lv_obj_align(playing, LV_ALIGN_LEFT_MID, 10, 0);
         lv_obj_clear_flag(playing, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(queue_number, LV_OBJ_FLAG_HIDDEN);
     }
     const int text_x = 42;
-    lv_obj_t *title = make_label(row, track.title, current ? kTextOnAccent : kTextPrimary);
+    lv_obj_t *title = make_label(row, track.title,
+        current ? (s_neon_hud ? kAccent : kTextOnAccent) : kTextPrimary);
     const int text_width = s_queue_edit_mode ? 132 : 250;
     make_marquee(title, text_width);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, text_x, -9);
-    lv_obj_t *artist = make_label(row, track.artist, current ? kTextOnAccent : kTextSecondary);
+    lv_obj_t *artist = make_label(row, track.artist,
+        current && !s_neon_hud ? kTextOnAccent : kTextSecondary);
     make_marquee(artist, text_width);
     lv_obj_align(artist, LV_ALIGN_LEFT_MID, text_x, 11);
     if (s_queue_edit_mode) {

@@ -920,7 +920,12 @@ void make_virtual_nav()
     const char *icons[] = {LV_SYMBOL_BARS, LV_SYMBOL_PREV, LV_SYMBOL_PLAY, LV_SYMBOL_NEXT, LV_SYMBOL_LEFT};
     for (int i = 0; i < 5; ++i) {
         lv_obj_t *button = make_button(dock, 5 + i * 63, 4, 58, 36, kSurface, 6);
-        lv_obj_t *icon = make_label(button, icons[i], i == 0 && s_view == View::Menu ? kAccent : kTextSecondary);
+        if (s_neon_hud && i == 2) {
+            lv_obj_set_style_bg_color(button, kAccentSurface, 0);
+            add_hud_frame(button, true);
+        }
+        lv_obj_t *icon = make_label(button, icons[i],
+            (i == 0 && s_view == View::Menu) || (s_neon_hud && i == 2) ? kAccent : kTextSecondary);
         lv_obj_center(icon);
         if (i == 0) {
             add_route(button, View::Menu);
@@ -1008,7 +1013,7 @@ void show_volume_popup_cb(lv_event_t *)
     s_volume_popup = make_box(s_screen, 8, kStatusHeight + 4, 224, 104, kSurfaceRaised, 10);
     lv_obj_set_style_border_width(s_volume_popup, 1, 0);
     lv_obj_set_style_border_color(s_volume_popup, kAccentDark, 0);
-    lv_obj_set_style_shadow_width(s_volume_popup, 12, 0);
+    lv_obj_set_style_shadow_width(s_volume_popup, s_neon_hud ? 0 : 12, 0);
     lv_obj_set_style_shadow_color(s_volume_popup, lv_color_hex(0x000000), 0);
     lv_obj_set_style_shadow_opa(s_volume_popup, LV_OPA_40, 0);
     lv_obj_move_foreground(s_volume_popup);
@@ -1018,7 +1023,7 @@ void show_volume_popup_cb(lv_event_t *)
     char value_text[16];
     std::snprintf(value_text, sizeof(value_text), "%u%%",
                   static_cast<unsigned>(display_volume_percent(audio_status.volume_percent)));
-    lv_obj_t *value = make_label(s_volume_popup, value_text, kAccent);
+    lv_obj_t *value = make_label(s_volume_popup, value_text, s_neon_hud ? kTextSecondary : kAccent);
     lv_obj_align(value, LV_ALIGN_TOP_RIGHT, -52, 12);
     lv_obj_t *close = make_button(s_volume_popup, 184, 7, 32, 32, kSurface, 16);
     lv_obj_t *close_icon = make_label(close, LV_SYMBOL_CLOSE, kTextSecondary);
@@ -1040,6 +1045,10 @@ void show_volume_popup_cb(lv_event_t *)
     lv_obj_add_event_cb(slider, volume_popup_slider_cb, LV_EVENT_VALUE_CHANGED, nullptr);
     lv_obj_add_event_cb(slider, volume_popup_slider_released_cb, LV_EVENT_RELEASED, nullptr);
     lv_obj_add_event_cb(slider, volume_popup_slider_released_cb, LV_EVENT_PRESS_LOST, nullptr);
+    if (s_neon_hud) {
+        lv_obj_set_style_border_width(s_volume_popup, 0, 0);
+        style_hud_controls(s_volume_popup);
+    }
 }
 
 } // namespace lyra::gui::internal

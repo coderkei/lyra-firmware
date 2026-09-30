@@ -257,8 +257,11 @@ void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height,
 {
     lyra::media::Track track{};
     if (!lyra::media::track_at(track_index, &track)) return;
-    lv_obj_t *row = make_button(parent, 7, y, 306, height, kSurface, 5, true);
-    lv_obj_t *title = make_label(row, track.title, kTextPrimary);
+    const bool current = s_neon_hud && track_index == s_current_track &&
+        std::strcmp(lyra::audio::status().path, track.path) == 0;
+    lv_obj_t *row = make_button(parent, 7, y, 306, height,
+                                current ? kAccentSurface : kSurface, 5, true);
+    lv_obj_t *title = make_label(row, track.title, current ? kAccent : kTextPrimary);
     const int text_width = s_playlist_add_mode ? 244 : (s_queue_add_mode ? 236 : 282);
     make_marquee(title, text_width);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -9);
@@ -366,7 +369,7 @@ void make_file_row(lv_obj_t *parent, int y, size_t track_index, int height)
     const char *filename = std::strrchr(track.path, '/');
     filename = filename ? filename + 1 : track.path;
     lv_obj_t *row = make_button(parent, 7, y, 306, height, kSurface, 5, true);
-    lv_obj_t *icon = make_label(row, LV_SYMBOL_FILE, kAccent);
+    lv_obj_t *icon = make_label(row, LV_SYMBOL_FILE, s_neon_hud ? kTextSecondary : kAccent);
     lv_obj_align(icon, LV_ALIGN_LEFT_MID, 12, 0);
     lv_obj_t *name = make_label(row, filename, kTextPrimary);
     make_marquee(name, s_queue_add_mode ? 202 : 251);

@@ -247,7 +247,7 @@ void build_player_lyrics_face()
     lv_obj_set_style_bg_color(window, kArtworkSurface, 0);
     lv_obj_set_style_bg_opa(window, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(window, 0, 0);
-    lv_obj_set_style_radius(window, 13, 0);
+    lv_obj_set_style_radius(window, s_neon_hud ? 0 : 13, 0);
     lv_obj_set_style_pad_all(window, 0, 0);
     lv_obj_clear_flag(window, LV_OBJ_FLAG_SCROLLABLE);
     s_player_flip_content = make_box(window, 0, 0, s_player_art_size,
@@ -273,7 +273,7 @@ void build_player_lyrics_face()
     lv_obj_set_style_bg_opa(scroll, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(scroll, 0, 0);
     lv_obj_set_style_pad_all(scroll, 4, 0);
-    lv_obj_set_style_radius(scroll, 6, 0);
+    lv_obj_set_style_radius(scroll, s_neon_hud ? 0 : 6, 0);
     lv_obj_add_flag(scroll, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(scroll, LV_OBJ_FLAG_SCROLL_MOMENTUM);
     lv_obj_set_scroll_dir(scroll, LV_DIR_VER);
@@ -366,7 +366,7 @@ void player_lyrics_rows_timer_cb(lv_timer_t *timer)
         lv_label_set_long_mode(row, LV_LABEL_LONG_MODE_WRAP);
         lv_obj_set_style_text_align(row, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_radius(row, 6, 0);
+        lv_obj_set_style_radius(row, s_neon_hud ? 0 : 6, 0);
         lv_obj_set_style_pad_hor(row, 5, 0);
         lv_obj_set_style_pad_ver(row, 7, 0);
         lv_obj_set_pos(row, 4, s_player_lyrics_next_row_y);
@@ -496,7 +496,7 @@ void restore_player_art_face()
     lv_obj_set_style_bg_color(window, kArtworkSurface, 0);
     lv_obj_set_style_bg_opa(window, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(window, 0, 0);
-    lv_obj_set_style_radius(window, 13, 0);
+    lv_obj_set_style_radius(window, s_neon_hud ? 0 : 13, 0);
     lv_obj_set_style_pad_all(window, 0, 0);
     lv_obj_clear_flag(window, LV_OBJ_FLAG_SCROLLABLE);
     s_player_flip_content = make_box(window, 0, 0, s_player_art_size,
@@ -884,7 +884,7 @@ void render_player()
             button_y, true);
     }
 
-    lv_obj_t *title = make_label(body, track.title, kTextPrimary);
+    lv_obj_t *title = make_label(body, track.title, s_neon_hud ? kAccent : kTextPrimary);
     lv_obj_set_style_text_font(title, lyra::font::ui(), 0);
     make_marquee(title, 240);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 20, progress_y - 79);

@@ -71,6 +71,7 @@ void render(View view)
     if (s_show_nav && !s_language_setup_pending && view != View::FullscreenInfoArt) {
         make_virtual_nav();
     }
+    if (s_neon_hud) style_hud_controls(s_screen);
 }
 
 bool automatic_track_advance_available()

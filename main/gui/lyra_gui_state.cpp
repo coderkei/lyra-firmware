@@ -19,6 +19,7 @@ extern const AccentPalette kAccentPalettes[] = {
 };
 
 bool s_dark_mode = true;
+bool s_neon_hud = false;
 uint8_t s_accent_colour = 0;
 
 lv_color_t kBackground = lv_color_hex(0x080C12);

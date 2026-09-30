@@ -145,6 +145,7 @@ struct ArtistDetailListContext;
 struct AlbumListContext;
 
 extern bool s_dark_mode;
+extern bool s_neon_hud;
 extern uint8_t s_accent_colour;
 extern lv_color_t kBackground;
 extern lv_color_t kSurface;
@@ -301,6 +302,10 @@ extern lv_style_t s_marquee_style;
 extern bool s_marquee_style_ready;
 
 void apply_theme_palette();
+void make_hud_background();
+void add_hud_frame(lv_obj_t *object, bool octagonal = false);
+void make_hud_equalizer_grid(lv_obj_t *parent, int x, int y, int width, int height);
+void style_hud_controls(lv_obj_t *object);
 const char *equalizer_preset_name(EqualizerPreset preset);
 const int16_t *equalizer_preset_bands(EqualizerPreset preset);
 bool equalizer_is_custom();

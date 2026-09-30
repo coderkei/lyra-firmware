@@ -32,7 +32,7 @@ void equalizer_slider_cb(lv_event_t *event)
         value, static_cast<int>(lyra::audio::kEqualizerMinimumTenthsDb),
         static_cast<int>(lyra::audio::kEqualizerMaximumTenthsDb)));
     s_equalizer_custom_bands[context->band] = gain;
-    update_equalizer_gain_label(context->value_label, gain, kAccent);
+    update_equalizer_gain_label(context->value_label, gain, s_neon_hud ? kTextSecondary : kAccent);
     apply_equalizer_to_audio();
 }
 
@@ -117,6 +117,7 @@ void render_equalizer()
     constexpr int kSliderHeight = 234;
     const bool editable = equalizer_is_custom();
     const int16_t *bands = equalizer_preset_bands(s_equalizer_preset);
+    make_hud_equalizer_grid(body, 48, kSliderY, 240, kSliderHeight);
 
     // A 43 px scale gutter keeps the +6 dB / -6 dB labels entirely clear of
     // the first slider's knob and indicator.
@@ -142,11 +143,13 @@ void render_equalizer()
         lv_obj_set_width(frequency, 40);
         lv_obj_set_style_text_align(frequency, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_pos(frequency, 37 + static_cast<int>(band) * kSliderStep, 326);
-        lv_obj_t *gain = make_label(body, "", editable ? kAccent : kTextMuted);
+        const lv_color_t gain_color = s_neon_hud ? kTextSecondary :
+            (editable ? kAccent : kTextMuted);
+        lv_obj_t *gain = make_label(body, "", gain_color);
         lv_obj_set_width(gain, 40);
         lv_obj_set_style_text_align(gain, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_pos(gain, 37 + static_cast<int>(band) * kSliderStep, 344);
-        update_equalizer_gain_label(gain, bands[band], editable ? kAccent : kTextMuted);
+        update_equalizer_gain_label(gain, bands[band], gain_color);
 
         if (editable) {
             s_equalizer_slider_contexts[band] = {band, gain};

@@ -97,6 +97,7 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     s_use_24_hour = true;
     s_dst_enabled = false;
     s_dark_mode = true;
+    s_neon_hud = false;
     s_accent_colour = 0;
     s_speaker_output_enabled = lyra::audio::kDefaultSpeakerOutputEnabled;
     s_equalizer_preset = EqualizerPreset::Custom;

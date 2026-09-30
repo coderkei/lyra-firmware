@@ -112,7 +112,8 @@ void toggle_bool_cb(lv_event_t *event)
         save_user_settings();
         if (value == &s_replay_gain) apply_replay_gain_to_current_track();
     }
-    if (value == &s_dark_mode) {
+    if (value == &s_dark_mode || value == &s_neon_hud) {
+        if (value == &s_dark_mode) s_neon_hud = false;
         apply_theme_palette();
         save_user_settings();
         render(s_view);
@@ -160,7 +161,8 @@ void accent_colour_cb(lv_event_t *event)
 {
     const uintptr_t index = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
     if (index >= kAccentPaletteCount) return;
-    if (s_accent_colour == index) return;
+    if (s_accent_colour == index && !s_neon_hud) return;
+    s_neon_hud = false;
     s_accent_colour = static_cast<uint8_t>(index);
     apply_theme_palette();
     save_user_settings();
@@ -1240,15 +1242,20 @@ void render_settings_page(View view)
         make_row(body, 158, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::EqPreset),
                  equalizer_preset_name(s_equalizer_preset), View::Equalizer, 62);
     } else if (view == View::DisplaySettings) {
-        make_setting_toggle(body, 0, tr(lyra::i18n::StringId::DarkMode),
+        make_setting_toggle(body, 0, tr(lyra::i18n::StringId::Theme),
+                            s_neon_hud ? tr(lyra::i18n::StringId::NeonHud) :
+                                (s_dark_mode ? tr(lyra::i18n::StringId::DarkColours) :
+                                               tr(lyra::i18n::StringId::LightColours)),
+                            &s_neon_hud);
+        make_setting_toggle(body, 66, tr(lyra::i18n::StringId::DarkMode),
                             s_dark_mode ? tr(lyra::i18n::StringId::DarkColours) :
                                           tr(lyra::i18n::StringId::LightColours),
                             &s_dark_mode);
-        make_accent_selector(body, 66);
-        make_setting_toggle(body, 182, tr(lyra::i18n::StringId::VirtualControls),
+        make_accent_selector(body, 132);
+        make_setting_toggle(body, 248, tr(lyra::i18n::StringId::VirtualControls),
                             tr(lyra::i18n::StringId::ShowBottomNavigation), &s_show_nav);
-        make_brightness_control(body, 248);
-        lv_obj_t *screen_timeout = make_row(body, 340, LV_SYMBOL_POWER,
+        make_brightness_control(body, 314);
+        lv_obj_t *screen_timeout = make_row(body, 406, LV_SYMBOL_POWER,
                                              tr(lyra::i18n::StringId::ScreenTimeout),
                                              tr(lyra::i18n::StringId::ComingSoon),
                                              View::DisplaySettings, 62);

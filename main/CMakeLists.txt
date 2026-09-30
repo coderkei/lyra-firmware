@@ -7,6 +7,7 @@ idf_component_register(
         "i18n/lyra_i18n.cpp"
         "gui/lyra_gui_state.cpp"
         "gui/shared/lyra_gui_theme_widgets.cpp"
+        "gui/shared/lyra_gui_hud.cpp"
         "gui/shared/lyra_gui_status_artwork.cpp"
         "gui/queue/lyra_gui_queue_core.cpp"
         "gui/queue/lyra_gui_queue_view.cpp"
@@ -53,6 +54,7 @@ idf_component_register(
     EMBED_FILES
         "../graphics/boot.png"
         "../graphics/boot_light.png"
+        "../graphics/neon_hud_city.png"
     REQUIRES
         lyra_board
         lvgl

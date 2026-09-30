@@ -12,7 +12,22 @@ void apply_theme_palette()
     const size_t accent_index = static_cast<size_t>(s_accent_colour) < kAccentPaletteCount ?
                                 s_accent_colour : 0;
     const AccentPalette &accent = kAccentPalettes[accent_index];
-    if (s_dark_mode) {
+    if (s_neon_hud) {
+        kBackground = lv_color_hex(0x05080F);
+        kSurface = lv_color_hex(0x090D16);
+        kSurfaceRaised = lv_color_hex(0x101421);
+        kAccent = lv_color_hex(0xFF174F);
+        kAccentDark = lv_color_hex(0x511029);
+        kAccentSurface = lv_color_hex(0x310C20);
+        kTextPrimary = lv_color_hex(0xE0F3FF);
+        kTextSecondary = lv_color_hex(0x20E7FF);
+        kTextMuted = lv_color_hex(0x91B7CA);
+        kDivider = lv_color_hex(0x57132D);
+        kNavSurface = lv_color_hex(0x05080F);
+        kKeyboardSurface = lv_color_hex(0x090D16);
+        kArtworkSurface = lv_color_hex(0x0C1420);
+        kDangerSurface = lv_color_hex(0x3F1118);
+    } else if (s_dark_mode) {
         kBackground = lv_color_hex(0x080C12);
         kSurface = lv_color_hex(0x101720);
         kSurfaceRaised = lv_color_hex(0x18212D);
@@ -139,6 +154,7 @@ esp_err_t save_user_settings()
         s_use_24_hour,
         s_dst_enabled,
         true,
+        s_neon_hud,
     };
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
@@ -163,6 +179,7 @@ void load_user_settings()
         s_use_24_hour,
         s_dst_enabled,
         false,
+        s_neon_hud,
     };
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
@@ -177,6 +194,7 @@ void load_user_settings()
     s_crossfade_seconds = values.crossfade_seconds;
     s_brightness_percent = values.brightness_percent;
     s_dark_mode = values.dark_mode;
+    s_neon_hud = values.neon_hud;
     s_accent_colour = values.accent_colour;
     lyra::i18n::set_language(values.language);
     s_speaker_output_enabled = values.speaker_output_enabled;
@@ -314,14 +332,33 @@ lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int width, int height,
     lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(box, show_border && !s_dark_mode ? 1 : 0, 0);
     lv_obj_set_style_border_color(box, kDivider, 0);
-    lv_obj_set_style_radius(box, radius, 0);
+    lv_obj_set_style_radius(box, s_neon_hud ? 0 : radius, 0);
     lv_obj_set_style_pad_all(box, 0, 0);
     lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+    if (s_neon_hud) {
+        // Leave artwork and overlays opaque. Full-width page bodies reveal
+        // the fixed city beneath them without adding scrolling image copies.
+        if (width == kScreenWidth && lv_color_eq(color, kBackground)) {
+            lv_obj_set_style_bg_opa(box, LV_OPA_TRANSP, 0);
+        } else if (radius > 0 && width >= 24 && height >= 20 &&
+                   !lv_color_eq(color, kArtworkSurface)) {
+            lv_obj_set_style_border_width(box, 0, 0);
+            add_hud_frame(box);
+        }
+    }
     return box;
 }
 
 lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color)
 {
+    if (s_neon_hud && lv_color_eq(color, kTextPrimary) &&
+        lv_obj_check_type(parent, &lv_obj_class) && lv_obj_get_child_count(parent) == 0 &&
+        (lv_color_eq(lv_obj_get_style_bg_color(parent, LV_PART_MAIN), kSurfaceRaised) ||
+         lv_color_eq(lv_obj_get_style_bg_color(parent, LV_PART_MAIN), kSurface))) {
+        // Shared card/dialog headings use the title colour, including dialogs
+        // created after render() by asynchronous operations.
+        color = kAccent;
+    }
     lv_obj_t *label = lv_label_create(parent);
     lv_label_set_text(label, text);
     lv_obj_set_style_text_color(label, color, 0);
@@ -359,9 +396,18 @@ lv_obj_t *make_button(lv_obj_t *parent, int x, int y, int width, int height,
     lv_obj_set_style_bg_color(button, kAccentDark, LV_STATE_PRESSED);
     lv_obj_set_style_border_width(button, show_border && !s_dark_mode ? 1 : 0, 0);
     lv_obj_set_style_border_color(button, kDivider, 0);
-    lv_obj_set_style_radius(button, radius, 0);
+    lv_obj_set_style_radius(button, s_neon_hud ? 0 : radius, 0);
     lv_obj_set_style_pad_all(button, 0, 0);
     lv_obj_set_style_shadow_width(button, 0, 0);
+    if (s_neon_hud) {
+        const bool major_menu = s_view == View::Menu || s_view == View::Library ||
+            s_view == View::Settings;
+        lv_obj_set_style_bg_opa(button, lv_color_eq(color, kSurface) ?
+            (major_menu ? LV_OPA_60 : LV_OPA_80) : LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
+        lv_obj_set_style_border_width(button, 0, 0);
+        if (radius > 0 || show_border) add_hud_frame(button);
+    }
     return button;
 }
 
@@ -417,6 +463,7 @@ void style_root()
     lv_obj_set_style_border_width(s_screen, 0, 0);
     lv_obj_set_style_pad_all(s_screen, 0, 0);
     lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+    make_hud_background();
 }
 
 void route_cb(lv_event_t *event)
