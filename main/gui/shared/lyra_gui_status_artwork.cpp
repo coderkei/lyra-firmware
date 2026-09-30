@@ -19,6 +19,7 @@ void update_status_time_label()
 void make_status_bar()
 {
     lv_obj_t *bar = make_box(s_screen, 0, 0, kScreenWidth, kStatusHeight, kBackground);
+    if (is_cute_theme()) lv_obj_set_style_bg_color(bar, lv_color_hex(0xD8EEFF), 0);
     const lyra::audio::Status audio_status = lyra::audio::status();
     lv_obj_t *volume_button = make_button(bar, 0, 0, 84, kStatusHeight, kBackground, 0);
     lv_obj_set_style_bg_opa(volume_button, LV_OPA_TRANSP, 0);
@@ -49,7 +50,13 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
     (void)divider;
     if (show_back) {
         lv_obj_t *back_button = make_button(header, 4, 4, 42, 36, kBackground, 0);
-        lv_obj_t *icon = make_label(back_button, LV_SYMBOL_LEFT, s_neon_hud ? kAccent : kTextPrimary);
+        if (is_cute_theme()) {
+            lv_obj_set_style_radius(back_button, 12, 0);
+            lv_obj_set_style_bg_color(back_button, kSurface, 0);
+            lv_obj_set_style_border_width(back_button, 1, 0);
+            add_cute_plastic_finish(back_button);
+        }
+        lv_obj_t *icon = make_label(back_button, LV_SYMBOL_LEFT, !is_standard_theme() ? kAccent : kTextPrimary);
         lv_obj_center(icon);
         if (custom_back) lv_obj_add_event_cb(back_button, custom_back, LV_EVENT_CLICKED, nullptr);
         else lv_obj_add_event_cb(back_button, [](lv_event_t *event) {
@@ -70,6 +77,9 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
                      queue_add_toggle ? -52 : -12, 0);
     }
     if (queue_add_toggle) make_queue_add_mode_toggle(header, 274, 4);
+    if (is_cute_theme() && !show_right_label && !queue_add_toggle) {
+        make_cute_header_mascot(header);
+    }
     return header;
 }
 
@@ -124,7 +134,7 @@ lv_obj_t *make_row(lv_obj_t *parent, int y, const char *icon_text, const char *t
                    const char *subtitle, View target, int height)
 {
     lv_obj_t *row = make_button(parent, 7, y, 306, height, kSurface, 6, true);
-    lv_obj_set_style_bg_color(row, s_neon_hud ? kAccentSurface : kSurfaceRaised, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(row, !is_standard_theme() ? kAccentSurface : kSurfaceRaised, LV_STATE_PRESSED);
     const int text_x = icon_text ? 45 : 12;
     if (icon_text) {
         lv_obj_t *icon = make_label(row, icon_text, s_neon_hud ? kTextSecondary : kAccent);
@@ -155,7 +165,7 @@ void release_boot_image()
 bool load_brand_logo()
 {
     static bool cached_dark_mode = true;
-    const bool dark = s_dark_mode || s_neon_hud;
+    const bool dark = uses_dark_palette();
     if (s_brand_logo_pixels && cached_dark_mode == dark) return true;
     if (s_brand_logo_pixels) {
         heap_caps_free(s_brand_logo_pixels);

@@ -884,7 +884,14 @@ void render_player()
             button_y, true);
     }
 
-    lv_obj_t *title = make_label(body, track.title, s_neon_hud ? kAccent : kTextPrimary);
+    if (is_cute_theme()) {
+        // Fit the three 20 px text lines with padding. End before the time
+        // labels at progress_y - 8, keeping the progress row outside the card.
+        lv_obj_t *metadata = make_box(body, 8, progress_y - 84, 304, 75, kSurface, 12);
+        lv_obj_set_style_radius(metadata, 12, 0);
+        lv_obj_remove_flag(metadata, LV_OBJ_FLAG_CLICKABLE);
+    }
+    lv_obj_t *title = make_label(body, track.title, !is_standard_theme() ? kAccent : kTextPrimary);
     lv_obj_set_style_text_font(title, lyra::font::ui(), 0);
     make_marquee(title, 240);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 20, progress_y - 79);

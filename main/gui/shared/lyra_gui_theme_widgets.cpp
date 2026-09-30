@@ -7,8 +7,20 @@
 
 namespace lyra::gui::internal {
 
+const char *theme_name(Theme theme)
+{
+    switch (theme) {
+        case Theme::NeonSky: return tr(lyra::i18n::StringId::NeonSky);
+        case Theme::CutePink: return tr(lyra::i18n::StringId::CutePink);
+        case Theme::Standard:
+        case Theme::Count: return tr(lyra::i18n::StringId::StandardTheme);
+    }
+    return tr(lyra::i18n::StringId::StandardTheme);
+}
+
 void apply_theme_palette()
 {
+    s_neon_hud = s_theme == Theme::NeonSky;
     const size_t accent_index = static_cast<size_t>(s_accent_colour) < kAccentPaletteCount ?
                                 s_accent_colour : 0;
     const AccentPalette &accent = kAccentPalettes[accent_index];
@@ -27,6 +39,21 @@ void apply_theme_palette()
         kKeyboardSurface = lv_color_hex(0x090D16);
         kArtworkSurface = lv_color_hex(0x0C1420);
         kDangerSurface = lv_color_hex(0x3F1118);
+    } else if (is_cute_theme()) {
+        kBackground = lv_color_hex(0xFFF5FC);
+        kSurface = lv_color_hex(0xFFFAFE);
+        kSurfaceRaised = lv_color_hex(0xF3EDFF);
+        kAccent = lv_color_hex(0xB91D70);
+        kAccentDark = lv_color_hex(0xA31864);
+        kAccentSurface = lv_color_hex(0xFFD6ED);
+        kTextPrimary = lv_color_hex(0x3E327B);
+        kTextSecondary = lv_color_hex(0x514486);
+        kTextMuted = lv_color_hex(0x6D5C8C);
+        kDivider = lv_color_hex(0xC7A7E5);
+        kNavSurface = lv_color_hex(0xF5EAFF);
+        kKeyboardSurface = lv_color_hex(0xF3EDFF);
+        kArtworkSurface = lv_color_hex(0xEFE6FA);
+        kDangerSurface = lv_color_hex(0xFFE1EA);
     } else if (s_dark_mode) {
         kBackground = lv_color_hex(0x080C12);
         kSurface = lv_color_hex(0x101720);
@@ -154,7 +181,7 @@ esp_err_t save_user_settings()
         s_use_24_hour,
         s_dst_enabled,
         true,
-        s_neon_hud,
+        s_theme,
     };
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
@@ -179,7 +206,7 @@ void load_user_settings()
         s_use_24_hour,
         s_dst_enabled,
         false,
-        s_neon_hud,
+        s_theme,
     };
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
@@ -194,7 +221,7 @@ void load_user_settings()
     s_crossfade_seconds = values.crossfade_seconds;
     s_brightness_percent = values.brightness_percent;
     s_dark_mode = values.dark_mode;
-    s_neon_hud = values.neon_hud;
+    s_theme = values.theme;
     s_accent_colour = values.accent_colour;
     lyra::i18n::set_language(values.language);
     s_speaker_output_enabled = values.speaker_output_enabled;
@@ -330,11 +357,21 @@ lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int width, int height,
     lv_obj_set_size(box, width, height);
     lv_obj_set_style_bg_color(box, color, 0);
     lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(box, show_border && !s_dark_mode ? 1 : 0, 0);
+    lv_obj_set_style_border_width(box, show_border && !uses_dark_palette() ? 1 : 0, 0);
     lv_obj_set_style_border_color(box, kDivider, 0);
     lv_obj_set_style_radius(box, s_neon_hud ? 0 : radius, 0);
     lv_obj_set_style_pad_all(box, 0, 0);
     lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+    if (is_cute_theme()) {
+        if (width == kScreenWidth && height > 72 && lv_color_eq(color, kBackground)) {
+            make_cute_body_background(box);
+        } else if (radius > 0 && width >= 24 && height >= 20 &&
+                   !lv_color_eq(color, kArtworkSurface)) {
+            lv_obj_set_style_radius(box, std::max(radius, 14), 0);
+            lv_obj_set_style_border_width(box, 1, 0);
+            add_cute_plastic_finish(box);
+        }
+    }
     if (s_neon_hud) {
         // Leave artwork and overlays opaque. Full-width page bodies reveal
         // the fixed city beneath them without adding scrolling image copies.
@@ -394,11 +431,27 @@ lv_obj_t *make_button(lv_obj_t *parent, int x, int y, int width, int height,
     lv_obj_set_size(button, width, height);
     lv_obj_set_style_bg_color(button, color, 0);
     lv_obj_set_style_bg_color(button, kAccentDark, LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(button, show_border && !s_dark_mode ? 1 : 0, 0);
+    lv_obj_set_style_border_width(button, show_border && !uses_dark_palette() ? 1 : 0, 0);
     lv_obj_set_style_border_color(button, kDivider, 0);
     lv_obj_set_style_radius(button, s_neon_hud ? 0 : radius, 0);
     lv_obj_set_style_pad_all(button, 0, 0);
     lv_obj_set_style_shadow_width(button, 0, 0);
+    if (is_cute_theme()) {
+        lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
+        lv_obj_set_style_bg_color(button,
+            lv_color_eq(color, kAccent) || lv_color_eq(color, kAccentDark) ?
+                kAccentDark : kAccentSurface, LV_STATE_PRESSED);
+        if (radius > 0 || show_border) {
+            lv_obj_set_style_radius(button, std::max(radius, 18), 0);
+            lv_obj_set_style_border_width(button, 1, 0);
+            if (lv_color_eq(color, kAccentSurface)) {
+                lv_obj_set_style_border_color(button, kAccent, 0);
+            }
+            lv_obj_set_style_border_color(button, kAccent, LV_STATE_PRESSED);
+            add_cute_plastic_finish(button);
+        }
+    }
     if (s_neon_hud) {
         // Opaque rows let LVGL skip the city beneath them during scrolling.
         lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
@@ -463,7 +516,14 @@ void style_root()
     lv_obj_set_style_border_width(s_screen, 0, 0);
     lv_obj_set_style_pad_all(s_screen, 0, 0);
     lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-    make_hud_background();
+    // Release the inactive theme's PSRAM before loading the next background.
+    if (is_cute_theme()) {
+        make_hud_background();
+        make_cute_background();
+    } else {
+        make_cute_background();
+        make_hud_background();
+    }
 }
 
 void route_cb(lv_event_t *event)

@@ -19,6 +19,7 @@ extern const AccentPalette kAccentPalettes[] = {
 };
 
 bool s_dark_mode = true;
+Theme s_theme = Theme::Standard;
 bool s_neon_hud = false;
 uint8_t s_accent_colour = 0;
 

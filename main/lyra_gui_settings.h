@@ -16,6 +16,9 @@ namespace lyra::gui_settings {
 
 constexpr size_t kEqualizerBandCount = lyra::audio::kEqualizerBandCount;
 
+// Persisted IDs: append new themes without changing existing values.
+enum class Theme : uint8_t { Standard, NeonSky, CutePink, Count };
+
 struct Values {
     bool gapless;
     bool replay_gain;
@@ -35,7 +38,7 @@ struct Values {
     // first GUI boot after a factory reset.
     bool language_selected;
     // Independent of the classic dark/light and accent preferences.
-    bool neon_hud = false;
+    Theme theme = Theme::Standard;
 };
 
 // Loads only valid persisted values, leaving caller-provided defaults intact.

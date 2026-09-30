@@ -145,6 +145,14 @@ struct ArtistDetailListContext;
 struct AlbumListContext;
 
 extern bool s_dark_mode;
+using Theme = lyra::gui_settings::Theme;
+extern Theme s_theme;
+inline bool is_cute_theme() { return s_theme == Theme::CutePink; }
+inline bool is_standard_theme() { return s_theme == Theme::Standard; }
+// s_dark_mode remains the user's Standard preference, even in fixed themes.
+inline bool uses_dark_palette() {
+    return s_theme == Theme::NeonSky || (is_standard_theme() && s_dark_mode);
+}
 extern bool s_neon_hud;
 extern uint8_t s_accent_colour;
 extern lv_color_t kBackground;
@@ -302,6 +310,13 @@ extern lv_style_t s_marquee_style;
 extern bool s_marquee_style_ready;
 
 void apply_theme_palette();
+const char *theme_name(Theme theme);
+void make_cute_background();
+void make_cute_body_background(lv_obj_t *body);
+void make_cute_header_mascot(lv_obj_t *header);
+void add_cute_plastic_finish(lv_obj_t *object);
+void make_cute_menu_icon(lv_obj_t *row, View view);
+void style_cute_controls(lv_obj_t *object);
 void make_hud_background();
 void make_hud_body_background(lv_obj_t *body);
 void add_hud_frame(lv_obj_t *object, bool octagonal = false);

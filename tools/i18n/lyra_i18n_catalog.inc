@@ -28,6 +28,8 @@ LYRA_I18N_ENTRY(Theme, "Theme", "Thème", "Design", "Tema", "Tema", "テーマ",
 LYRA_I18N_ENTRY(StandardTheme, "Standard", "Standard", "Standard", "Estándar", "Standard", "標準", "기본", "Стандартная", "标准", "標準")
 // Neon Sky is the original theme's proper name in every locale.
 LYRA_I18N_ENTRY(NeonSky, "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky")
+// Cute & Pink is the theme's proper name in every supported language.
+LYRA_I18N_ENTRY(CutePink, "Cute & Pink", "Cute & Pink", "Cute & Pink", "Cute & Pink", "Cute & Pink", "Cute & Pink", "Cute & Pink", "Cute & Pink", "Cute & Pink", "Cute & Pink")
 LYRA_I18N_ENTRY(QuickSeek, "Quick Seek", "Saut rapide", "Schnellnavigation", "Salto rápido", "Salto rapido", "クイックシーク", "빠른 탐색", "Быстрая перемотка", "快速跳转", "快速跳轉")
 LYRA_I18N_ENTRY(QuickSeekBackward, "-30", "-30", "-30", "-30", "-30", "-30", "-30", "-30", "-30", "-30")
 LYRA_I18N_ENTRY(QuickSeekForward, "+30", "+30", "+30", "+30", "+30", "+30", "+30", "+30", "+30", "+30")

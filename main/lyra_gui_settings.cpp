@@ -20,6 +20,7 @@ constexpr const char *kCrossfadeKey = "crossfade";
 constexpr const char *kBrightnessKey = "brightness";
 constexpr const char *kDarkModeKey = "dark_mode";
 constexpr const char *kNeonHudKey = "neon_hud";
+constexpr const char *kThemeKey = "theme";
 constexpr const char *kAccentColorKey = "accent_color";
 constexpr const char *kLanguageKey = "language";
 constexpr const char *kSpeakerOutputKey = "speaker_output";
@@ -47,14 +48,18 @@ void load(Values *values, size_t accent_palette_count, uint8_t equalizer_preset_
     // the same safe English default without disturbing other caller defaults.
     values->language = lyra::i18n::Language::English;
     values->language_selected = false;
-    values->neon_hud = false;
+    values->theme = Theme::Standard;
 
     nvs_handle_t handle;
     if (nvs_open(kSettingsNamespace, NVS_READONLY, &handle) != ESP_OK) return;
 
     uint8_t value = 0;
-    if (nvs_get_u8(handle, kNeonHudKey, &value) == ESP_OK && value <= 1) {
-        values->neon_hud = value != 0;
+    if (nvs_get_u8(handle, kThemeKey, &value) == ESP_OK &&
+        value < static_cast<uint8_t>(Theme::Count)) {
+        values->theme = static_cast<Theme>(value);
+    } else if (nvs_get_u8(handle, kNeonHudKey, &value) == ESP_OK && value == 1) {
+        // Migrate the original two-theme preference without losing Neon Sky.
+        values->theme = Theme::NeonSky;
     }
     if (nvs_get_u8(handle, kGaplessKey, &value) == ESP_OK && value <= 1) {
         values->gapless = value != 0;
@@ -125,7 +130,10 @@ esp_err_t save(const Values &values)
     if (result == ESP_OK) result = nvs_set_u8(handle, kCrossfadeKey, values.crossfade_seconds);
     if (result == ESP_OK) result = nvs_set_u8(handle, kBrightnessKey, values.brightness_percent);
     if (result == ESP_OK) result = nvs_set_u8(handle, kDarkModeKey, values.dark_mode ? 1 : 0);
-    if (result == ESP_OK) result = nvs_set_u8(handle, kNeonHudKey, values.neon_hud ? 1 : 0);
+    const Theme theme = values.theme < Theme::Count ? values.theme : Theme::Standard;
+    if (result == ESP_OK) result = nvs_set_u8(handle, kThemeKey, static_cast<uint8_t>(theme));
+    // Retain a sensible preference when using an older firmware version.
+    if (result == ESP_OK) result = nvs_set_u8(handle, kNeonHudKey, theme == Theme::NeonSky ? 1 : 0);
     if (result == ESP_OK) result = nvs_set_u8(handle, kAccentColorKey, values.accent_colour);
     if (result == ESP_OK) {
         const uint8_t language = lyra::i18n::is_valid_language(

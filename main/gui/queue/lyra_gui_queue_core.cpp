@@ -924,8 +924,13 @@ void make_virtual_nav()
             lv_obj_set_style_bg_color(button, kAccentSurface, 0);
             add_hud_frame(button, true);
         }
+        if (is_cute_theme() && i == 2) {
+            lv_obj_set_style_bg_color(button, kAccentSurface, 0);
+            lv_obj_set_style_border_color(button, kAccent, 0);
+            lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, 0);
+        }
         lv_obj_t *icon = make_label(button, icons[i],
-            (i == 0 && s_view == View::Menu) || (s_neon_hud && i == 2) ? kAccent : kTextSecondary);
+            (i == 0 && s_view == View::Menu) || (!is_standard_theme() && i == 2) ? kAccent : kTextSecondary);
         lv_obj_center(icon);
         if (i == 0) {
             add_route(button, View::Menu);
@@ -1049,6 +1054,7 @@ void show_volume_popup_cb(lv_event_t *)
         lv_obj_set_style_border_width(s_volume_popup, 0, 0);
         style_hud_controls(s_volume_popup);
     }
+    if (is_cute_theme()) style_cute_controls(s_volume_popup);
 }
 
 } // namespace lyra::gui::internal

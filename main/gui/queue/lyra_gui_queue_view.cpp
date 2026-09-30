@@ -203,6 +203,21 @@ void render_menu()
     for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
         lv_obj_t *row = make_row(body, static_cast<int>(i) * 56, items[i].icon, items[i].label,
                                  nullptr, items[i].view, 51);
+        if (is_cute_theme()) {
+            constexpr uint32_t pastel_rows[] = {
+                0xFFD6ED, 0xF3EDFF, 0xEDF7FF, 0xEDF9F5,
+                0xF6EEFF, 0xEEF5FF, 0xFFF0F7,
+            };
+            lv_obj_set_style_bg_color(row, lv_color_hex(pastel_rows[i]), 0);
+            // make_row's first child is its stock font icon. Keep the label
+            // geometry and replace only that decoration in Cute & Pink.
+            lv_obj_add_flag(lv_obj_get_child(row, 0), LV_OBJ_FLAG_HIDDEN);
+            if (items[i].view == View::Player) {
+                lv_obj_set_style_border_color(row, kAccent, 0);
+                lv_obj_set_style_text_color(lv_obj_get_child(row, 1), kAccent, 0);
+            }
+            make_cute_menu_icon(row, items[i].view);
+        }
         if (items[i].view == View::Queue) {
             lv_obj_remove_event_cb(row, route_cb);
             lv_obj_add_event_cb(row, open_queue_cb, LV_EVENT_CLICKED, nullptr);
@@ -231,7 +246,7 @@ void make_queue_song_row(lv_obj_t *parent, int y, size_t queue_position, bool cu
     lyra::media::Track track{};
     if (!queue_track_at(queue_position, &track_index) || !lyra::media::track_at(track_index, &track)) return;
     lv_obj_t *row = make_button(parent, 7, y, 306, 54,
-        current ? (s_neon_hud ? kAccentSurface : kAccentDark) : kSurface, 5);
+        current ? (!is_standard_theme() ? kAccentSurface : kAccentDark) : kSurface, 5);
     char queue_number_text[16];
     format_u32(lyra::i18n::StringId::QueueNumber,
                static_cast<uint32_t>(queue_position + 1),
@@ -242,19 +257,19 @@ void make_queue_song_row(lv_obj_t *parent, int y, size_t queue_position, bool cu
     lv_obj_set_style_text_align(queue_number, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(queue_number, LV_ALIGN_LEFT_MID, 0, 0);
     if (current) {
-        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, s_neon_hud ? kAccent : kTextOnAccent);
+        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, !is_standard_theme() ? kAccent : kTextOnAccent);
         lv_obj_align(playing, LV_ALIGN_LEFT_MID, 10, 0);
         lv_obj_clear_flag(playing, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(queue_number, LV_OBJ_FLAG_HIDDEN);
     }
     const int text_x = 42;
     lv_obj_t *title = make_label(row, track.title,
-        current ? (s_neon_hud ? kAccent : kTextOnAccent) : kTextPrimary);
+        current ? (!is_standard_theme() ? kAccent : kTextOnAccent) : kTextPrimary);
     const int text_width = s_queue_edit_mode ? 132 : 250;
     make_marquee(title, text_width);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, text_x, -9);
     lv_obj_t *artist = make_label(row, track.artist,
-        current && !s_neon_hud ? kTextOnAccent : kTextSecondary);
+        current && is_standard_theme() ? kTextOnAccent : kTextSecondary);
     make_marquee(artist, text_width);
     lv_obj_align(artist, LV_ALIGN_LEFT_MID, text_x, 11);
     if (s_queue_edit_mode) {

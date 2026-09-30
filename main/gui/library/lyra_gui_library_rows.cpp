@@ -257,7 +257,7 @@ void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height,
 {
     lyra::media::Track track{};
     if (!lyra::media::track_at(track_index, &track)) return;
-    const bool current = s_neon_hud && track_index == s_current_track &&
+    const bool current = !is_standard_theme() && track_index == s_current_track &&
         std::strcmp(lyra::audio::status().path, track.path) == 0;
     lv_obj_t *row = make_button(parent, 7, y, 306, height,
                                 current ? kAccentSurface : kSurface, 5, true);

@@ -73,6 +73,7 @@ void render(View view)
         make_virtual_nav();
     }
     if (s_neon_hud) style_hud_controls(s_screen);
+    if (is_cute_theme()) style_cute_controls(s_screen);
 }
 
 bool automatic_track_advance_available()

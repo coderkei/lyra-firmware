@@ -8,6 +8,7 @@ idf_component_register(
         "gui/lyra_gui_state.cpp"
         "gui/shared/lyra_gui_theme_widgets.cpp"
         "gui/shared/lyra_gui_hud.cpp"
+        "gui/shared/lyra_gui_cute.cpp"
         "gui/shared/lyra_gui_status_artwork.cpp"
         "gui/queue/lyra_gui_queue_core.cpp"
         "gui/queue/lyra_gui_queue_view.cpp"
@@ -56,6 +57,7 @@ idf_component_register(
         "../graphics/boot_light.png"
         "../graphics/neon_sky_city.png"
         "../graphics/neon_sky_city_lists.png"
+        "../graphics/cute_pink_background.png"
     REQUIRES
         lyra_board
         lvgl

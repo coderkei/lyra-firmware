@@ -107,7 +107,7 @@ void toggle_bool_cb(lv_event_t *event)
 {
     lv_obj_t *toggle = static_cast<lv_obj_t *>(lv_event_get_user_data(event));
     bool *value = static_cast<bool *>(lv_obj_get_user_data(toggle));
-    if (s_neon_hud && value == &s_dark_mode) return;
+    if (!is_standard_theme() && value == &s_dark_mode) return;
     *value = !*value;
     if (value == &s_gapless || value == &s_replay_gain || value == &s_quick_seek) {
         save_user_settings();
@@ -159,7 +159,7 @@ void make_setting_toggle(lv_obj_t *parent, int y, const char *title, const char 
 
 void accent_colour_cb(lv_event_t *event)
 {
-    if (s_neon_hud) return;
+    if (!is_standard_theme()) return;
     const uintptr_t index = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
     if (index >= kAccentPaletteCount) return;
     if (s_accent_colour == index) return;
@@ -194,8 +194,8 @@ void make_accent_selector(lv_obj_t *parent, int y)
 void select_theme_cb(lv_event_t *event)
 {
     const uintptr_t selection = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
-    if (selection > 1) return;
-    s_neon_hud = selection == 1;
+    if (selection >= static_cast<uintptr_t>(Theme::Count)) return;
+    s_theme = static_cast<Theme>(selection);
     apply_theme_palette();
     save_user_settings();
     navigate_back(View::DisplaySettings);
@@ -205,12 +205,13 @@ void render_theme_options()
 {
     make_header(tr(lyra::i18n::StringId::Theme), View::DisplaySettings, true);
     lv_obj_t *body = make_scroll_body(72);
-    for (uintptr_t selection = 0; selection < 2; ++selection) {
-        const bool active = s_neon_hud == (selection == 1);
+    for (uintptr_t selection = 0; selection < static_cast<uintptr_t>(Theme::Count); ++selection) {
+        const Theme theme = static_cast<Theme>(selection);
+        const bool active = s_theme == theme;
         lv_obj_t *row = make_button(body, 7, static_cast<int>(selection) * 66,
             306, 62, active ? kAccentSurface : kSurface, 6, true);
         lv_obj_t *label = make_label(row,
-            tr(selection == 1 ? lyra::i18n::StringId::NeonSky : lyra::i18n::StringId::StandardTheme),
+            theme_name(theme),
             active ? kAccent : kTextPrimary);
         make_marquee(label, 250);
         lv_obj_align(label, LV_ALIGN_LEFT_MID, 12, 0);
@@ -1275,10 +1276,10 @@ void render_settings_page(View view)
                  equalizer_preset_name(s_equalizer_preset), View::Equalizer, 62);
     } else if (view == View::DisplaySettings) {
         make_row(body, 0, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::Theme),
-                 tr(s_neon_hud ? lyra::i18n::StringId::NeonSky : lyra::i18n::StringId::StandardTheme),
+                 theme_name(s_theme),
                  View::ThemeOptions, 62);
         int next_y = 66;
-        if (!s_neon_hud) {
+        if (is_standard_theme()) {
             make_setting_toggle(body, next_y, tr(lyra::i18n::StringId::DarkMode),
                                 s_dark_mode ? tr(lyra::i18n::StringId::DarkColours) :
                                               tr(lyra::i18n::StringId::LightColours),

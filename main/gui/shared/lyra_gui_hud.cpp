@@ -205,7 +205,7 @@ void make_hud_body_background(lv_obj_t *body)
 
 void make_hud_equalizer_grid(lv_obj_t *parent, int x, int y, int width, int height)
 {
-    if (!s_neon_hud) return;
+    if (!s_neon_hud && !is_cute_theme()) return;
     lv_obj_t *grid = make_box(parent, x, y, width, height, kBackground);
     lv_obj_set_style_bg_opa(grid, LV_OPA_COVER, 0);
     lv_obj_remove_flag(grid, LV_OBJ_FLAG_CLICKABLE);
