@@ -22,7 +22,7 @@ void apply_theme_palette()
         kTextPrimary = lv_color_hex(0xE0F3FF);
         kTextSecondary = lv_color_hex(0x20E7FF);
         kTextMuted = lv_color_hex(0x91B7CA);
-        kDivider = lv_color_hex(0x57132D);
+        kDivider = lv_color_hex(0xB32650);
         kNavSurface = lv_color_hex(0x05080F);
         kKeyboardSurface = lv_color_hex(0x090D16);
         kArtworkSurface = lv_color_hex(0x0C1420);
@@ -339,7 +339,7 @@ lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int width, int height,
         // Leave artwork and overlays opaque. Full-width page bodies reveal
         // the fixed city beneath them without adding scrolling image copies.
         if (width == kScreenWidth && lv_color_eq(color, kBackground)) {
-            lv_obj_set_style_bg_opa(box, LV_OPA_TRANSP, 0);
+            make_hud_body_background(box);
         } else if (radius > 0 && width >= 24 && height >= 20 &&
                    !lv_color_eq(color, kArtworkSurface)) {
             lv_obj_set_style_border_width(box, 0, 0);
@@ -400,11 +400,11 @@ lv_obj_t *make_button(lv_obj_t *parent, int x, int y, int width, int height,
     lv_obj_set_style_pad_all(button, 0, 0);
     lv_obj_set_style_shadow_width(button, 0, 0);
     if (s_neon_hud) {
-        const bool major_menu = s_view == View::Menu || s_view == View::Library ||
-            s_view == View::Settings;
-        lv_obj_set_style_bg_opa(button, lv_color_eq(color, kSurface) ?
-            (major_menu ? LV_OPA_60 : LV_OPA_80) : LV_OPA_COVER, 0);
+        // Opaque rows let LVGL skip the city beneath them during scrolling.
+        lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
         lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
+        // Keep LVGL's transition descriptors valid: update_obj_state()
+        // dereferences their property lists on press/release. nullptr is unsafe.
         lv_obj_set_style_border_width(button, 0, 0);
         if (radius > 0 || show_border) add_hud_frame(button);
     }
@@ -511,6 +511,7 @@ View back_view(View view)
         case View::SystemSettings:
         case View::SortingSettings: return View::Settings;
         case View::ClockSettings: return View::SystemSettings;
+        case View::ThemeOptions: return View::DisplaySettings;
         case View::ClockTimeSettings:
         case View::ClockDateSettings: return View::ClockSettings;
         case View::LanguageOptions: return View::SystemSettings;

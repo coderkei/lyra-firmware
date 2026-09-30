@@ -25,8 +25,9 @@ LYRA_I18N_ENTRY(Equalizer, "Equalizer", "Égaliseur", "Equalizer", "Ecualizador"
 LYRA_I18N_ENTRY(Search, "Search", "Rechercher", "Suchen", "Buscar", "Cerca", "検索", "검색", "Поиск", "搜索", "搜尋")
 LYRA_I18N_ENTRY(Settings, "Settings", "Réglages", "Einstellungen", "Ajustes", "Impostazioni", "設定", "설정", "Настройки", "设置", "設定")
 LYRA_I18N_ENTRY(Theme, "Theme", "Thème", "Design", "Tema", "Tema", "テーマ", "테마", "Тема", "主题", "主題")
-// Neon HUD is the original theme's proper name in every locale.
-LYRA_I18N_ENTRY(NeonHud, "Neon HUD", "Neon HUD", "Neon HUD", "Neon HUD", "Neon HUD", "Neon HUD", "Neon HUD", "Neon HUD", "Neon HUD", "Neon HUD")
+LYRA_I18N_ENTRY(StandardTheme, "Standard", "Standard", "Standard", "Estándar", "Standard", "標準", "기본", "Стандартная", "标准", "標準")
+// Neon Sky is the original theme's proper name in every locale.
+LYRA_I18N_ENTRY(NeonSky, "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky")
 LYRA_I18N_ENTRY(QuickSeek, "Quick Seek", "Saut rapide", "Schnellnavigation", "Salto rápido", "Salto rapido", "クイックシーク", "빠른 탐색", "Быстрая перемотка", "快速跳转", "快速跳轉")
 LYRA_I18N_ENTRY(QuickSeekBackward, "-30", "-30", "-30", "-30", "-30", "-30", "-30", "-30", "-30", "-30")
 LYRA_I18N_ENTRY(QuickSeekForward, "+30", "+30", "+30", "+30", "+30", "+30", "+30", "+30", "+30", "+30")

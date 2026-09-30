@@ -99,7 +99,7 @@ enum class View : uintptr_t {
     DisplaySettings, SystemSettings, ClockSettings, ClockTimeSettings, ClockDateSettings,
     LanguageOptions, DatabaseStorage,
     About, DebugMenu, PageJump,
-    Licenses, TrackList,
+    Licenses, TrackList, ThemeOptions,
 };
 enum class LibraryTab : uint8_t { Songs, Artists, Albums, Genres, Years };
 enum class ArtistDetailTab : uint8_t { Songs, Albums };
@@ -303,9 +303,11 @@ extern bool s_marquee_style_ready;
 
 void apply_theme_palette();
 void make_hud_background();
+void make_hud_body_background(lv_obj_t *body);
 void add_hud_frame(lv_obj_t *object, bool octagonal = false);
 void make_hud_equalizer_grid(lv_obj_t *parent, int x, int y, int width, int height);
 void style_hud_controls(lv_obj_t *object);
+void render_theme_options();
 const char *equalizer_preset_name(EqualizerPreset preset);
 const int16_t *equalizer_preset_bands(EqualizerPreset preset);
 bool equalizer_is_custom();

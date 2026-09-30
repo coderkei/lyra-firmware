@@ -49,6 +49,7 @@ void render(View view)
         case View::PlaylistAdd: render_playlist_add(); break;
         case View::Equalizer: render_equalizer(); break;
         case View::EqualizerPresets: render_equalizer_presets(); break;
+        case View::ThemeOptions: render_theme_options(); break;
         case View::Search: render_search(); break;
         case View::Settings: render_settings_menu(); break;
         case View::SortingSettings: render_sorting_settings(); break;

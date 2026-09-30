@@ -107,13 +107,13 @@ void toggle_bool_cb(lv_event_t *event)
 {
     lv_obj_t *toggle = static_cast<lv_obj_t *>(lv_event_get_user_data(event));
     bool *value = static_cast<bool *>(lv_obj_get_user_data(toggle));
+    if (s_neon_hud && value == &s_dark_mode) return;
     *value = !*value;
     if (value == &s_gapless || value == &s_replay_gain || value == &s_quick_seek) {
         save_user_settings();
         if (value == &s_replay_gain) apply_replay_gain_to_current_track();
     }
-    if (value == &s_dark_mode || value == &s_neon_hud) {
-        if (value == &s_dark_mode) s_neon_hud = false;
+    if (value == &s_dark_mode) {
         apply_theme_palette();
         save_user_settings();
         render(s_view);
@@ -159,10 +159,10 @@ void make_setting_toggle(lv_obj_t *parent, int y, const char *title, const char 
 
 void accent_colour_cb(lv_event_t *event)
 {
+    if (s_neon_hud) return;
     const uintptr_t index = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
     if (index >= kAccentPaletteCount) return;
-    if (s_accent_colour == index && !s_neon_hud) return;
-    s_neon_hud = false;
+    if (s_accent_colour == index) return;
     s_accent_colour = static_cast<uint8_t>(index);
     apply_theme_palette();
     save_user_settings();
@@ -188,6 +188,38 @@ void make_accent_selector(lv_obj_t *parent, int y)
         lv_obj_add_flag(swatch, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(swatch, accent_colour_cb, LV_EVENT_CLICKED,
                             reinterpret_cast<void *>(static_cast<uintptr_t>(index)));
+    }
+}
+
+void select_theme_cb(lv_event_t *event)
+{
+    const uintptr_t selection = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
+    if (selection > 1) return;
+    s_neon_hud = selection == 1;
+    apply_theme_palette();
+    save_user_settings();
+    navigate_back(View::DisplaySettings);
+}
+
+void render_theme_options()
+{
+    make_header(tr(lyra::i18n::StringId::Theme), View::DisplaySettings, true);
+    lv_obj_t *body = make_scroll_body(72);
+    for (uintptr_t selection = 0; selection < 2; ++selection) {
+        const bool active = s_neon_hud == (selection == 1);
+        lv_obj_t *row = make_button(body, 7, static_cast<int>(selection) * 66,
+            306, 62, active ? kAccentSurface : kSurface, 6, true);
+        lv_obj_t *label = make_label(row,
+            tr(selection == 1 ? lyra::i18n::StringId::NeonSky : lyra::i18n::StringId::StandardTheme),
+            active ? kAccent : kTextPrimary);
+        make_marquee(label, 250);
+        lv_obj_align(label, LV_ALIGN_LEFT_MID, 12, 0);
+        if (active) {
+            lv_obj_t *check = make_label(row, LV_SYMBOL_OK, kAccent);
+            lv_obj_align(check, LV_ALIGN_RIGHT_MID, -12, 0);
+        }
+        lv_obj_add_event_cb(row, select_theme_cb, LV_EVENT_CLICKED,
+                            reinterpret_cast<void *>(selection));
     }
 }
 
@@ -1242,20 +1274,22 @@ void render_settings_page(View view)
         make_row(body, 158, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::EqPreset),
                  equalizer_preset_name(s_equalizer_preset), View::Equalizer, 62);
     } else if (view == View::DisplaySettings) {
-        make_setting_toggle(body, 0, tr(lyra::i18n::StringId::Theme),
-                            s_neon_hud ? tr(lyra::i18n::StringId::NeonHud) :
-                                (s_dark_mode ? tr(lyra::i18n::StringId::DarkColours) :
-                                               tr(lyra::i18n::StringId::LightColours)),
-                            &s_neon_hud);
-        make_setting_toggle(body, 66, tr(lyra::i18n::StringId::DarkMode),
-                            s_dark_mode ? tr(lyra::i18n::StringId::DarkColours) :
-                                          tr(lyra::i18n::StringId::LightColours),
-                            &s_dark_mode);
-        make_accent_selector(body, 132);
-        make_setting_toggle(body, 248, tr(lyra::i18n::StringId::VirtualControls),
+        make_row(body, 0, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::Theme),
+                 tr(s_neon_hud ? lyra::i18n::StringId::NeonSky : lyra::i18n::StringId::StandardTheme),
+                 View::ThemeOptions, 62);
+        int next_y = 66;
+        if (!s_neon_hud) {
+            make_setting_toggle(body, next_y, tr(lyra::i18n::StringId::DarkMode),
+                                s_dark_mode ? tr(lyra::i18n::StringId::DarkColours) :
+                                              tr(lyra::i18n::StringId::LightColours),
+                                &s_dark_mode);
+            make_accent_selector(body, next_y + 66);
+            next_y += 182;
+        }
+        make_setting_toggle(body, next_y, tr(lyra::i18n::StringId::VirtualControls),
                             tr(lyra::i18n::StringId::ShowBottomNavigation), &s_show_nav);
-        make_brightness_control(body, 314);
-        lv_obj_t *screen_timeout = make_row(body, 406, LV_SYMBOL_POWER,
+        make_brightness_control(body, next_y + 66);
+        lv_obj_t *screen_timeout = make_row(body, next_y + 158, LV_SYMBOL_POWER,
                                              tr(lyra::i18n::StringId::ScreenTimeout),
                                              tr(lyra::i18n::StringId::ComingSoon),
                                              View::DisplaySettings, 62);

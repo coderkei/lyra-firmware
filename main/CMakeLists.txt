@@ -54,7 +54,8 @@ idf_component_register(
     EMBED_FILES
         "../graphics/boot.png"
         "../graphics/boot_light.png"
-        "../graphics/neon_hud_city.png"
+        "../graphics/neon_sky_city.png"
+        "../graphics/neon_sky_city_lists.png"
     REQUIRES
         lyra_board
         lvgl
