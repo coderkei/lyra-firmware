@@ -38,8 +38,8 @@ def main() -> None:
             raise ValueError("HUD city source must have a 2:3 portrait aspect ratio")
         resized = image.convert("RGB").resize((320, 480), Image.Resampling.LANCZOS)
     background = Image.new("RGB", resized.size, (5, 8, 15))
-    for filename, visibility in (("neon_sky_city.png", 0.85),
-                                  ("neon_sky_city_lists.png", 0.38)):
+    for filename, visibility in (("neon_sky_city.png", 0.45),
+                                  ("neon_sky_city_lists.png", 0.20)):
         # All tinting/dimming is baked into RGB pixels. LVGL copies these
         # opaque RGB565 images without image or per-row alpha blending.
         prepared = Image.blend(background, resized, visibility)
