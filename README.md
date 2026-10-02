@@ -16,23 +16,58 @@ touch interface, MicroSD music library, and I2S audio playback.
 
 ## Firmware features
 
-- Touch-friendly LVGL interface with a 320 × 480 portrait layout, including Music
-  Library, folder browser, search, Now Playing, queue, playlists, equalizer,
-  and settings screens.
-- Selectable interface themes, including **Aura**, inspired by Windows Media
-  Player Aero with blue glass panels, light trails, and circular playback controls.
-  Choose it in Settings → Display → Theme; the selection persists across restarts.
-- Recursive MicroSD music-library scan (up to 10,000 tracks), with metadata,
-  sorting, and embedded album-art display and caching.
-- [Direct folder browsing](docs/FOLDER_FILE_BROWSING.md) without a scan, with
-  folder playback queues, full-screen PNG/BMP/JPEG viewing, and a TXT/LRC
-  reader with saved bookmarks.
-- Portable `.m3u` / `.m3u8` playlists, a generated Favorites playlist, and a
-  persistent playback queue.
-- Playback controls for play/pause, previous/next, seeking, volume, and
-  per-track ReplayGain adjustment.
-- Five-band equalizer with custom settings and built-in presets; audio and
-  library preferences persist across restarts.
+### Library and files
+
+- Recursive MicroSD music-library scan for up to 10,000 tracks, with metadata,
+  browsing by song, album, artist, genre, and year, configurable sorting,
+  and sort-location jumps.
+- Search across songs, albums, artists, and playlists.
+- Direct folder browsing and playback without a library scan, folder playback
+  queues, and opening portable `.m3u` / `.m3u8` files directly from folders.
+- Full-screen PNG/BMP/JPEG viewing with zoom and pan, plus a paged TXT/LRC
+  reader with font-size and light/dark controls and saved bookmarks.
+- On-demand album art from embedded images, falling back to `cover.jpg`,
+  `folder.jpg`, or `cover.png` in the track's folder. Covers are kept in memory;
+  optional SD-backed decoding and caching support oversized JPEG artwork.
+  Display artwork can be configured at 240 or 320 pixels.
+- Create, edit, and delete portable `.m3u` / `.m3u8` playlists under
+  `/sdcard/Playlists`, with a generated Favorites playlist and Smart Playlists
+  for Recently Added, Recently Played, Most Played, and Never Played.
+- Editable playback queue with reordering, removal, and clearing. Queue order,
+  current track, and elapsed position are saved on normal reboot/power-off;
+  restored playback is paused until resumed.
+
+### Playback and sound
+
+- Play/pause, previous/next, seeking, volume, shuffle, and repeat-all/repeat-song.
+  Optional Quick Seek controls jump backward or forward by 30 seconds.
+- Gapless playback and overlapping crossfades of 1, 2, 4, or 6 seconds, including
+  manual next/previous transitions. Encoded MP3/AAC priming or padding may still
+  produce silence; see [audio transition validation](docs/AUDIO_TRANSITION_VALIDATION.md)
+  for codec limitations and on-device checks.
+- Per-track ReplayGain adjustment and a five-band equalizer at 60 Hz, 250 Hz,
+  1 kHz, 4 kHz, and 16 kHz. Presets include Flat, Full Bass, Full Treble,
+  Bass & Treble, Rock, Pop, Jazz, and Classic, alongside custom gains.
+- Now Playing lyrics: tap the album art to show embedded lyrics or a same-stem
+  `.lrc` / `.txt` file. Timestamped lyrics highlight the current line.
+- Sleep timer stops playback after 15, 30, 45, or 60 minutes.
+- External PCM5102A I2S output with optional mirrored on-board speaker output,
+  enabled by default and configurable in Settings → Sound.
+
+### Interface and settings
+
+- Touch-friendly LVGL screens for the 320 × 480 portrait display, with an
+  optional bottom navigation/playback control bar.
+- **Standard**, **Neon Sky**, **Cute Pink**, **Zeno**, and **Aura** themes.
+  Standard offers dark/light mode and accent colours.
+- First-start language selection and a persistent language setting for English,
+  French, German, Spanish, Italian, Japanese, Korean, Russian, Simplified
+  Chinese, and Traditional Chinese.
+- Manual time/date setting, date-format and 12/24-hour preferences, and a manual
+  daylight-saving correction.
+- Persistent display, audio, and library preferences; library/database and
+  artwork-cache management; safe reboot, power-off to deep sleep, and factory
+  reset.
 
 ## Supported audio formats
 
@@ -52,6 +87,8 @@ Specifications and implementations are documented here:
 - [Product baseline specification](docs/EMOTIVATE_LYRA_OS_SPEC_BASELINE.md)
 - [JC3248W535EN hardware notes](docs/JC3248W535EN_HARDWARE.md)
 - [Embedded font documentation](docs/EMBEDDED_FONT.md)
+- [Audio transition limitations and device validation](docs/AUDIO_TRANSITION_VALIDATION.md)
+- [Localisation QA matrix](docs/LOCALISATION_QA_MATRIX.md)
 
 ## Project layout
 
