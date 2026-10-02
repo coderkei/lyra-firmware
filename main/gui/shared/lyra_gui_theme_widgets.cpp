@@ -13,6 +13,7 @@ const char *theme_name(Theme theme)
         case Theme::NeonSky: return tr(lyra::i18n::StringId::NeonSky);
         case Theme::CutePink: return tr(lyra::i18n::StringId::CutePink);
         case Theme::Zeno: return "Zeno";
+        case Theme::Aura: return "Aura";
         case Theme::Standard:
         case Theme::Count: return tr(lyra::i18n::StringId::StandardTheme);
     }
@@ -55,6 +56,21 @@ void apply_theme_palette()
         kKeyboardSurface = kSurface;
         kArtworkSurface = kSurfaceRaised;
         kDangerSurface = lv_color_hex(0x581528);
+    } else if (is_aura_theme()) {
+        kBackground = lv_color_hex(0xBCEAFF);
+        kSurface = lv_color_hex(0xE7F6FF);
+        kSurfaceRaised = lv_color_hex(0xD2EDFC);
+        kAccent = lv_color_hex(0x0066CB);
+        kAccentDark = lv_color_hex(0x0055B0);
+        kAccentSurface = lv_color_hex(0x129DE8);
+        kTextPrimary = lv_color_hex(0x003B85);
+        kTextSecondary = lv_color_hex(0x164F82);
+        kTextMuted = lv_color_hex(0x376587);
+        kDivider = lv_color_hex(0x80BCDB);
+        kNavSurface = lv_color_hex(0xB7E5F8);
+        kKeyboardSurface = kSurfaceRaised;
+        kArtworkSurface = lv_color_hex(0xD9EFFB);
+        kDangerSurface = lv_color_hex(0xFCE2E8);
     } else if (is_cute_theme()) {
         kBackground = lv_color_hex(0xFFF5FC);
         kSurface = lv_color_hex(0xFFFAFE);
@@ -345,7 +361,7 @@ void navigate_back(View fallback)
 int content_bottom()
 {
     return kScreenHeight - (s_show_nav && !s_language_setup_pending &&
-        !(is_zeno_theme() && s_view == View::Player) ? kNavHeight : 0);
+        !((is_zeno_theme() || is_aura_theme()) && s_view == View::Player) ? kNavHeight : 0);
 }
 
 int content_height(int top)
@@ -402,6 +418,7 @@ lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int width, int height,
             add_hud_frame(box);
         }
     }
+    if (is_aura_theme()) style_aura_surface(box, color, width, height, false);
     if (is_zeno_theme()) style_zeno_box(box, color, width, height);
     return box;
 }
@@ -415,6 +432,11 @@ lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color)
         // Shared card/dialog headings use the title colour, including dialogs
         // created after render() by asynchronous operations.
         color = kAccent;
+    }
+    if (is_aura_theme()) {
+        const lv_color_t background = lv_obj_get_style_bg_color(parent, LV_PART_MAIN);
+        if (lv_color_eq(background, kAccentSurface) || lv_color_eq(background, kAccent) ||
+            lv_color_eq(background, kAccentDark)) color = kTextOnAccent;
     }
     if (is_zeno_theme()) color = zeno_label_color(parent, color);
     lv_obj_t *label = lv_label_create(parent);
@@ -487,6 +509,7 @@ lv_obj_t *make_button(lv_obj_t *parent, int x, int y, int width, int height,
         lv_obj_set_style_border_width(button, 0, 0);
         if (radius > 0 || show_border) add_hud_frame(button);
     }
+    if (is_aura_theme()) style_aura_surface(button, color, width, height, true);
     if (is_zeno_theme()) style_zeno_button(button, color, width, height);
     return button;
 }
@@ -553,6 +576,7 @@ void style_root()
         make_hud_background();
     }
     if (is_zeno_theme()) make_zeno_background();
+    make_aura_background();
 }
 
 void route_cb(lv_event_t *event)

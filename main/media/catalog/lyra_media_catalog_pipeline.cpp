@@ -1299,15 +1299,33 @@ bool finish_catalog(FILE *file, CatalogHeader *header, SortKey *keys, bool capac
     return std::fflush(file) == 0;
 }
 
-bool validate_catalog(FILE *file, CatalogHeader *header, bool verify_checksum)
+bool validate_catalog(FILE *file, CatalogHeader *header, bool verify_checksum, const char *path)
 {
-    if (!file || std::fseek(file, 0, SEEK_SET) != 0 || std::fread(header, sizeof(*header), 1, file) != 1) return false;
-    if (std::memcmp(header->magic, kCatalogMagic, sizeof(kCatalogMagic)) != 0 ||
-        header->version != kCatalogVersion || header->header_size != sizeof(CatalogHeader) ||
-        header->track_size != sizeof(Track) || header->track_count > kMaxTracks ||
-        header->records_offset != sizeof(CatalogHeader)) return false;
+    const auto reject = [path](const char *reason) {
+        ESP_LOGW(kTag, "catalog rejected (%s): %s", path, reason);
+        return false;
+    };
+    if (!file || std::fseek(file, 0, SEEK_SET) != 0 || std::fread(header, sizeof(*header), 1, file) != 1)
+        return reject("cannot read complete header");
+    if (std::memcmp(header->magic, kCatalogMagic, sizeof(kCatalogMagic)) != 0)
+        return reject("incorrect magic");
+    if (header->version != kCatalogVersion || header->header_size != sizeof(CatalogHeader) ||
+        header->track_size != sizeof(Track) || header->records_offset != sizeof(CatalogHeader)) {
+        ESP_LOGW(kTag, "catalog layout: version=%lu/%lu header=%lu/%u track=%lu/%u records=%lu",
+                 static_cast<unsigned long>(header->version), static_cast<unsigned long>(kCatalogVersion),
+                 static_cast<unsigned long>(header->header_size), static_cast<unsigned>(sizeof(CatalogHeader)),
+                 static_cast<unsigned long>(header->track_size), static_cast<unsigned>(sizeof(Track)),
+                 static_cast<unsigned long>(header->records_offset));
+        return reject("incompatible layout");
+    }
+    if (header->track_count > kMaxTracks) return reject("track count exceeds capacity");
     struct stat info{};
-    if (fstat(fileno(file), &info) != 0 || static_cast<uint64_t>(info.st_size) != header->file_size) return false;
+    if (fstat(fileno(file), &info) != 0) return reject("cannot read file size");
+    if (static_cast<uint64_t>(info.st_size) != header->file_size) {
+        ESP_LOGW(kTag, "catalog size: actual=%llu expected=%lu",
+                 static_cast<unsigned long long>(info.st_size), static_cast<unsigned long>(header->file_size));
+        return reject("file size differs from header");
+    }
     const uint64_t records_end = static_cast<uint64_t>(header->records_offset) +
                                  static_cast<uint64_t>(header->track_count) * sizeof(Track);
     const uint64_t order_end = static_cast<uint64_t>(header->title_order_offset) +
@@ -1320,11 +1338,18 @@ bool validate_catalog(FILE *file, CatalogHeader *header, bool verify_checksum)
         static_cast<uint64_t>(header->artist_group_offset) + header->artist_group_count * sizeof(GroupRecord) > header->file_size ||
         static_cast<uint64_t>(header->album_group_offset) + header->album_group_count * sizeof(GroupRecord) > header->file_size ||
         static_cast<uint64_t>(header->genre_group_offset) + header->genre_group_count * sizeof(GroupRecord) > header->file_size ||
-        static_cast<uint64_t>(header->year_group_offset) + header->year_group_count * sizeof(GroupRecord) > header->file_size) return false;
+        static_cast<uint64_t>(header->year_group_offset) + header->year_group_count * sizeof(GroupRecord) > header->file_size)
+        return reject("index ranges exceed file bounds");
     if (!verify_checksum) return true;
     uint32_t checksum = 0;
-    return checksum_file_payload(file, header->records_offset, header->file_size, &checksum) &&
-           checksum == header->checksum;
+    if (!checksum_file_payload(file, header->records_offset, header->file_size, &checksum))
+        return reject("could not compute checksum (read or allocation failure)");
+    if (checksum != header->checksum) {
+        ESP_LOGW(kTag, "catalog checksum: actual=%08lx expected=%08lx",
+                 static_cast<unsigned long>(checksum), static_cast<unsigned long>(header->checksum));
+        return reject("payload checksum mismatch");
+    }
+    return true;
 }
 
 void clear_runtime_catalog()
@@ -1454,8 +1479,12 @@ bool load_catalog_file(const char *path, bool verify_checksum)
 {
     FILE *file = std::fopen(path, "rb");
     CatalogHeader header{};
-    if (!file || !validate_catalog(file, &header, verify_checksum)) {
-        if (file) std::fclose(file);
+    if (!file) {
+        ESP_LOGW(kTag, "catalog open failed (%s): %s", path, std::strerror(errno));
+        return false;
+    }
+    if (!validate_catalog(file, &header, verify_checksum, path)) {
+        std::fclose(file);
         return false;
     }
     auto *order = static_cast<uint32_t *>(heap_caps_malloc(header.track_count * sizeof(uint32_t), MALLOC_CAP_SPIRAM));
@@ -1473,6 +1502,7 @@ bool load_catalog_file(const char *path, bool verify_checksum)
                            (order && inverse && paths && duration_cache && duration_ready &&
                             album_for_logical &&
                             (!header.album_group_count || album_groups));
+    const char *read_stage = allocated ? "title/path indexes" : "resident index allocation";
     bool read = allocated &&
         (header.track_count == 0 ||
          (std::fseek(file, header.title_order_offset, SEEK_SET) == 0 &&
@@ -1480,6 +1510,7 @@ bool load_catalog_file(const char *path, bool verify_checksum)
           std::fseek(file, header.path_index_offset, SEEK_SET) == 0 &&
           std::fread(paths, sizeof(PathIndex), header.track_count, file) == header.track_count));
     if (read && header.track_count) {
+        read_stage = "title/path index contents";
         std::memset(inverse, 0xFF, header.track_count * sizeof(uint32_t));
         for (uint32_t logical = 0; logical < header.track_count; ++logical) {
             const uint32_t physical = order[logical];
@@ -1494,6 +1525,7 @@ bool load_catalog_file(const char *path, bool verify_checksum)
                 (i > 0 && paths[i - 1].hash > paths[i].hash)) read = false;
         }
         if (read) {
+            read_stage = "album group/member indexes";
             std::memset(album_for_logical, 0xFF,
                         header.track_count * sizeof(uint32_t));
             const uint64_t album_groups_end = static_cast<uint64_t>(
@@ -1534,6 +1566,10 @@ bool load_catalog_file(const char *path, bool verify_checksum)
         }
     }
     if (!read) {
+        ESP_LOGW(kTag, "catalog load failed (%s): %s; tracks=%lu PSRAM free=%u largest=%u",
+                 path, read_stage, static_cast<unsigned long>(header.track_count),
+                 static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
         heap_caps_free(order);
         heap_caps_free(inverse);
         heap_caps_free(paths);
@@ -1597,7 +1633,8 @@ esp_err_t publish_catalog()
         load_catalog_file(kCatalogPath);
         return ESP_FAIL;
     }
-    if (!load_catalog_file(kCatalogPath, false)) {
+    // A successful scan must pass the same checksum validation as startup.
+    if (!load_catalog_file(kCatalogPath)) {
         std::remove(kCatalogPath);
         std::rename(kCatalogBackupPath, kCatalogPath);
         load_catalog_file(kCatalogPath);

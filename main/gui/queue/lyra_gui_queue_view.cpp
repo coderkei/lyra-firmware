@@ -189,8 +189,23 @@ void open_folders_cb(lv_event_t *)
 void render_menu()
 {
     if (is_zeno_theme()) { render_zeno_menu(); return; }
-    make_header(tr(lyra::i18n::StringId::Menu), View::Menu);
-    lv_obj_t *body = make_scroll_body(72);
+    if (is_aura_theme()) {
+        lv_obj_t *banner = make_box(s_screen, 0, kStatusHeight, kScreenWidth, 68, kBackground);
+        lv_obj_set_style_bg_opa(banner, LV_OPA_TRANSP, 0);
+        lv_obj_t *brand = make_label(banner, "Lyra", kAccent);
+        lv_obj_set_style_text_font(brand, &lv_font_montserrat_28, 0);
+        lv_obj_set_pos(brand, 16, 5);
+        lv_obj_t *subtitle = make_label(banner, "Emotivate", kTextSecondary);
+        lv_obj_set_pos(subtitle, 18, 37);
+        lv_obj_t *play = make_button(banner, 250, 7, 52, 52, kSurface, LV_RADIUS_CIRCLE);
+        lv_obj_t *icon = make_label(play, LV_SYMBOL_PLAY, kAccent);
+        lv_obj_set_style_text_font(icon, &lv_font_montserrat_28, 0);
+        lv_obj_center(icon);
+        lv_obj_add_event_cb(play, [](lv_event_t *) { show_now_playing(); }, LV_EVENT_CLICKED, nullptr);
+    } else {
+        make_header(tr(lyra::i18n::StringId::Menu), View::Menu);
+    }
+    lv_obj_t *body = make_scroll_body(is_aura_theme() ? 96 : 72);
     struct MenuItem { const char *icon; const char *label; View view; };
     const MenuItem items[] = {
         {LV_SYMBOL_AUDIO, tr(lyra::i18n::StringId::NowPlaying), View::Player},
@@ -202,8 +217,18 @@ void render_menu()
         {LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::Settings), View::Settings},
     };
     for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
-        lv_obj_t *row = make_row(body, static_cast<int>(i) * 56, items[i].icon, items[i].label,
-                                 nullptr, items[i].view, 51);
+        lv_obj_t *row = make_row(body, static_cast<int>(i) * (is_aura_theme() ? 46 : 56),
+                                 items[i].icon, items[i].label, nullptr, items[i].view,
+                                 is_aura_theme() ? 44 : 51);
+        if (is_aura_theme() && items[i].view == View::Player) {
+            // A blue selected row mirrors the reference's prominent Now Playing entry.
+            lv_obj_set_style_bg_color(row, kAccentSurface, 0);
+            lv_obj_set_style_bg_grad_color(row, kAccent, 0);
+            for (uint32_t child = 0; child < lv_obj_get_child_count(row); ++child)
+                lv_obj_set_style_text_color(lv_obj_get_child(row, child), kTextOnAccent, 0);
+            lv_obj_set_style_bg_color(row, kAccent, LV_STATE_PRESSED);
+            lv_obj_set_style_bg_grad_color(row, kAccentDark, LV_STATE_PRESSED);
+        }
         if (is_cute_theme()) {
             constexpr uint32_t pastel_rows[] = {
                 0xFFD6ED, 0xF3EDFF, 0xEDF7FF, 0xEDF9F5,

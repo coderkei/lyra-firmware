@@ -734,6 +734,7 @@ lv_obj_t *make_player_progress_touch(lv_obj_t *parent, int x, int y, int width, 
 void update_player_progress()
 {
     update_zeno_transport();
+    update_aura_transport();
     if (!s_player_progress_bar && !s_player_elapsed_label && !s_player_duration_label) return;
 
     const lyra::audio::Status audio_status = lyra::audio::status();
@@ -872,6 +873,7 @@ void render_player()
         return;
     }
     const bool zeno = is_zeno_theme();
+    const bool aura = is_aura_theme();
     const bool favorite = lyra::media::is_favorite(s_current_track);
     const int body_height = content_height(kStatusHeight);
     lv_obj_t *body = make_box(s_screen, 0, kStatusHeight, 320, body_height, kBackground);
@@ -889,11 +891,21 @@ void render_player()
         lv_obj_set_style_text_align(position, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(position, LV_ALIGN_TOP_MID, 0, 0);
     }
-    const int art_size = zeno ? 140 : (s_show_nav || s_quick_seek ? 224 : 272);
+    const int art_size = aura ? 196 : zeno ? 140 : (s_show_nav || s_quick_seek ? 224 : 272);
     const int art_x = zeno ? 16 : (kScreenWidth - art_size) / 2;
-    const int controls_y = zeno ? 352 : body_height - 54;
-    const int progress_y = zeno ? 288 : controls_y - 19;
+    const int controls_y = (zeno || aura) ? 352 : body_height - 54;
+    const int progress_y = aura ? 300 : zeno ? 288 : controls_y - 19;
     const int art_y = 20;
+    if (aura) {
+        lv_obj_t *menu = make_button(body, 8, 8, 44, 44, kSurface, LV_RADIUS_CIRCLE);
+        lv_obj_t *menu_icon = make_label(menu, LV_SYMBOL_BARS, kAccent);
+        lv_obj_center(menu_icon);
+        add_route(menu, View::Menu);
+        lv_obj_t *back = make_button(body, 268, 8, 44, 44, kSurface, LV_RADIUS_CIRCLE);
+        lv_obj_t *back_icon = make_label(back, LV_SYMBOL_LEFT, kAccent);
+        lv_obj_center(back_icon);
+        lv_obj_add_event_cb(back, [](lv_event_t *) { navigate_back(View::Menu); }, LV_EVENT_CLICKED, nullptr);
+    }
     if (zeno) {
         lv_obj_t *heading = make_zeno_label(body, tr(lyra::i18n::StringId::NowPlaying));
         lv_obj_set_style_text_color(heading, kAccent, 0);
@@ -975,7 +987,7 @@ void render_player()
 
     lv_obj_t *bar = lv_bar_create(body);
     lv_obj_set_pos(bar, zeno ? 16 : 56, progress_y);
-    lv_obj_set_size(bar, zeno ? 288 : 208, zeno ? 8 : 5);
+    lv_obj_set_size(bar, zeno ? 288 : 208, (zeno || aura) ? 8 : 5);
     lv_bar_set_range(bar, 0, 1000);
     lv_bar_set_value(bar, 0, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(bar, kDivider, LV_PART_MAIN);
@@ -984,15 +996,16 @@ void render_player()
     s_player_progress_touch = make_player_progress_touch(body, zeno ? 16 : 56,
         progress_y - (zeno ? 6 : 8), zeno ? 288 : 208, zeno ? 36 : 21);
     s_player_elapsed_label = make_label(body, "00:00", kTextSecondary);
-    lv_obj_set_pos(s_player_elapsed_label, zeno ? 16 : 10, zeno ? progress_y + 14 : progress_y - 8);
+    lv_obj_set_pos(s_player_elapsed_label, zeno ? 16 : 10, (zeno || aura) ? progress_y + 14 : progress_y - 8);
     s_player_duration_label = make_label(body, "--:--", kTextSecondary);
     lv_obj_align(s_player_duration_label, LV_ALIGN_TOP_RIGHT, zeno ? -16 : -10,
-        zeno ? progress_y + 14 : progress_y - 8);
+        (zeno || aura) ? progress_y + 14 : progress_y - 8);
     update_player_progress();
 
     if (zeno) make_zeno_transport(body, controls_y);
-    lv_obj_t *repeat = make_button(body, zeno ? 260 : 16, controls_y + (zeno ? 0 : 4),
-        44, zeno ? 44 : 38, kBackground, zeno ? LV_RADIUS_CIRCLE : 7);
+    if (aura) make_aura_transport(body, controls_y);
+    lv_obj_t *repeat = make_button(body, (zeno || aura) ? 260 : 16, controls_y + ((zeno || aura) ? 0 : 4),
+        44, (zeno || aura) ? 44 : 38, kBackground, (zeno || aura) ? LV_RADIUS_CIRCLE : 7);
     if (zeno) {
         lv_obj_set_style_border_width(repeat, 1, 0);
         lv_obj_set_style_border_color(repeat, kDivider, 0);
@@ -1017,7 +1030,7 @@ void render_player()
         }
         render(s_view);
     }, LV_EVENT_CLICKED, nullptr);
-    const int tools_y = zeno ? 410 : controls_y + 4;
+    const int tools_y = (zeno || aura) ? 410 : controls_y + 4;
     lv_obj_t *equalizer = make_button(body, 76, tools_y, 44, 38, kBackground, 7);
     make_equalizer_icon(equalizer, kTextSecondary);
     add_route(equalizer, View::Equalizer);
@@ -1040,8 +1053,8 @@ void render_player()
         navigate_to(View::TrackInfo);
     }, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *shuffle = make_button(body, zeno ? 16 : 256, controls_y + (zeno ? 0 : 4),
-        44, zeno ? 44 : 38, kBackground, zeno ? LV_RADIUS_CIRCLE : 7);
+    lv_obj_t *shuffle = make_button(body, (zeno || aura) ? 16 : 256, controls_y + ((zeno || aura) ? 0 : 4),
+        44, (zeno || aura) ? 44 : 38, kBackground, (zeno || aura) ? LV_RADIUS_CIRCLE : 7);
     if (zeno) {
         lv_obj_set_style_border_width(shuffle, 1, 0);
         lv_obj_set_style_border_color(shuffle, kDivider, 0);

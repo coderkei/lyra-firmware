@@ -72,12 +72,13 @@ void render(View view)
         case View::Licenses: render_licenses(); break;
     }
     if (s_show_nav && !s_language_setup_pending && view != View::FullscreenInfoArt && view != View::FileViewer &&
-        !(is_zeno_theme() && view == View::Player)) {
+        !((is_zeno_theme() || is_aura_theme()) && view == View::Player)) {
         make_virtual_nav();
     }
     if (view != View::FileViewer) {
         if (s_neon_hud) style_hud_controls(s_screen);
         if (is_cute_theme()) style_cute_controls(s_screen);
+        if (is_aura_theme()) style_aura_controls(s_screen);
     }
 }
 

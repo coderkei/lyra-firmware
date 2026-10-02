@@ -117,6 +117,7 @@ void render_equalizer()
     constexpr int kSliderHeight = 234;
     const bool editable = equalizer_is_custom();
     const int16_t *bands = equalizer_preset_bands(s_equalizer_preset);
+    make_aura_equalizer_grid(body);
     make_hud_equalizer_grid(body, 48, kSliderY, 240, kSliderHeight);
 
     // A 43 px scale gutter keeps the +6 dB / -6 dB labels entirely clear of

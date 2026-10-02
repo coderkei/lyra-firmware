@@ -78,16 +78,35 @@ uint32_t checksum_update(uint32_t hash, const void *data, size_t length)
 
 bool checksum_file_payload(FILE *file, uint32_t start, uint32_t end, uint32_t *out)
 {
-    if (!file || !out || end < start || std::fseek(file, start, SEEK_SET) != 0) return false;
-    constexpr size_t kChecksumBufferSize = 4096;
-    auto *buffer = static_cast<uint8_t *>(heap_caps_malloc(kChecksumBufferSize, MALLOC_CAP_INTERNAL));
-    if (!buffer) return false;
+    if (!file || !out || end < start) return false;
+    if (std::fseek(file, start, SEEK_SET) != 0) {
+        ESP_LOGW(kTag, "catalog checksum seek failed: %s", std::strerror(errno));
+        return false;
+    }
+    // Startup still owns the splash/display allocations. Checksum scratch is
+    // byte-addressable, non-DMA data; do not require a 4 KiB internal block just
+    // to restore a valid catalog. Chunk size does not change the stored hash.
+    size_t buffer_size = 4096;
+    auto *buffer = static_cast<uint8_t *>(heap_caps_malloc(
+        buffer_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!buffer) {
+        buffer_size = 512;
+        buffer = static_cast<uint8_t *>(heap_caps_malloc(
+            buffer_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    }
+    if (!buffer) {
+        ESP_LOGW(kTag, "catalog checksum scratch allocation failed");
+        return false;
+    }
     uint32_t hash = 2166136261u;
     uint32_t remaining = end - start;
     while (remaining) {
-        const size_t wanted = std::min<size_t>(kChecksumBufferSize, remaining);
+        const size_t wanted = std::min<size_t>(buffer_size, remaining);
         const size_t read = std::fread(buffer, 1, wanted, file);
         if (read != wanted) {
+            ESP_LOGW(kTag, "catalog checksum short read at %lu: wanted=%u read=%u error=%d",
+                     static_cast<unsigned long>(end - remaining),
+                     static_cast<unsigned>(wanted), static_cast<unsigned>(read), std::ferror(file));
             heap_caps_free(buffer);
             return false;
         }

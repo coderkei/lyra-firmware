@@ -149,6 +149,7 @@ extern bool s_dark_mode;
 using Theme = lyra::gui_settings::Theme;
 extern Theme s_theme;
 inline bool is_zeno_theme() { return s_theme == Theme::Zeno; }
+inline bool is_aura_theme() { return s_theme == Theme::Aura; }
 inline bool is_cute_theme() { return s_theme == Theme::CutePink; }
 inline bool is_standard_theme() { return s_theme == Theme::Standard; }
 // s_dark_mode remains the user's Standard preference, even in fixed themes.
@@ -313,6 +314,12 @@ extern bool s_marquee_style_ready;
 
 void apply_theme_palette();
 const char *theme_name(Theme theme);
+void make_aura_background();
+void style_aura_surface(lv_obj_t *object, lv_color_t color, int width, int height, bool button);
+void style_aura_controls(lv_obj_t *object);
+void make_aura_equalizer_grid(lv_obj_t *parent);
+void make_aura_transport(lv_obj_t *parent, int y);
+void update_aura_transport();
 void make_cute_background();
 void make_cute_body_background(lv_obj_t *body);
 void make_cute_header_mascot(lv_obj_t *header);

@@ -19,6 +19,9 @@ touch interface, MicroSD music library, and I2S audio playback.
 - Touch-friendly LVGL interface with a 320 × 480 portrait layout, including Music
   Library, folder browser, search, Now Playing, queue, playlists, equalizer,
   and settings screens.
+- Selectable interface themes, including **Aura**, inspired by Windows Media
+  Player Aero with blue glass panels, light trails, and circular playback controls.
+  Choose it in Settings → Display → Theme; the selection persists across restarts.
 - Recursive MicroSD music-library scan (up to 10,000 tracks), with metadata,
   sorting, and embedded album-art display and caching.
 - [Direct folder browsing](docs/FOLDER_FILE_BROWSING.md) without a scan, with

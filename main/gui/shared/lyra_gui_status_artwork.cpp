@@ -20,6 +20,11 @@ void make_status_bar()
 {
     lv_obj_t *bar = make_box(s_screen, 0, 0, kScreenWidth, kStatusHeight, kBackground);
     if (is_cute_theme()) lv_obj_set_style_bg_color(bar, lv_color_hex(0xD8EEFF), 0);
+    if (is_aura_theme()) {
+        lv_obj_set_style_bg_color(bar, lv_color_hex(0x07549E), 0);
+        lv_obj_set_style_bg_grad_color(bar, lv_color_hex(0x177FCC), 0);
+        lv_obj_set_style_bg_grad_dir(bar, LV_GRAD_DIR_VER, 0);
+    }
     const lyra::audio::Status audio_status = lyra::audio::status();
     lv_obj_t *volume_button = make_button(bar, 0, 0, 84, kStatusHeight, kBackground, 0);
     lv_obj_set_style_bg_opa(volume_button, LV_OPA_TRANSP, 0);
@@ -34,6 +39,12 @@ void make_status_bar()
     // this status-bar value is a UI placeholder rather than a voltage reading.
     lv_obj_t *battery = make_label(bar, "100%  " LV_SYMBOL_BATTERY_FULL, kTextSecondary);
     lv_obj_align(battery, LV_ALIGN_RIGHT_MID, -9, 0);
+    if (is_aura_theme()) {
+        lv_obj_set_style_text_color(s_status_volume_label, kTextOnAccent, 0);
+        lv_obj_set_style_text_color(s_status_time_label, kTextOnAccent, 0);
+        lv_obj_set_style_text_color(battery, kTextOnAccent, 0);
+        make_box(bar, 0, kStatusHeight - 1, kScreenWidth, 1, lv_color_hex(0xE6FAFF));
+    }
     if (s_neon_hud) make_box(bar, 8, kStatusHeight - 1, 304, 1, kAccent);
 }
 
@@ -143,7 +154,8 @@ lv_obj_t *make_row(lv_obj_t *parent, int y, const char *icon_text, const char *t
                    const char *subtitle, View target, int height)
 {
     lv_obj_t *row = make_button(parent, 7, y, 306, height, kSurface, 6, true);
-    lv_obj_set_style_bg_color(row, !is_standard_theme() ? kAccentSurface : kSurfaceRaised, LV_STATE_PRESSED);
+    if (!is_aura_theme())
+        lv_obj_set_style_bg_color(row, !is_standard_theme() ? kAccentSurface : kSurfaceRaised, LV_STATE_PRESSED);
     const int text_x = icon_text ? 45 : 12;
     if (icon_text) {
         lv_obj_t *icon = make_label(row, icon_text, s_neon_hud ? kTextSecondary : kAccent);

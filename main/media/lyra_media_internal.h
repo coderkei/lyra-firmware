@@ -359,7 +359,8 @@ bool build_group_track_order_locked(GroupKind kind, const GroupRecord &group, Gr
 bool populate_sort_keys(FILE *file, const CatalogHeader &header, SortKey *keys, const char *(*field)(const Track &));
 bool append_group_index(FILE *file, CatalogHeader *header, SortKey *keys, const uint32_t *physical_to_logical, const char *(*field)(const Track &), uint32_t *group_offset, uint32_t *group_count);
 bool finish_catalog(FILE *file, CatalogHeader *header, SortKey *keys, bool capacity_reached);
-bool validate_catalog(FILE *file, CatalogHeader *header, bool verify_checksum = true);
+bool validate_catalog(FILE *file, CatalogHeader *header, bool verify_checksum = true,
+                      const char *path = "catalog");
 void clear_runtime_catalog();
 bool remove_existing_file(const char *path);
 bool remove_directory_files(const char *directory_path);

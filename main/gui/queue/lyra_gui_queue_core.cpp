@@ -1076,6 +1076,7 @@ void show_volume_popup_cb(lv_event_t *)
         style_hud_controls(s_volume_popup);
     }
     if (is_cute_theme()) style_cute_controls(s_volume_popup);
+    if (is_aura_theme()) style_aura_controls(s_volume_popup);
 }
 
 } // namespace lyra::gui::internal
