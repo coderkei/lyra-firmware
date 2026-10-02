@@ -12,6 +12,7 @@ const char *theme_name(Theme theme)
     switch (theme) {
         case Theme::NeonSky: return tr(lyra::i18n::StringId::NeonSky);
         case Theme::CutePink: return tr(lyra::i18n::StringId::CutePink);
+        case Theme::Zeno: return "Zeno";
         case Theme::Standard:
         case Theme::Count: return tr(lyra::i18n::StringId::StandardTheme);
     }
@@ -39,6 +40,21 @@ void apply_theme_palette()
         kKeyboardSurface = lv_color_hex(0x090D16);
         kArtworkSurface = lv_color_hex(0x0C1420);
         kDangerSurface = lv_color_hex(0x3F1118);
+    } else if (is_zeno_theme()) {
+        kBackground = lv_color_hex(0x09080F);
+        kSurface = lv_color_hex(0x100D18);
+        kSurfaceRaised = lv_color_hex(0x251324);
+        kAccent = lv_color_hex(0xFF2185);
+        kAccentDark = lv_color_hex(0xB9175D);
+        kAccentSurface = lv_color_hex(0xC41D64);
+        kTextPrimary = lv_color_hex(0xFFF8FA);
+        kTextSecondary = lv_color_hex(0xDFD3DB);
+        kTextMuted = lv_color_hex(0xAD9CA9);
+        kDivider = lv_color_hex(0x49313F);
+        kNavSurface = kBackground;
+        kKeyboardSurface = kSurface;
+        kArtworkSurface = kSurfaceRaised;
+        kDangerSurface = lv_color_hex(0x581528);
     } else if (is_cute_theme()) {
         kBackground = lv_color_hex(0xFFF5FC);
         kSurface = lv_color_hex(0xFFFAFE);
@@ -326,7 +342,8 @@ void navigate_back(View fallback)
 
 int content_bottom()
 {
-    return kScreenHeight - (s_show_nav && !s_language_setup_pending ? kNavHeight : 0);
+    return kScreenHeight - (s_show_nav && !s_language_setup_pending &&
+        !(is_zeno_theme() && s_view == View::Player) ? kNavHeight : 0);
 }
 
 int content_height(int top)
@@ -383,6 +400,7 @@ lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int width, int height,
             add_hud_frame(box);
         }
     }
+    if (is_zeno_theme()) style_zeno_box(box, color, width, height);
     return box;
 }
 
@@ -396,8 +414,14 @@ lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color)
         // created after render() by asynchronous operations.
         color = kAccent;
     }
+    if (is_zeno_theme()) color = zeno_label_color(parent, color);
     lv_obj_t *label = lv_label_create(parent);
     lv_label_set_text(label, text);
+    if (is_zeno_theme()) {
+        // The parent row controls this state only during a press. Removing
+        // the state restores each label's original accent or neutral color.
+        lv_obj_set_style_text_color(label, kTextPrimary, LV_STATE_USER_1);
+    }
     lv_obj_set_style_text_color(label, color, 0);
     lv_obj_set_style_text_font(label, lyra::font::ui(), 0);
     return label;
@@ -461,6 +485,7 @@ lv_obj_t *make_button(lv_obj_t *parent, int x, int y, int width, int height,
         lv_obj_set_style_border_width(button, 0, 0);
         if (radius > 0 || show_border) add_hud_frame(button);
     }
+    if (is_zeno_theme()) style_zeno_button(button, color, width, height);
     return button;
 }
 
@@ -516,6 +541,7 @@ void style_root()
     lv_obj_set_style_border_width(s_screen, 0, 0);
     lv_obj_set_style_pad_all(s_screen, 0, 0);
     lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+    if (!is_zeno_theme()) make_zeno_background();
     // Release the inactive theme's PSRAM before loading the next background.
     if (is_cute_theme()) {
         make_hud_background();
@@ -524,6 +550,7 @@ void style_root()
         make_cute_background();
         make_hud_background();
     }
+    if (is_zeno_theme()) make_zeno_background();
 }
 
 void route_cb(lv_event_t *event)

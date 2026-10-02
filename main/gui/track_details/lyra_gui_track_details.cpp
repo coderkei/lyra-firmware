@@ -107,12 +107,15 @@ lv_obj_t *make_track_info_row(lv_obj_t *parent, int y, const char *label,
 {
     lv_obj_t *row = clickable ? make_button(parent, 8, y, 304, 52, kSurface, 6, true) :
                                 make_box(parent, 8, y, 304, 52, kSurface, 6, true);
-    if (clickable) lv_obj_set_style_bg_color(row, kSurfaceRaised, LV_STATE_PRESSED);
+    if (clickable && !is_zeno_theme()) {
+        lv_obj_set_style_bg_color(row, kSurfaceRaised, LV_STATE_PRESSED);
+    }
+    if (is_zeno_theme() && !clickable) lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_t *label_view = make_label(row, label, kTextMuted);
     lv_obj_set_pos(label_view, 12, 6);
     lv_obj_t *value_view = make_label(row, value && value[0] ? value :
                                       tr(lyra::i18n::StringId::Unavailable),
-                                      clickable ? kAccent : kTextPrimary);
+                                      clickable || is_zeno_theme() ? kAccent : kTextPrimary);
     make_marquee(value_view, clickable ? 252 : 278);
     lv_obj_set_pos(value_view, 12, 25);
     if (clickable) {

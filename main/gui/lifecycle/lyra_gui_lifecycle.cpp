@@ -69,7 +69,8 @@ void render(View view)
         case View::DebugMenu: render_debug_menu(); break;
         case View::Licenses: render_licenses(); break;
     }
-    if (s_show_nav && !s_language_setup_pending && view != View::FullscreenInfoArt) {
+    if (s_show_nav && !s_language_setup_pending && view != View::FullscreenInfoArt &&
+        !(is_zeno_theme() && view == View::Player)) {
         make_virtual_nav();
     }
     if (s_neon_hud) style_hud_controls(s_screen);

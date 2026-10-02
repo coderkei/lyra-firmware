@@ -147,11 +147,12 @@ struct AlbumListContext;
 extern bool s_dark_mode;
 using Theme = lyra::gui_settings::Theme;
 extern Theme s_theme;
+inline bool is_zeno_theme() { return s_theme == Theme::Zeno; }
 inline bool is_cute_theme() { return s_theme == Theme::CutePink; }
 inline bool is_standard_theme() { return s_theme == Theme::Standard; }
 // s_dark_mode remains the user's Standard preference, even in fixed themes.
 inline bool uses_dark_palette() {
-    return s_theme == Theme::NeonSky || (is_standard_theme() && s_dark_mode);
+    return is_zeno_theme() || s_theme == Theme::NeonSky || (is_standard_theme() && s_dark_mode);
 }
 extern bool s_neon_hud;
 extern uint8_t s_accent_colour;
@@ -429,6 +430,18 @@ void open_queue_cb(lv_event_t *);
 bool show_now_playing();
 void open_library_cb(lv_event_t *);
 void open_folders_cb(lv_event_t *);
+void make_zeno_background();
+lv_color_t zeno_label_color(lv_obj_t *parent, lv_color_t color);
+void style_zeno_box(lv_obj_t *box, lv_color_t color, int width, int height);
+void style_zeno_button(lv_obj_t *button, lv_color_t color, int width, int height);
+const lv_font_t *zeno_heading_font(bool large = false);
+lv_obj_t *make_zeno_label(lv_obj_t *parent, const char *text, bool large = false);
+void render_zeno_menu();
+void render_zeno_library();
+void render_zeno_settings();
+void make_zeno_album_song_row(lv_obj_t *parent, int y, size_t track_index, size_t ordinal);
+void make_zeno_transport(lv_obj_t *parent, int y);
+void update_zeno_transport();
 void render_menu();
 void queue_track_cb(lv_event_t *event);
 void make_queue_song_row(lv_obj_t *parent, int y, size_t queue_position, bool current);

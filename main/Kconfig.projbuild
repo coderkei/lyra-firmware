@@ -1,0 +1,7 @@
+# Zeno headings require these built-in LVGL fonts even when an existing
+# sdkconfig predates the theme. Keep this hidden: the renderer always links.
+config LYRA_ZENO_FONTS
+    bool
+    default y
+    select LV_FONT_MONTSERRAT_28
+    select LV_FONT_MONTSERRAT_40

@@ -579,3 +579,6 @@ LYRA_I18N_ENTRY(SizeMegabytes, "%.2f MB", "%.2f Mo", "%.2f MB", "%.2f MB", "%.2f
 LYRA_I18N_ENTRY(SizeMegabytesWhole, "%.0f MB", "%.0f Mo", "%.0f MB", "%.0f MB", "%.0f MB", "%.0f MB", "%.0f MB", "%.0f МБ", "%.0f MB", "%.0f MB")
 LYRA_I18N_ENTRY(SizeGigabytes, "%.2f GB", "%.2f Go", "%.2f GB", "%.2f GB", "%.2f GB", "%.2f GB", "%.2f GB", "%.2f ГБ", "%.2f GB", "%.2f GB")
 LYRA_I18N_ENTRY(DebugUnavailableBlock, "Unavailable\n\n", "Indisponible\n\n", "Nicht verfügbar\n\n", "No disponible\n\n", "Non disponibile\n\n", "利用不可\n\n", "사용할 수 없음\n\n", "Недоступно\n\n", "不可用\n\n", "無法使用\n\n")
+
+LYRA_I18N_ENTRY(Music, "Music", "Musique", "Musik", "Música", "Musica", "音楽", "음악", "Музыка", "音乐", "音樂")
+LYRA_I18N_ENTRY(Favorites, "Favorites", "Favoris", "Favoriten", "Favoritos", "Preferiti", "お気に入り", "즐겨찾기", "Избранное", "收藏", "最愛")

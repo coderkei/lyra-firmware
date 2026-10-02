@@ -56,6 +56,12 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
             lv_obj_set_style_border_width(back_button, 1, 0);
             add_cute_plastic_finish(back_button);
         }
+        if (is_zeno_theme()) {
+            lv_obj_set_size(back_button, 36, 36);
+            lv_obj_set_style_radius(back_button, LV_RADIUS_CIRCLE, 0);
+            lv_obj_set_style_border_width(back_button, 1, 0);
+            lv_obj_set_style_border_color(back_button, kTextSecondary, 0);
+        }
         lv_obj_t *icon = make_label(back_button, LV_SYMBOL_LEFT, !is_standard_theme() ? kAccent : kTextPrimary);
         lv_obj_center(icon);
         if (custom_back) lv_obj_add_event_cb(back_button, custom_back, LV_EVENT_CLICKED, nullptr);
@@ -64,8 +70,10 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
             navigate_back(fallback);
         }, LV_EVENT_CLICKED, reinterpret_cast<void *>(static_cast<uintptr_t>(back)));
     }
-    lv_obj_t *label = make_label(header, title, s_neon_hud ? kAccent : kTextPrimary);
+    lv_obj_t *label = is_zeno_theme() ? make_zeno_label(header, title) :
+        make_label(header, title, s_neon_hud ? kAccent : kTextPrimary);
     lv_obj_set_style_text_font(label, lyra::font::ui(), 0);
+    if (is_zeno_theme()) lv_obj_set_style_text_font(label, zeno_heading_font(), 0);
     const bool show_right_label = right != nullptr && (!queue_add_toggle || right[0] != '\0');
     make_marquee(label, queue_add_toggle ? (show_right_label ? 150 : 180) :
                  (right ? 180 : 245));
@@ -151,6 +159,10 @@ lv_obj_t *make_row(lv_obj_t *parent, int y, const char *icon_text, const char *t
     }
     lv_obj_t *chevron = make_label(row, LV_SYMBOL_RIGHT, kTextMuted);
     lv_obj_align(chevron, LV_ALIGN_RIGHT_MID, -12, 0);
+    if (is_zeno_theme() && subtitle == nullptr) {
+        lv_obj_set_style_text_font(title_label, zeno_heading_font(), 0);
+        if (icon_text) lv_obj_set_style_text_color(lv_obj_get_child(row, 0), kTextPrimary, 0);
+    }
     add_route(row, target);
     return row;
 }

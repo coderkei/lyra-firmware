@@ -17,7 +17,7 @@ namespace lyra::gui_settings {
 constexpr size_t kEqualizerBandCount = lyra::audio::kEqualizerBandCount;
 
 // Persisted IDs: append new themes without changing existing values.
-enum class Theme : uint8_t { Standard, NeonSky, CutePink, Count };
+enum class Theme : uint8_t { Standard, NeonSky, CutePink, Zeno, Count };
 
 struct Values {
     bool gapless;

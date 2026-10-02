@@ -925,6 +925,7 @@ void render_sleep_timer_options()
 
 void render_settings_menu()
 {
+    if (is_zeno_theme()) { render_zeno_settings(); return; }
     make_header(tr(lyra::i18n::StringId::Settings), View::Menu, true);
     lv_obj_t *body = make_scroll_body(72);
     make_row(body, 0, LV_SYMBOL_PLAY, tr(lyra::i18n::StringId::Playback), nullptr, View::PlaybackSettings, 54);

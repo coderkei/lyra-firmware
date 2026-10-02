@@ -188,6 +188,7 @@ void open_folders_cb(lv_event_t *)
 
 void render_menu()
 {
+    if (is_zeno_theme()) { render_zeno_menu(); return; }
     make_header(tr(lyra::i18n::StringId::Menu), View::Menu);
     lv_obj_t *body = make_scroll_body(72);
     struct MenuItem { const char *icon; const char *label; View view; };

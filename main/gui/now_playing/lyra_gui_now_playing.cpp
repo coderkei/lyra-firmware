@@ -32,6 +32,10 @@ struct LyricsLoadRequest {
 
 enum class FlipPhase : uint8_t { None, ToOpenEdge, FromOpenEdge, ToCloseEdge, FromCloseEdge };
 
+lv_obj_t *s_player_zeno_overview;
+lv_obj_t *s_player_zeno_lyrics_host;
+int s_player_lyrics_width;
+int s_player_lyrics_height;
 lv_obj_t *s_player_flip_window;
 lv_obj_t *s_player_flip_content;
 lv_obj_t *s_player_lyrics_scroll;
@@ -238,9 +242,9 @@ void update_player_lyrics()
 
 void build_player_lyrics_face()
 {
-    lv_obj_t *window = s_player_flip_window;
+    lv_obj_t *window = is_zeno_theme() ? s_player_zeno_lyrics_host : s_player_flip_window;
     if (!window) return;
-    if (s_player_flip_content) {
+    if (s_player_flip_content && !is_zeno_theme()) {
         lv_obj_remove_event_cb(s_player_flip_content, player_art_click_cb);
     }
     lv_obj_clean(window);
@@ -250,23 +254,23 @@ void build_player_lyrics_face()
     lv_obj_set_style_radius(window, s_neon_hud ? 0 : 13, 0);
     lv_obj_set_style_pad_all(window, 0, 0);
     lv_obj_clear_flag(window, LV_OBJ_FLAG_SCROLLABLE);
-    s_player_flip_content = make_box(window, 0, 0, s_player_art_size,
-                                     s_player_art_size, kArtworkSurface, 13);
+    s_player_flip_content = make_box(window, 0, 0, s_player_lyrics_width,
+                                     s_player_lyrics_height, kArtworkSurface, 13);
     lv_obj_set_style_border_width(s_player_flip_content, 0, 0);
 
     lv_obj_t *title = make_label(s_player_flip_content,
                                  tr(lyra::i18n::StringId::Lyrics), kTextPrimary);
-    lv_obj_set_width(title, s_player_art_size - 62);
+    lv_obj_set_width(title, s_player_lyrics_width - 62);
     lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_pos(title, 12, 10);
-    lv_obj_t *close = make_button(s_player_flip_content, s_player_art_size - 42, 4, 36, 36,
+    lv_obj_t *close = make_button(s_player_flip_content, s_player_lyrics_width - 42, 4, 36, 36,
                                   kSurfaceRaised, 18);
     lv_obj_t *close_icon = make_label(close, LV_SYMBOL_CLOSE, kTextPrimary);
     lv_obj_center(close_icon);
     lv_obj_add_event_cb(close, player_lyrics_close_cb, LV_EVENT_CLICKED, nullptr);
 
-    const int scroll_width = s_player_art_size - 16;
-    const int scroll_height = s_player_art_size - 50;
+    const int scroll_width = s_player_lyrics_width - 16;
+    const int scroll_height = s_player_lyrics_height - 50;
     lv_obj_t *scroll = lv_obj_create(s_player_flip_content);
     lv_obj_set_pos(scroll, 8, 42);
     lv_obj_set_size(scroll, scroll_width, scroll_height);
@@ -298,7 +302,7 @@ void build_player_lyrics_face()
     s_player_current_lyric = -1;
     s_player_lyrics_visible = true;
     s_player_manual_scroll_until_us = 0;
-    player_art_flip_exec(window, 0);
+    if (!is_zeno_theme()) player_art_flip_exec(window, 0);
 }
 
 void free_player_lyrics_buffer()
@@ -340,7 +344,7 @@ void show_player_no_lyrics()
     lv_obj_t *plain = make_label(s_player_lyrics_scroll,
                                  tr(lyra::i18n::StringId::NoLyricsFound),
                                  kTextPrimary);
-    lv_obj_set_width(plain, s_player_art_size - 32);
+    lv_obj_set_width(plain, s_player_lyrics_width - 32);
     lv_label_set_long_mode(plain, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_style_text_align(plain, LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_set_pos(plain, 4, 4);
@@ -354,7 +358,7 @@ void player_lyrics_rows_timer_cb(lv_timer_t *timer)
         return;
     }
 
-    const int row_width = s_player_art_size - 32;
+    const int row_width = s_player_lyrics_width - 32;
     size_t created_this_tick = 0;
     while (s_player_lyrics_rows_created < s_player_lyrics_row_count &&
            created_this_tick < kLyricsRowsPerTick) {
@@ -578,6 +582,18 @@ void player_art_click_cb(lv_event_t *)
         s_player_lyrics_visible || s_player_flip_animating) return;
     ++s_player_lyrics_generation;
     s_player_pending_lyrics_track = s_player_lyrics_track;
+    if (is_zeno_theme() && s_player_zeno_overview) {
+        // Keep the artwork alive behind the panel so closing restores the
+        // overview without reloading its cover or recreating the player.
+        lv_obj_add_flag(s_player_zeno_overview, LV_OBJ_FLAG_HIDDEN);
+        s_player_zeno_lyrics_host = make_box(lv_obj_get_parent(s_player_zeno_overview),
+            16, 56, 288, 220, kArtworkSurface, 13);
+        s_player_lyrics_width = 288;
+        s_player_lyrics_height = 220;
+        build_player_lyrics_face();
+        start_player_lyrics_load();
+        return;
+    }
     start_player_art_flip(FlipPhase::ToOpenEdge, s_player_art_size, 0);
 }
 
@@ -588,6 +604,22 @@ void player_lyrics_close_cb(lv_event_t *)
     stop_player_lyrics_rows_timer();
     free_player_lyrics_buffer();
     s_player_lyrics_rows_pending = false;
+    if (is_zeno_theme() && s_player_zeno_lyrics_host) {
+        remove_player_lyrics_spinner();
+        lv_obj_delete(s_player_zeno_lyrics_host);
+        s_player_zeno_lyrics_host = nullptr;
+        s_player_lyrics_scroll = nullptr;
+        s_player_flip_content = lv_obj_get_child(s_player_flip_window, 0);
+        s_player_lyrics_visible = false;
+        s_player_lyrics_row_count = 0;
+        s_player_lyrics_rows_created = 0;
+        s_player_lyrics_rows_ready = false;
+        s_player_current_lyric = -1;
+        s_player_lyrics_source = lyra::media::LyricsSource::None;
+        s_player_lyrics_width = s_player_lyrics_height = s_player_art_size;
+        lv_obj_remove_flag(s_player_zeno_overview, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
     s_player_flip_animating = true;
     if (s_player_flip_content) {
         lv_obj_remove_event_cb(s_player_flip_content, player_art_click_cb);
@@ -604,6 +636,9 @@ void reset_player_lyrics_state()
     stop_player_lyrics_rows_timer();
     remove_player_lyrics_spinner();
     free_player_lyrics_buffer();
+    s_player_zeno_overview = nullptr;
+    s_player_zeno_lyrics_host = nullptr;
+    s_player_lyrics_width = s_player_lyrics_height = 0;
     s_player_flip_window = nullptr;
     s_player_flip_content = nullptr;
     s_player_lyrics_scroll = nullptr;
@@ -698,6 +733,7 @@ lv_obj_t *make_player_progress_touch(lv_obj_t *parent, int x, int y, int width, 
 
 void update_player_progress()
 {
+    update_zeno_transport();
     if (!s_player_progress_bar && !s_player_elapsed_label && !s_player_duration_label) return;
 
     const lyra::audio::Status audio_status = lyra::audio::status();
@@ -835,13 +871,14 @@ void render_player()
         lv_obj_align(empty, LV_ALIGN_CENTER, 0, -20);
         return;
     }
+    const bool zeno = is_zeno_theme();
     const bool favorite = lyra::media::is_favorite(s_current_track);
     const int body_height = content_height(kStatusHeight);
     lv_obj_t *body = make_box(s_screen, 0, kStatusHeight, 320, body_height, kBackground);
     const size_t queue_count = s_has_active_queue ? playback_queue_count() : 0;
     size_t queue_position = 0;
     const bool queue_position_valid = queue_count > 0 && current_queue_position(&queue_position);
-    if (queue_position_valid) {
+    if (queue_position_valid && !zeno) {
         char position_text[24];
         format_u32_u32(lyra::i18n::StringId::QueuePosition,
                        static_cast<uint32_t>(queue_position + 1),
@@ -852,14 +889,40 @@ void render_player()
         lv_obj_set_style_text_align(position, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(position, LV_ALIGN_TOP_MID, 0, 0);
     }
-    const int art_size = s_show_nav || s_quick_seek ? 224 : 272;
-    const int art_x = (kScreenWidth - art_size) / 2;
-    const int controls_y = body_height - 54;
-    const int progress_y = controls_y - 19;
+    const int art_size = zeno ? 140 : (s_show_nav || s_quick_seek ? 224 : 272);
+    const int art_x = zeno ? 16 : (kScreenWidth - art_size) / 2;
+    const int controls_y = zeno ? 352 : body_height - 54;
+    const int progress_y = zeno ? 288 : controls_y - 19;
     const int art_y = 20;
+    if (zeno) {
+        lv_obj_t *heading = make_zeno_label(body, tr(lyra::i18n::StringId::NowPlaying));
+        lv_obj_set_style_text_color(heading, kAccent, 0);
+        make_marquee(heading, 210);
+        lv_obj_set_pos(heading, 16, 10);
+        lv_obj_t *menu = make_button(body, 232, 8, 36, 36, kBackground, LV_RADIUS_CIRCLE);
+        lv_obj_set_style_border_width(menu, 1, 0);
+        lv_obj_set_style_border_color(menu, kTextSecondary, 0);
+        lv_obj_t *menu_icon = make_label(menu, LV_SYMBOL_BARS, kTextPrimary);
+        lv_obj_center(menu_icon);
+        add_route(menu, View::Menu);
+        lv_obj_t *back = make_button(body, 274, 8, 36, 36, kBackground, LV_RADIUS_CIRCLE);
+        lv_obj_set_style_border_width(back, 1, 0);
+        lv_obj_set_style_border_color(back, kTextSecondary, 0);
+        lv_obj_t *back_icon = make_label(back, LV_SYMBOL_LEFT, kTextPrimary);
+        lv_obj_center(back_icon);
+        lv_obj_add_event_cb(back, [](lv_event_t *) { navigate_back(View::Menu); }, LV_EVENT_CLICKED, nullptr);
+    }
+    // Only this theme groups the overview, metadata, favorite and quick-seek
+    // buttons, allowing a tap to replace all of them with one lyrics panel.
+    lv_obj_t *overview = body;
+    if (zeno) {
+        overview = make_box(body, 0, 56, kScreenWidth, 226, kBackground);
+        s_player_zeno_overview = overview;
+    }
     s_player_art_size = art_size;
+    s_player_lyrics_width = s_player_lyrics_height = art_size;
     s_player_lyrics_track = track;
-    lv_obj_t *art_face = make_box(body, art_x, art_y, art_size, art_size,
+    lv_obj_t *art_face = make_box(overview, art_x, art_y, art_size, art_size,
                                   kBackground, 13);
     lv_obj_set_style_bg_opa(art_face, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(art_face, 0, 0);
@@ -876,11 +939,11 @@ void render_player()
     if (s_quick_seek) {
         constexpr int kQuickSeekButtonWidth = 44;
         constexpr int kQuickSeekButtonHeight = 58;
-        const int side_space = (art_x - kQuickSeekButtonWidth) / 2;
-        const int button_y = art_y + (art_size - kQuickSeekButtonHeight) / 2;
-        make_player_quick_seek_button(body, side_space, button_y, false);
-        make_player_quick_seek_button(body,
-            art_x + art_size + (kScreenWidth - art_x - art_size - kQuickSeekButtonWidth) / 2,
+        const int side_space = zeno ? 32 : (art_x - kQuickSeekButtonWidth) / 2;
+        const int button_y = zeno ? 167 : art_y + (art_size - kQuickSeekButtonHeight) / 2;
+        make_player_quick_seek_button(overview, side_space, button_y, false);
+        make_player_quick_seek_button(overview,
+            zeno ? 96 : art_x + art_size + (kScreenWidth - art_x - art_size - kQuickSeekButtonWidth) / 2,
             button_y, true);
     }
 
@@ -891,39 +954,49 @@ void render_player()
         lv_obj_set_style_radius(metadata, 12, 0);
         lv_obj_remove_flag(metadata, LV_OBJ_FLAG_CLICKABLE);
     }
-    lv_obj_t *title = make_label(body, track.title, !is_standard_theme() ? kAccent : kTextPrimary);
+    lv_obj_t *title = make_label(overview, track.title, !is_standard_theme() ? kAccent : kTextPrimary);
     lv_obj_set_style_text_font(title, lyra::font::ui(), 0);
-    make_marquee(title, 240);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 20, progress_y - 79);
-    lv_obj_t *artist = make_label(body, track.artist, kTextSecondary);
-    make_marquee(artist, 240);
-    lv_obj_align(artist, LV_ALIGN_TOP_LEFT, 20, progress_y - 56);
-    lv_obj_t *album = make_label(body, track.album, kTextMuted);
-    make_marquee(album, 240);
-    lv_obj_align(album, LV_ALIGN_TOP_LEFT, 20, progress_y - 35);
+    if (zeno) lv_obj_set_style_text_color(title, kTextPrimary, 0);
+    make_marquee(title, zeno ? 136 : 240);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, zeno ? 172 : 20, zeno ? 20 : progress_y - 79);
+    lv_obj_t *artist = make_label(overview, track.artist, kTextSecondary);
+    make_marquee(artist, zeno ? 136 : 240);
+    lv_obj_align(artist, LV_ALIGN_TOP_LEFT, zeno ? 172 : 20, zeno ? 50 : progress_y - 56);
+    lv_obj_t *album = make_label(overview, track.album, kTextMuted);
+    make_marquee(album, zeno ? 136 : 240);
+    lv_obj_align(album, LV_ALIGN_TOP_LEFT, zeno ? 172 : 20, zeno ? 81 : progress_y - 35);
 
-    lv_obj_t *heart_button = make_button(body, 270, progress_y - 79, 36, 36, kBackground, 18);
+    lv_obj_t *heart_button = make_button(overview, zeno ? 170 : 270, zeno ? 118 : progress_y - 79,
+        36, 36, kBackground, 18);
     lv_obj_t *heart = make_label(heart_button, favorite ? kHeartFilled : kHeartOutline,
                                  favorite ? kAccent : kTextPrimary);
     lv_obj_center(heart);
     lv_obj_add_event_cb(heart_button, toggle_favorite_cb, LV_EVENT_CLICKED, heart);
 
     lv_obj_t *bar = lv_bar_create(body);
-    lv_obj_set_pos(bar, 56, progress_y);
-    lv_obj_set_size(bar, 208, 5);
+    lv_obj_set_pos(bar, zeno ? 16 : 56, progress_y);
+    lv_obj_set_size(bar, zeno ? 288 : 208, zeno ? 8 : 5);
     lv_bar_set_range(bar, 0, 1000);
     lv_bar_set_value(bar, 0, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(bar, kDivider, LV_PART_MAIN);
     lv_obj_set_style_bg_color(bar, kAccent, LV_PART_INDICATOR);
     s_player_progress_bar = bar;
-    s_player_progress_touch = make_player_progress_touch(body, 56, progress_y - 8, 208, 21);
+    s_player_progress_touch = make_player_progress_touch(body, zeno ? 16 : 56,
+        progress_y - (zeno ? 6 : 8), zeno ? 288 : 208, zeno ? 36 : 21);
     s_player_elapsed_label = make_label(body, "00:00", kTextSecondary);
-    lv_obj_set_pos(s_player_elapsed_label, 10, progress_y - 8);
+    lv_obj_set_pos(s_player_elapsed_label, zeno ? 16 : 10, zeno ? progress_y + 14 : progress_y - 8);
     s_player_duration_label = make_label(body, "--:--", kTextSecondary);
-    lv_obj_align(s_player_duration_label, LV_ALIGN_TOP_RIGHT, -10, progress_y - 8);
+    lv_obj_align(s_player_duration_label, LV_ALIGN_TOP_RIGHT, zeno ? -16 : -10,
+        zeno ? progress_y + 14 : progress_y - 8);
     update_player_progress();
 
-    lv_obj_t *repeat = make_button(body, 16, controls_y + 4, 44, 38, kBackground, 7);
+    if (zeno) make_zeno_transport(body, controls_y);
+    lv_obj_t *repeat = make_button(body, zeno ? 260 : 16, controls_y + (zeno ? 0 : 4),
+        44, zeno ? 44 : 38, kBackground, zeno ? LV_RADIUS_CIRCLE : 7);
+    if (zeno) {
+        lv_obj_set_style_border_width(repeat, 1, 0);
+        lv_obj_set_style_border_color(repeat, kDivider, 0);
+    }
     const bool repeat_enabled = s_repeat_mode != RepeatMode::Off;
     lv_obj_t *repeat_icon = make_label(repeat, LV_SYMBOL_LOOP,
                                        repeat_enabled ? kAccent : kTextSecondary);
@@ -944,10 +1017,11 @@ void render_player()
         }
         render(s_view);
     }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *equalizer = make_button(body, 76, controls_y + 4, 44, 38, kBackground, 7);
+    const int tools_y = zeno ? 410 : controls_y + 4;
+    lv_obj_t *equalizer = make_button(body, 76, tools_y, 44, 38, kBackground, 7);
     make_equalizer_icon(equalizer, kTextSecondary);
     add_route(equalizer, View::Equalizer);
-    lv_obj_t *playlist_button = make_button(body, 136, controls_y + 4, 44, 38,
+    lv_obj_t *playlist_button = make_button(body, 136, tools_y, 44, 38,
                                             kBackground, 7);
     lv_obj_t *playlist_icon = make_label(playlist_button, LV_SYMBOL_LIST, kTextSecondary);
     lv_obj_align(playlist_icon, LV_ALIGN_CENTER, -3, 0);
@@ -957,7 +1031,7 @@ void render_player()
     lv_obj_clear_flag(playlist_plus, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(playlist_button, show_player_playlist_picker_cb, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *info = make_button(body, 196, controls_y + 4, 44, 38, kBackground, 7);
+    lv_obj_t *info = make_button(body, 196, tools_y, 44, 38, kBackground, 7);
     lv_obj_t *info_icon = make_label(info, "i", kTextSecondary);
     lv_obj_set_style_text_font(info_icon, &lv_font_montserrat_18, 0);
     lv_obj_center(info_icon);
@@ -966,7 +1040,12 @@ void render_player()
         navigate_to(View::TrackInfo);
     }, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *shuffle = make_button(body, 256, controls_y + 4, 44, 38, kBackground, 7);
+    lv_obj_t *shuffle = make_button(body, zeno ? 16 : 256, controls_y + (zeno ? 0 : 4),
+        44, zeno ? 44 : 38, kBackground, zeno ? LV_RADIUS_CIRCLE : 7);
+    if (zeno) {
+        lv_obj_set_style_border_width(shuffle, 1, 0);
+        lv_obj_set_style_border_color(shuffle, kDivider, 0);
+    }
     lv_obj_t *shuffle_icon = make_label(shuffle, LV_SYMBOL_SHUFFLE, s_shuffle ? kAccent : kTextSecondary);
     lv_obj_center(shuffle_icon);
     lv_obj_add_event_cb(shuffle, [](lv_event_t *) {

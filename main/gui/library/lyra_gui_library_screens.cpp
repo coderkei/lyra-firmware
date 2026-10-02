@@ -94,6 +94,7 @@ void open_library_playlists_cb(lv_event_t *)
 
 void render_library()
 {
+    if (is_zeno_theme() && !s_playlist_add_mode) { render_zeno_library(); return; }
     const bool adding_to_playlist = s_playlist_add_mode;
     char add_title[lyra::media::kMaxName + 12];
     copy_ui_text(add_title, sizeof(add_title), tr(lyra::i18n::StringId::AddSongs));
@@ -166,7 +167,8 @@ void make_album_row(lv_obj_t *parent, int y, size_t group_index)
 void render_library_section(LibraryTab section)
 {
     s_library_tab = section;
-    const char *title = section == LibraryTab::Songs ? tr(lyra::i18n::StringId::Songs) :
+    const char *title = section == LibraryTab::Songs ? tr(is_zeno_theme() ?
+                        lyra::i18n::StringId::AllSongs : lyra::i18n::StringId::Songs) :
                         section == LibraryTab::Artists ? tr(lyra::i18n::StringId::Artists) :
                         section == LibraryTab::Albums ? tr(lyra::i18n::StringId::Albums) :
                         section == LibraryTab::Genres ? tr(lyra::i18n::StringId::Genres) :
@@ -353,7 +355,12 @@ void append_album_song_rows(lv_obj_t *body, AlbumListContext *context)
     const size_t found = lyra::media::group_tracks(lyra::media::GroupKind::Album,
         context->group_index, context->loaded, indices, kAlbumBatchSize);
     for (size_t i = 0; i < found; ++i) {
-        make_song_row(body, 130 + static_cast<int>(context->loaded + i) * 58, indices[i], 54);
+        if (is_zeno_theme() && !s_queue_add_mode && !s_playlist_add_mode) {
+            make_zeno_album_song_row(body, 130 + static_cast<int>(context->loaded + i) * 44,
+                indices[i], context->loaded + i + 1);
+        } else {
+            make_song_row(body, 130 + static_cast<int>(context->loaded + i) * 58, indices[i], 54);
+        }
     }
     context->loaded += found;
 }
@@ -377,7 +384,7 @@ void render_album_detail()
     const size_t representative = album.representative_track;
     lyra::media::Track track{};
     if (!lyra::media::track_at(representative, &track)) return;
-    make_header(album.name, View::LibraryAlbums, true);
+    make_header(is_zeno_theme() ? tr(lyra::i18n::StringId::Album) : album.name, View::LibraryAlbums, true);
     lv_obj_t *body = make_scroll_body(72);
     lv_obj_t *summary = make_box(body, 7, 0, 306, 122, kSurface, 7, true);
     make_album_art(summary, 8, 8, 106, 106, track);
