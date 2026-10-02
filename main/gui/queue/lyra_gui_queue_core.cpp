@@ -508,6 +508,27 @@ void start_queue_track(size_t position)
 
 } // namespace
 
+bool play_file_queue(const size_t *indices, size_t count, size_t position)
+{
+    if (!indices || !count || count > lyra::media::kMaxTracks || position >= count) return false;
+    lyra::media::Track selected{};
+    if (!lyra::media::track_at(indices[position], &selected)) return false;
+    // Queue editing expects enough space to append up to the product ceiling.
+    auto *queue = static_cast<size_t *>(heap_caps_malloc(
+        lyra::media::kMaxTracks * sizeof(size_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!queue) return false;
+    std::memcpy(queue, indices, count * sizeof(size_t));
+    discard_pending_saved_queue();
+    clear_saved_queue();
+    s_saved_queue = queue;
+    s_saved_queue_count = count;
+    s_playback_scope = PlaybackScope::SavedQueue;
+    s_shuffle = false;
+    reset_shuffle_queue();
+    start_queue_track(position);
+    return true;
+}
+
 bool add_tracks_to_queue(const size_t *track_indices, size_t count, QueueInsertMode mode)
 {
     if (!track_indices || count == 0 || count > lyra::media::kMaxTracks) return false;

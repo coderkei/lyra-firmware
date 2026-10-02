@@ -283,9 +283,10 @@ NavigationState capture_navigation_state()
     NavigationState state{
         s_view, s_library_tab, s_artist_detail_tab, s_list_page, s_selected_playlist,
         s_selected_playlist_is_smart, s_selected_smart_playlist, s_selected_group,
-        s_selected_group_kind, s_playlists_from_library, s_playlist_add_mode, {}, {}};
+        s_selected_group_kind, s_playlists_from_library, s_playlist_add_mode, {}, {}, {}};
     copy_ui_text(state.track_list_title, sizeof(state.track_list_title), s_track_list_title);
     copy_ui_text(state.folder_path, sizeof(state.folder_path), s_folder_path);
+    copy_ui_text(state.folder_playlist_path, sizeof(state.folder_playlist_path), s_folder_playlist_path);
     return state;
 }
 
@@ -318,6 +319,7 @@ void restore_navigation_state(const NavigationState &state, size_t list_page)
     s_playlist_add_mode = state.playlist_add_mode;
     copy_ui_text(s_track_list_title, sizeof(s_track_list_title), state.track_list_title);
     copy_ui_text(s_folder_path, sizeof(s_folder_path), state.folder_path);
+    copy_ui_text(s_folder_playlist_path, sizeof(s_folder_playlist_path), state.folder_playlist_path);
     render(state.view);
 }
 
@@ -588,6 +590,7 @@ View back_view(View view)
             return s_library_tab == LibraryTab::Artists ? View::LibraryArtists :
                    s_library_tab == LibraryTab::Genres ? View::LibraryGenres :
                    s_library_tab == LibraryTab::Years ? View::LibraryYears : View::Library;
+        case View::FolderPlaylist:
         case View::FileViewer:
         case View::FolderDetail: return View::Folders;
         case View::PlaylistDetail: return View::Playlists;

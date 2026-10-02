@@ -44,7 +44,8 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
         (s_view == View::LibrarySongs || s_view == View::LibraryAlbums ||
          s_view == View::AlbumDetail || s_view == View::ArtistDetail ||
          s_view == View::TrackList || s_view == View::Folders ||
-         s_view == View::FolderDetail || s_view == View::PlaylistDetail);
+         s_view == View::FolderDetail || s_view == View::FolderPlaylist ||
+         s_view == View::PlaylistDetail);
     lv_obj_t *header = make_box(s_screen, 0, kStatusHeight, kScreenWidth, 44, kBackground);
     lv_obj_t *divider = make_box(header, 8, 43, 304, 1, s_neon_hud ? kAccent : kDivider);
     (void)divider;

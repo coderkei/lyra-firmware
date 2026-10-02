@@ -92,7 +92,7 @@ constexpr size_t kAccentPaletteCount = 8;
 enum class View : uintptr_t {
     Menu, Player, TrackInfo, FullscreenInfoArt, Queue,
     Library, LibrarySongs, LibraryArtists, LibraryAlbums, LibraryGenres,
-    LibraryYears, AlbumDetail, ArtistDetail, Folders, FolderDetail, FileViewer,
+    LibraryYears, AlbumDetail, ArtistDetail, Folders, FolderDetail, FileViewer, FolderPlaylist,
     Playlists, PlaylistDetail, PlaylistCreate, PlaylistAdd, Equalizer,
     EqualizerPresets, Search, Settings, SortingSettings, SortingOptions,
     PlaybackSettings, CrossfadeOptions, SleepTimerOptions, SoundSettings,
@@ -138,6 +138,7 @@ struct NavigationState {
     bool playlist_add_mode;
     char track_list_title[lyra::media::kMaxName];
     char folder_path[lyra::media::kMaxPath];
+    char folder_playlist_path[lyra::media::kMaxPath];
 };
 constexpr size_t kNavigationDepth = 16;
 
@@ -421,6 +422,10 @@ void make_search_playlist_row(lv_obj_t *parent, int y, const lyra::media::Search
 void search_album_result_cb(lv_event_t *event);
 void search_artist_result_cb(lv_event_t *event);
 void render_file_viewer();
+extern char s_folder_playlist_path[lyra::media::kMaxPath];
+void open_folder_playlist(const char *path);
+void render_folder_playlist();
+bool play_file_queue(const size_t *indices, size_t count, size_t position);
 void make_document_row(lv_obj_t *parent, int y, const lyra::media::FolderFile &file);
 void make_file_row(lv_obj_t *parent, int y, size_t track_index, int height = 54);
 void make_album_art(lv_obj_t *parent, int x, int y, int width, int height, const lyra::media::Track &track, bool preserve_aspect = false);

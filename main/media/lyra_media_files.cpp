@@ -135,6 +135,104 @@ bool folder_tree_tracks(const char *path, size_t *indices, size_t capacity, size
     return ok && *count > 0;
 }
 
+namespace {
+// Normalise a local playlist entry without allowing .. to escape the card.
+bool playlist_entry_path(const char *playlist, const char *entry, char *out)
+{
+    if (!entry[0] || std::strchr(entry, ':')) return false;
+    char joined[kMaxPath * 2];
+    int length;
+    if (!std::strncmp(entry, "/sdcard/", 8)) length = std::snprintf(joined, sizeof(joined), "%s", entry);
+    else if (entry[0] == '/') length = std::snprintf(joined, sizeof(joined), "/sdcard%s", entry);
+    else {
+        const char *slash = std::strrchr(playlist, '/');
+        if (!slash) return false;
+        length = std::snprintf(joined, sizeof(joined), "%.*s/%s", int(slash - playlist), playlist, entry);
+    }
+    if (length < 0 || size_t(length) >= sizeof(joined)) return false;
+    std::strcpy(out, "/sdcard");
+    size_t used = 7;
+    char *part = joined + 8;
+    while (*part) {
+        while (*part == '/') ++part;
+        if (!*part) break;
+        char *end = std::strchr(part, '/');
+        if (end) *end = '\0';
+        if (!std::strcmp(part, "..")) {
+            if (used == 7) return false;
+            while (used > 7 && out[used - 1] != '/') --used;
+            --used;
+            out[used] = '\0';
+        } else if (std::strcmp(part, ".")) {
+            const size_t count = std::strlen(part);
+            if (used + count + 2 > kMaxPath) return false;
+            out[used++] = '/';
+            std::memcpy(out + used, part, count + 1);
+            used += count;
+        }
+        if (!end) break;
+        part = end + 1;
+    }
+    return used > 7;
+}
+} // namespace
+
+esp_err_t load_playlist_file(const char *path, size_t *indices, size_t capacity, size_t *count)
+{
+    if (!count) return ESP_ERR_INVALID_ARG;
+    *count = 0;
+    if (!path || !indices || !capacity || std::strncmp(path, "/sdcard/", 8) ||
+        std::strlen(path) >= kMaxPath) return ESP_ERR_INVALID_ARG;
+    if (!begin_file_access()) return ESP_ERR_INVALID_STATE;
+    FILE *file = lyra::sd::open(path, "rb", lyra::sd::Client::Filesystem);
+    if (!file) { end_file_access(); return ESP_ERR_NOT_FOUND; }
+    char line[kMaxPath + 4], chunk[1024];
+    size_t used = 0;
+    bool overlong = false;
+    esp_err_t result = ESP_OK;
+    const auto consume_line = [&]() {
+        if (overlong) return;
+        line[used] = '\0';
+        char *entry = line;
+        if (used >= 3 && uint8_t(entry[0]) == 0xEF && uint8_t(entry[1]) == 0xBB && uint8_t(entry[2]) == 0xBF) entry += 3;
+        while (*entry && std::isspace(static_cast<unsigned char>(*entry))) ++entry;
+        size_t length = std::strlen(entry);
+        while (length && std::isspace(static_cast<unsigned char>(entry[length - 1]))) entry[--length] = '\0';
+        if (!length || entry[0] == '#') return;
+        for (char *p = entry; *p; ++p) if (*p == '\\') *p = '/';
+        char absolute[kMaxPath];
+        size_t index;
+        if (!playlist_entry_path(path, entry, absolute)) return;
+        bool found = resolve_audio_path(absolute, &index);
+        // Lyra's generated portable playlists use card-root relative paths.
+        // Prefer standard playlist-directory relative paths, then try the root.
+        if (!found && entry[0] != '/' && std::strncmp(entry, "../", 3)) {
+            if (playlist_entry_path("/sdcard/root.m3u", entry, absolute))
+                found = resolve_audio_path(absolute, &index);
+        }
+        if (!found) return;
+        if (*count == capacity) { result = ESP_ERR_INVALID_SIZE; return; }
+        indices[(*count)++] = index;
+    };
+    while (result == ESP_OK) {
+        const size_t bytes = lyra::sd::read(file, chunk, sizeof(chunk), lyra::sd::Client::Filesystem);
+        if (!bytes) {
+            if (std::ferror(file)) result = ESP_FAIL;
+            else if (used || overlong) consume_line();
+            break;
+        }
+        for (size_t i = 0; i < bytes && result == ESP_OK; ++i) {
+            if (chunk[i] == '\n') { consume_line(); used = 0; overlong = false; }
+            else if (chunk[i] == '\0' || used + 1 >= sizeof(line)) overlong = true;
+            else if (!overlong) line[used++] = chunk[i];
+        }
+    }
+    lyra::sd::close(file, lyra::sd::Client::Filesystem);
+    end_file_access();
+    if (result != ESP_OK) *count = 0;
+    return result;
+}
+
 size_t folder_files(const char *path, size_t offset, FolderFile *files,
                     size_t capacity, size_t *total)
 {
@@ -151,6 +249,7 @@ size_t folder_files(const char *path, size_t offset, FolderFile *files,
         else if (!strcasecmp(ext, "png") || !strcasecmp(ext, "bmp") ||
                  !strcasecmp(ext, "jpg") || !strcasecmp(ext, "jpeg")) kind = FileKind::Image;
         else if (!strcasecmp(ext, "txt") || !strcasecmp(ext, "lrc")) kind = FileKind::Text;
+        else if (!strcasecmp(ext, "m3u") || !strcasecmp(ext, "m3u8")) kind = FileKind::Playlist;
         else continue;
         char child[kMaxPath];
         struct stat info{};

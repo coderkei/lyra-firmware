@@ -15,6 +15,7 @@ idf_component_register(
         "gui/queue/lyra_gui_queue_view.cpp"
         "gui/library/lyra_gui_library_rows.cpp"
         "gui/library/lyra_gui_file_viewer.cpp"
+        "gui/library/lyra_gui_folder_playlist.cpp"
         "gui/library/lyra_gui_library_screens.cpp"
         "gui/library/lyra_gui_page_jump.cpp"
         "gui/track_details/lyra_gui_track_details.cpp"

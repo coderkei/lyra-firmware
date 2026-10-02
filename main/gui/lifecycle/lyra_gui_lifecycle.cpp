@@ -42,6 +42,7 @@ void render(View view)
         case View::TrackList: render_track_list(); break;
         case View::PageJump: render_page_jump(); break;
         case View::FileViewer: render_file_viewer(); break;
+        case View::FolderPlaylist: render_folder_playlist(); break;
         case View::Folders: render_folders(false); break;
         case View::FolderDetail: render_folders(true); break;
         case View::Playlists: render_playlists(false); break;

@@ -264,7 +264,11 @@ size_t load_queue_snapshot(size_t *track_indices, size_t capacity,
 bool is_favorite(size_t track_index);
 esp_err_t set_favorite(size_t track_index, bool favorite);
 
-enum class FileKind : uint8_t { Audio, Image, Text };
+// Load a portable M3U/M3U8 without registering it or scanning its tracks.
+// Missing/unsupported entries are skipped; order and duplicates are retained.
+esp_err_t load_playlist_file(const char *path, size_t *indices, size_t capacity, size_t *count);
+
+enum class FileKind : uint8_t { Audio, Image, Text, Playlist };
 struct FolderFile {
     char path[kMaxPath];
     FileKind kind;

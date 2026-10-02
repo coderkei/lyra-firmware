@@ -3,6 +3,7 @@
 #include "lyra_image_file.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include <atomic>
+#include <cerrno>
 #include <new>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -30,7 +31,9 @@ struct Viewer {
     std::atomic<bool> cancelled{false};
     std::atomic<uint32_t> revision{0};
     char path[lyra::media::kMaxPath]{};
-    lv_obj_t *root{}, *body{}, *label{}, *image{}, *detail{}, *canvas{}, *status{};
+    lv_obj_t *root{}, *body{}, *label{}, *image{}, *detail{}, *canvas{}, *status{}, *bookmark_menu{};
+    lv_point_t drag_point{};
+    bool dragging{};
     lv_timer_t *timer{};
     uint16_t *pixels{}, *detail_pixels{}, *work_pixels{};
     lv_image_dsc_t descriptor{}, detail_descriptor{};
@@ -294,6 +297,76 @@ void save_bookmark(Viewer *v)
     lv_label_set_text(v->status, ok ? tr(lyra::i18n::StringId::ReaderBookmarkSaved) : tr(lyra::i18n::StringId::ReaderBookmarkFailed));
 }
 
+void close_bookmark_menu(Viewer *v)
+{
+    if (!v->bookmark_menu) return;
+    lv_obj_t *menu = v->bookmark_menu;
+    v->bookmark_menu = nullptr;
+    lv_obj_delete(menu);
+}
+
+void remove_bookmark(Viewer *v)
+{
+    FileAccess access;
+    if (!access.ready) { lv_label_set_text(v->status, tr(lyra::i18n::StringId::NoMicroSdCard)); return; }
+    char path[100], backup[108], temp[108];
+    bookmark_path(v, path, sizeof(path));
+    std::snprintf(backup, sizeof(backup), "%s.bak", path);
+    std::snprintf(temp, sizeof(temp), "%s.tmp", path);
+    // Remove the recovery copy first so a deleted bookmark cannot reappear.
+    const auto remove_if_present = [](const char *file) {
+        errno = 0;
+        return lyra::sd::remove(file, lyra::sd::Client::Filesystem) == 0 || errno == ENOENT;
+    };
+    const bool ok = remove_if_present(backup) && remove_if_present(path) && remove_if_present(temp);
+    lv_label_set_text(v->status, tr(ok ? lyra::i18n::StringId::ReaderBookmarkRemoved :
+                                      lyra::i18n::StringId::ReaderBookmarkRemoveFailed));
+}
+
+void show_bookmark_menu(Viewer *v)
+{
+    close_bookmark_menu(v);
+    Bookmark mark;
+    const bool saved = read_bookmark(v, &mark);
+    v->bookmark_menu = viewer_box(v->root, 0, 0, 320, 480, lv_color_hex(0));
+    lv_obj_add_flag(v->bookmark_menu, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *title = make_label(v->bookmark_menu, tr(lyra::i18n::StringId::ReaderBookmark), lv_color_hex(0xFFFFFF));
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_pos(title, 20, 105);
+    const lyra::i18n::StringId labels[] = {lyra::i18n::StringId::SaveKey,
+        lyra::i18n::StringId::ReaderBookmarkJump, lyra::i18n::StringId::Remove};
+    for (unsigned action = 0; action < 4; ++action) {
+        lv_obj_t *button = viewer_box(v->bookmark_menu, action == 3 ? 264 : 20,
+            action == 3 ? 96 : 150 + action * 58, action == 3 ? 40 : 280, 46,
+            lv_color_hex(0x202020));
+        lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_bg_color(button, lv_color_hex(0x404040), LV_STATE_PRESSED);
+        lv_obj_t *label = make_label(button, action == 3 ? LV_SYMBOL_CLOSE : tr(labels[action]), lv_color_hex(0xFFFFFF));
+        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+        make_marquee(label, action == 3 ? 32 : 260);
+        lv_obj_center(label);
+        if (!saved && (action == 1 || action == 2)) {
+            lv_obj_add_state(button, LV_STATE_DISABLED);
+            lv_obj_set_style_text_opa(label, LV_OPA_40, 0);
+        }
+        lv_obj_set_user_data(button, reinterpret_cast<void *>(uintptr_t(action)));
+        lv_obj_add_event_cb(button, [](lv_event_t *event) {
+            auto *v = static_cast<Viewer *>(lv_event_get_user_data(event));
+            const unsigned action = reinterpret_cast<uintptr_t>(lv_obj_get_user_data(lv_event_get_current_target_obj(event)));
+            close_bookmark_menu(v);
+            if (action == 0) save_bookmark(v);
+            else if (action == 1) {
+                Bookmark mark;
+                if (read_bookmark(v, &mark)) {
+                    v->font_size = mark.font;
+                    v->dark = mark.dark;
+                    if (text_page(v, mark.offset, mark.scroll)) v->previous_count = 0;
+                } else lv_label_set_text(v->status, tr(lyra::i18n::StringId::FileReadFailed));
+            } else if (action == 2) remove_bookmark(v);
+        }, LV_EVENT_CLICKED, v);
+    }
+}
+
 uint32_t scaled_dimension(uint32_t source, uint32_t zoom)
 {
     return std::max<uint64_t>(1, uint64_t(source) * zoom / kNativeZoom);
@@ -359,7 +432,7 @@ void viewer_action(lv_event_t *event)
             if (v->is_text) { v->dark = !v->dark; reader_style(v); }
             else image_scale(v, v->fit_zoom, true);
             break;
-        case 4: save_bookmark(v); break;
+        case 4: show_bookmark_menu(v); break;
         case 5:
             if (lv_obj_get_scroll_y(v->body) <= 0) text_previous(v, true);
             else lv_obj_scroll_by(v->body, 0, 280, LV_ANIM_OFF);
@@ -495,12 +568,13 @@ void render_file_viewer()
         if (v->timer) lv_timer_delete(v->timer);
         if (v->image) lv_image_cache_drop(&v->descriptor);
         if (v->detail) lv_image_cache_drop(&v->detail_descriptor);
+        close_bookmark_menu(v);
         release(v);
     }, LV_EVENT_DELETE, v);
     v->body = viewer_box(v->root, 0, 72, 320, v->is_text ? 356 : kImageViewHeight, lv_color_hex(0));
     lv_obj_add_flag(v->body, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(v->body, LV_OBJ_FLAG_SCROLL_MOMENTUM);
-    lv_obj_set_scroll_dir(v->body, v->is_text ? LV_DIR_VER : LV_DIR_ALL);
+    lv_obj_set_scroll_dir(v->body, v->is_text ? LV_DIR_VER : LV_DIR_NONE);
     lv_obj_set_scrollbar_mode(v->body, LV_SCROLLBAR_MODE_AUTO);
     v->status = make_label(v->root, v->is_text ? "" : tr(lyra::i18n::StringId::ImageLoading), lv_color_hex(0xFFFFFF));
     lv_obj_set_style_text_color(v->status, lv_color_hex(0xFFFFFF), 0);
@@ -530,6 +604,33 @@ void render_file_viewer()
         lv_obj_add_event_cb(v->body, [](lv_event_t *event) {
             request_image_detail(static_cast<Viewer *>(lv_event_get_user_data(event)));
         }, LV_EVENT_SCROLL, v);
+        // LVGL's default drag scroll selects one axis. Handle image drags
+        // ourselves with both coordinates and leave programmatic scrolling enabled.
+        lv_obj_clear_flag(v->body, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+        lv_obj_clear_flag(v->body, LV_OBJ_FLAG_SCROLL_ELASTIC);
+        lv_obj_clear_flag(v->body, LV_OBJ_FLAG_SCROLL_CHAIN);
+        lv_obj_add_event_cb(v->body, [](lv_event_t *event) {
+            auto *v = static_cast<Viewer *>(lv_event_get_user_data(event));
+            const lv_event_code_t code = lv_event_get_code(event);
+            if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+                v->dragging = false;
+                return;
+            }
+            if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING) return;
+            lv_indev_t *indev = lv_indev_active();
+            if (!indev || !v->loaded) return;
+            lv_point_t point;
+            lv_indev_get_point(indev, &point);
+            if (code == LV_EVENT_PRESSED) { v->dragging = true; v->drag_point = point; return; }
+            if (!v->dragging) return;
+            const int dx = point.x - v->drag_point.x;
+            const int dy = point.y - v->drag_point.y;
+            v->drag_point = point;
+            const int max_x = std::max<int>(0, int(scaled_dimension(v->file_info.width, v->zoom)) - int(kScreenWidth));
+            const int max_y = std::max<int>(0, int(scaled_dimension(v->file_info.height, v->zoom)) - int(kImageViewHeight));
+            lv_obj_scroll_to(v->body, std::clamp<int>(lv_obj_get_scroll_x(v->body) - dx, 0, max_x),
+                std::clamp<int>(lv_obj_get_scroll_y(v->body) - dy, 0, max_y), LV_ANIM_OFF);
+        }, LV_EVENT_ALL, v);
         v->timer = lv_timer_create(image_poll, 50, v);
         if (!v->timer) { lv_label_set_text(v->status, tr(lyra::i18n::StringId::FileMemoryError)); return; }
         start_image_task(v);
@@ -553,7 +654,8 @@ void make_document_row(lv_obj_t *parent, int y, const lyra::media::FolderFile &f
         auto *file = static_cast<lyra::media::FolderFile *>(lv_event_get_user_data(event));
         copy_ui_text(s_file_path, sizeof(s_file_path), file->path);
         s_file_kind = file->kind;
-        navigate_to(View::FileViewer);
+        if (file->kind == lyra::media::FileKind::Playlist) open_folder_playlist(file->path);
+        else navigate_to(View::FileViewer);
     }, LV_EVENT_CLICKED, copy);
     lv_obj_add_event_cb(row, [](lv_event_t *event) {
         lv_free(lv_event_get_user_data(event));
