@@ -588,6 +588,7 @@ View back_view(View view)
             return s_library_tab == LibraryTab::Artists ? View::LibraryArtists :
                    s_library_tab == LibraryTab::Genres ? View::LibraryGenres :
                    s_library_tab == LibraryTab::Years ? View::LibraryYears : View::Library;
+        case View::FileViewer:
         case View::FolderDetail: return View::Folders;
         case View::PlaylistDetail: return View::Playlists;
         case View::PlaylistCreate: return View::Playlists;

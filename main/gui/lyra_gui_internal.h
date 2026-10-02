@@ -92,7 +92,7 @@ constexpr size_t kAccentPaletteCount = 8;
 enum class View : uintptr_t {
     Menu, Player, TrackInfo, FullscreenInfoArt, Queue,
     Library, LibrarySongs, LibraryArtists, LibraryAlbums, LibraryGenres,
-    LibraryYears, AlbumDetail, ArtistDetail, Folders, FolderDetail,
+    LibraryYears, AlbumDetail, ArtistDetail, Folders, FolderDetail, FileViewer,
     Playlists, PlaylistDetail, PlaylistCreate, PlaylistAdd, Equalizer,
     EqualizerPresets, Search, Settings, SortingSettings, SortingOptions,
     PlaybackSettings, CrossfadeOptions, SleepTimerOptions, SoundSettings,
@@ -420,6 +420,8 @@ void add_search_playlist_route(lv_obj_t *row, size_t track_index, size_t playlis
 void make_search_playlist_row(lv_obj_t *parent, int y, const lyra::media::SearchResult &result);
 void search_album_result_cb(lv_event_t *event);
 void search_artist_result_cb(lv_event_t *event);
+void render_file_viewer();
+void make_document_row(lv_obj_t *parent, int y, const lyra::media::FolderFile &file);
 void make_file_row(lv_obj_t *parent, int y, size_t track_index, int height = 54);
 void make_album_art(lv_obj_t *parent, int x, int y, int width, int height, const lyra::media::Track &track, bool preserve_aspect = false);
 void page_cb(lv_event_t *event);

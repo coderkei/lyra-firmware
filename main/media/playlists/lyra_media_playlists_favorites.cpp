@@ -446,7 +446,7 @@ size_t load_queue_snapshot(size_t *track_indices, size_t capacity,
         size_t track_index = 0;
         {
             Lock lock;
-            if (!find_track_by_path_locked(absolute, &track_index)) continue;
+            if (!resolve_audio_path_locked(absolute, &track_index)) continue;
         }
         if (restored >= capacity) continue;
         track_indices[restored] = track_index;
@@ -584,6 +584,7 @@ esp_err_t set_favorite(size_t track_index, bool favorite)
 size_t child_folders(const char *path, size_t offset, char names[][kMaxName],
                      size_t capacity, size_t *total)
 {
+    if (total) *total = 0;
     if (!path || !names || capacity == 0) return 0;
     DIR *directory = opendir(path);
     if (!directory) return 0;
@@ -594,7 +595,7 @@ size_t child_folders(const char *path, size_t offset, char names[][kMaxName],
         char child[kMaxPath];
         if (!join_path(child, sizeof(child), path, entry->d_name)) continue;
         struct stat info{};
-        if (stat(child, &info) == 0 && S_ISDIR(info.st_mode) && std::strcmp(child, kPlaylistDir) != 0) {
+        if (stat(child, &info) == 0 && S_ISDIR(info.st_mode)) {
             if (matched++ < offset || found >= capacity) continue;
             copy_text(names[found++], kMaxName, entry->d_name);
         }
@@ -604,24 +605,23 @@ size_t child_folders(const char *path, size_t offset, char names[][kMaxName],
     return found;
 }
 
-size_t folder_tracks(const char *path, size_t offset, size_t *track_indices, size_t capacity, size_t *total)
+size_t folder_tracks(const char *path, size_t offset, size_t *track_indices,
+                     size_t capacity, size_t *total)
 {
+    if (total) *total = 0;
     if (!path || !track_indices || capacity == 0) return 0;
     DIR *directory = opendir(path);
     if (!directory) return 0;
-    Lock lock;
-    size_t matched = 0;
-    size_t found = 0;
+    size_t matched = 0, found = 0;
     while (dirent *entry = readdir(directory)) {
         if (entry->d_name[0] == '.' || !compatible_audio(entry->d_name)) continue;
         char child[kMaxPath];
         if (!join_path(child, sizeof(child), path, entry->d_name)) continue;
         struct stat info{};
         if (stat(child, &info) != 0 || !S_ISREG(info.st_mode)) continue;
-        size_t track_index = 0;
-        if (!find_track_by_path_locked(child, &track_index)) continue;
         if (matched++ < offset || found >= capacity) continue;
-        track_indices[found++] = track_index;
+        size_t index;
+        if (resolve_audio_path(child, &index)) track_indices[found++] = index;
     }
     closedir(directory);
     if (total) *total = matched;

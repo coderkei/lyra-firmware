@@ -259,6 +259,10 @@ extern size_t s_smart_playlist_order_counts[4];
 extern uint32_t s_smart_playlist_order_generations[4];
 extern uint64_t s_smart_playlist_order_sequences[4];
 
+bool resolve_audio_path_locked(const char *path, size_t *index);
+bool transient_track_at_locked(size_t index, Track *out);
+bool file_access_active_locked();
+
 class Lock {
 public:
     Lock() { if (s_mutex) xSemaphoreTake(s_mutex, portMAX_DELAY); }

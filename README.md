@@ -21,6 +21,9 @@ touch interface, MicroSD music library, and I2S audio playback.
   and settings screens.
 - Recursive MicroSD music-library scan (up to 10,000 tracks), with metadata,
   sorting, and embedded album-art display and caching.
+- [Direct folder browsing](docs/FOLDER_FILE_BROWSING.md) without a scan, with
+  folder playback queues, full-screen PNG/BMP/JPEG viewing, and a TXT/LRC
+  reader with saved bookmarks.
 - Portable `.m3u` / `.m3u8` playlists, a generated Favorites playlist, and a
   persistent playback queue.
 - Playback controls for play/pause, previous/next, seeking, volume, and

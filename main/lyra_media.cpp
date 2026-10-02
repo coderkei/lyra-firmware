@@ -290,7 +290,7 @@ esp_err_t shutdown(uint32_t timeout_ms)
             Lock lock;
             storage_busy = s_status.scanning || s_status.duration_indexing ||
                            s_status.sorting_indexing ||
-                           s_status.artwork_busy || s_search_status.running;
+                           s_status.artwork_busy || s_search_status.running || file_access_active_locked();
         }
         if (!storage_busy) break;
         if ((xTaskGetTickCount() - started) * portTICK_PERIOD_MS >= timeout_ms) {
@@ -323,6 +323,7 @@ size_t track_count() { Lock lock; return s_track_count; }
 
 bool track_at_locked(size_t index, Track *out)
 {
+    if (index >= kMaxTracks) return transient_track_at_locked(index, out);
     if (!out || !s_catalog || index >= s_track_count) return false;
     const uint32_t physical = s_title_order[index];
     for (size_t i = 0; i < kTrackCacheSize; ++i) {

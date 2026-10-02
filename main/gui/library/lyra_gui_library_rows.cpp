@@ -36,7 +36,8 @@ bool collect_queue_add_tracks(const QueueAddSource &source, size_t *tracks,
     if (!tracks || !count || capacity == 0) return false;
     *count = 0;
     if (source.kind == QueueAddSourceKind::Track) {
-        if (source.index >= lyra::media::track_count()) return false;
+        lyra::media::Track track{};
+        if (!lyra::media::track_at(source.index, &track)) return false;
         tracks[(*count)++] = source.index;
         return true;
     }
@@ -49,18 +50,7 @@ bool collect_queue_add_tracks(const QueueAddSource &source, size_t *tracks,
         return *count == album.track_count;
     }
 
-    const size_t path_length = std::strlen(source.folder_path);
-    if (path_length == 0) return false;
-    const size_t catalog_count = lyra::media::track_count();
-    for (size_t i = 0; i < catalog_count; ++i) {
-        lyra::media::Track track{};
-        if (!lyra::media::track_at(i, &track) ||
-            std::strncmp(track.path, source.folder_path, path_length) != 0 ||
-            track.path[path_length] != '/') continue;
-        if (*count >= capacity) return false;
-        tracks[(*count)++] = i;
-    }
-    return *count > 0;
+    return lyra::media::folder_tree_tracks(source.folder_path, tracks, capacity, count);
 }
 
 void add_queue_source_cb(lv_event_t *event, QueueInsertMode mode)
@@ -191,6 +181,23 @@ void show_queue_add_picker_for_folder(const char *folder_path)
 
 void play_track_from_row(size_t track_index, bool force_single)
 {
+    // Freeze a filesystem folder into a queue before playback. Later directory
+    // changes must not shift the current entry, shuffle order, or saved queue.
+    size_t *folder_queue = nullptr;
+    size_t folder_count = 0;
+    if (!force_single && (s_view == View::Folders || s_view == View::FolderDetail)) {
+        folder_queue = static_cast<size_t *>(heap_caps_malloc(
+            lyra::media::kMaxTracks * sizeof(size_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        size_t total = 0;
+        if (folder_queue) folder_count = lyra::media::folder_tracks(
+            s_folder_path, 0, folder_queue, lyra::media::kMaxTracks, &total);
+        if (!folder_queue || !folder_count || folder_count != total ||
+            std::find(folder_queue, folder_queue + folder_count, track_index) == folder_queue + folder_count) {
+            heap_caps_free(folder_queue);
+            show_notice(tr(lyra::i18n::StringId::Queue), tr(lyra::i18n::StringId::QueueAddFailed));
+            return;
+        }
+    }
     discard_pending_saved_queue();
     s_has_active_queue = true;
     if (force_single) {
@@ -218,6 +225,12 @@ void play_track_from_row(size_t track_index, bool force_single)
         s_playback_scope = PlaybackScope::Search;
     } else {
         s_playback_scope = PlaybackScope::Single;
+    }
+    if (folder_queue) {
+        clear_saved_queue();
+        s_saved_queue = folder_queue;
+        s_saved_queue_count = folder_count;
+        s_playback_scope = PlaybackScope::SavedQueue;
     }
     s_current_track = track_index;
     reset_shuffle_queue();

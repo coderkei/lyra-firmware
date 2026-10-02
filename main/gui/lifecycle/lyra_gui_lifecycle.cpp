@@ -24,7 +24,7 @@ void render(View view)
     s_sort_progress_label = nullptr;
     s_status_time_label = nullptr;
     style_root();
-    if (view != View::FullscreenInfoArt) make_status_bar();
+    if (view != View::FullscreenInfoArt && view != View::FileViewer) make_status_bar();
     switch (view) {
         case View::Menu: render_menu(); break;
         case View::Player: render_player(); break;
@@ -41,6 +41,7 @@ void render(View view)
         case View::ArtistDetail: render_artist_detail(); break;
         case View::TrackList: render_track_list(); break;
         case View::PageJump: render_page_jump(); break;
+        case View::FileViewer: render_file_viewer(); break;
         case View::Folders: render_folders(false); break;
         case View::FolderDetail: render_folders(true); break;
         case View::Playlists: render_playlists(false); break;
@@ -69,12 +70,14 @@ void render(View view)
         case View::DebugMenu: render_debug_menu(); break;
         case View::Licenses: render_licenses(); break;
     }
-    if (s_show_nav && !s_language_setup_pending && view != View::FullscreenInfoArt &&
+    if (s_show_nav && !s_language_setup_pending && view != View::FullscreenInfoArt && view != View::FileViewer &&
         !(is_zeno_theme() && view == View::Player)) {
         make_virtual_nav();
     }
-    if (s_neon_hud) style_hud_controls(s_screen);
-    if (is_cute_theme()) style_cute_controls(s_screen);
+    if (view != View::FileViewer) {
+        if (s_neon_hud) style_hud_controls(s_screen);
+        if (is_cute_theme()) style_cute_controls(s_screen);
+    }
 }
 
 bool automatic_track_advance_available()

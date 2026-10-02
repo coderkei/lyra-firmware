@@ -459,8 +459,8 @@ void render_folders(bool detail)
     size_t total_folders = 0;
     s_folder_count = lyra::media::child_folders(s_folder_path, 0, s_folder_names, 1, &total_folders);
     size_t total_tracks = 0;
-    size_t ignored_indices[1];
-    lyra::media::folder_tracks(s_folder_path, 0, ignored_indices, 1, &total_tracks);
+    lyra::media::FolderFile ignored_files[1];
+    lyra::media::folder_files(s_folder_path, 0, ignored_files, 1, &total_tracks);
     const size_t total_entries = total_folders + total_tracks;
     const size_t pages = (total_entries + lyra::media::kTrackPageSize - 1) /
                          lyra::media::kTrackPageSize;
@@ -501,17 +501,28 @@ void render_folders(bool detail)
             if (s_queue_add_mode) add_folder_queue_button(folder, child_path);
         }
     }
-    size_t indices[lyra::media::kTrackPageSize];
-    const size_t track_offset = first_entry > total_folders ? first_entry - total_folders : 0;
-    const size_t track_capacity = last_entry > total_folders ?
+    lyra::media::FolderFile files[lyra::media::kTrackPageSize];
+    const size_t file_offset = first_entry > total_folders ? first_entry - total_folders : 0;
+    const size_t file_capacity = last_entry > total_folders ?
         last_entry - std::max(first_entry, total_folders) : 0;
-    const size_t tracks = track_capacity == 0 ? 0 : lyra::media::folder_tracks(
-        s_folder_path, track_offset, indices, track_capacity, &total_tracks);
-    for (size_t i = 0; i < tracks; ++i) {
-        make_file_row(list, detail_offset + static_cast<int>(row++) * 58, indices[i], 54);
+    const size_t count = file_capacity == 0 ? 0 : lyra::media::folder_files(
+        s_folder_path, file_offset, files, file_capacity, &total_tracks);
+    for (size_t i = 0; i < count; ++i) {
+        const int y = detail_offset + static_cast<int>(row++) * 58;
+        if (files[i].kind == lyra::media::FileKind::Audio) {
+            size_t index;
+            if (lyra::media::resolve_audio_path(files[i].path, &index))
+                make_file_row(list, y, index, 54);
+            else {
+                lv_obj_t *error = make_label(list, tr(lyra::i18n::StringId::FileOpenFailed), kTextMuted);
+                lv_obj_set_pos(error, 12, y + 16);
+            }
+        } else {
+            make_document_row(list, y, files[i]);
+        }
     }
     make_page_controls(list, detail_offset + static_cast<int>(row) * 58 + 4, total_entries);
-    if (row == 0) make_label(list, tr(lyra::i18n::StringId::FolderNoScannedAudio), kTextMuted);
+    if (row == 0) make_label(list, tr(lyra::i18n::StringId::FolderNoSupportedFiles), kTextMuted);
 }
 
 void playlist_cb(lv_event_t *event)

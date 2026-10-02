@@ -264,7 +264,26 @@ size_t load_queue_snapshot(size_t *track_indices, size_t capacity,
 bool is_favorite(size_t track_index);
 esp_err_t set_favorite(size_t track_index, bool favorite);
 
-// Lists direct child folders and catalog tracks beneath a mounted SD path.
+enum class FileKind : uint8_t { Audio, Image, Text };
+struct FolderFile {
+    char path[kMaxPath];
+    FileKind kind;
+};
+// Direct filesystem listing; images/text never enter the music catalog.
+size_t folder_files(const char *path, size_t offset, FolderFile *files,
+                    size_t capacity, size_t *total = nullptr);
+// Resolve catalog metadata when available, otherwise retain a temporary path
+// handle. Temporary handles are session-only and do not change track_count().
+bool resolve_audio_path(const char *path, size_t *track_index);
+// Recursive collection for the existing bulk "add folder" queue action.
+// Returns false on an unreadable directory, unresolved track, or capacity limit.
+bool folder_tree_tracks(const char *path, size_t *indices, size_t capacity, size_t *count);
+// Pair these around direct viewer I/O/decoding. Shutdown rejects new access
+// and waits for existing viewers before unmounting the card.
+bool begin_file_access();
+void end_file_access();
+
+// Lists direct child folders and audio files beneath a mounted SD path.
 // Paths use the VFS form, starting at /sdcard.
 size_t child_folders(const char *path, size_t offset, char names[][kMaxName],
                      size_t capacity, size_t *total = nullptr);
