@@ -67,3 +67,21 @@ used by the catalog, applies the 16 px metrics, and writes
 `main/lyra_cjk_16.c`; the manifest checker reads the generated LVGL cmaps
 without compiling the firmware and fails if any translated code point is
 absent from both fonts.
+
+## Zeno heading sizes
+
+`main/gui/shared/lyra_gui_zeno_font.cpp` pairs the native 28/40 px Montserrat
+headings with a fallback adapter for the complete existing multilingual font
+chain. The adapter scales advances, bounding boxes and bearings from 16 px to
+the requested heading size. It asks LVGL to decode each missing native glyph
+and enlarges its alpha mask with bilinear interpolation. Accents, Cyrillic,
+Japanese, Korean and Chinese therefore retain the heading size instead of
+falling back to small text. Both fonts in each pair share the multilingual
+line height and baseline, allowing taller glyphs to fit in the same label.
+
+The adapter does not alter the 16 px fonts used by metadata or other themes,
+and adds no font assets or SD reads. Only one small source-glyph mask is
+allocated during a fallback glyph draw and freed before returning. The output
+mask belongs to LVGL. The enlarged fallback remains based on the embedded
+bitmap font, so it does not have the detail of a freshly rasterized outline
+font at the larger size.

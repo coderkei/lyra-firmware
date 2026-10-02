@@ -199,15 +199,6 @@ lv_obj_t *choice(lv_obj_t *body, int y, const char *icon, const char *title,
 
 } // namespace
 
-const lv_font_t *zeno_heading_font(bool large)
-{
-    // Preserve the embedded multilingual fallback for non-Latin UI languages.
-    static lv_font_t heading = lv_font_montserrat_28;
-    static lv_font_t menu = lv_font_montserrat_40;
-    heading.fallback = menu.fallback = lyra::font::ui();
-    return large ? &menu : &heading;
-}
-
 lv_obj_t *make_zeno_label(lv_obj_t *parent, const char *text, bool large)
 {
     char lowercase[lyra::media::kMaxName + 32];
