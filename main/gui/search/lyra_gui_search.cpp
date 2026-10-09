@@ -252,7 +252,20 @@ void make_keyboard_row(lv_obj_t *parent, int y, const char *keys[], size_t count
                                     kSurfaceRaised, 5);
         lv_obj_t *label = make_label(key, keys[i], kTextPrimary);
         lv_obj_center(label);
-        lv_obj_add_event_cb(key, keyboard_cb, LV_EVENT_CLICKED, const_cast<char *>(keys[i]));
+        const bool action_key =
+            std::strcmp(keys[i], tr(lyra::i18n::StringId::SearchKey)) == 0 ||
+            std::strcmp(keys[i], tr(lyra::i18n::StringId::SaveKey)) == 0 ||
+            std::strcmp(keys[i], tr(lyra::i18n::StringId::NumbersKey)) == 0 ||
+            std::strcmp(keys[i], tr(lyra::i18n::StringId::LettersKey)) == 0;
+        char *key_value = const_cast<char *>(keys[i]);
+        // Enter text on contact, then repeat held text keys. Keep actions that
+        // switch screens or rebuild the keyboard on release to avoid destroying
+        // a key while LVGL is still processing its press.
+        lv_obj_add_event_cb(key, keyboard_cb,
+                            action_key ? LV_EVENT_CLICKED : LV_EVENT_PRESSED, key_value);
+        if (!action_key) {
+            lv_obj_add_event_cb(key, keyboard_cb, LV_EVENT_LONG_PRESSED_REPEAT, key_value);
+        }
     }
 }
 
