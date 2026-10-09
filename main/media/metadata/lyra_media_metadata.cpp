@@ -46,16 +46,63 @@ bool equals_ci(const char *left, const char *right)
     return *left == *right;
 }
 
+namespace {
+
+uint32_t decode_codepoint(const char **cursor)
+{
+    const auto *bytes = reinterpret_cast<const unsigned char *>(*cursor);
+    if (*bytes < 0x80) {
+        if (*bytes) ++*cursor;
+        return *bytes;
+    }
+    size_t length = 0;
+    uint32_t value = 0;
+    if ((*bytes & 0xE0) == 0xC0) { length = 2; value = *bytes & 0x1F; }
+    else if ((*bytes & 0xF0) == 0xE0) { length = 3; value = *bytes & 0x0F; }
+    else if ((*bytes & 0xF8) == 0xF0) { length = 4; value = *bytes & 0x07; }
+    else { ++*cursor; return *bytes; }
+    for (size_t index = 1; index < length; ++index) {
+        if ((bytes[index] & 0xC0) != 0x80) { ++*cursor; return *bytes; }
+        value = (value << 6) | (bytes[index] & 0x3F);
+    }
+    *cursor += length;
+    return value;
+}
+
+uint32_t fold_search_codepoint(uint32_t codepoint)
+{
+    if (codepoint >= 'A' && codepoint <= 'Z') return codepoint + ('a' - 'A');
+    if ((codepoint >= 0x00C0 && codepoint <= 0x00D6) ||
+        (codepoint >= 0x00D8 && codepoint <= 0x00DE)) return codepoint + 0x20;
+    if (codepoint == 0x0178) return 0x00FF; // Ÿ
+    if (codepoint == 0x0152) return 0x0153; // Œ
+    if (codepoint >= 0x0400 && codepoint <= 0x040F) return codepoint + 0x50;
+    if (codepoint >= 0x0410 && codepoint <= 0x042F) return codepoint + 0x20;
+    // Treat Hiragana and Katakana spellings as equivalent in search.
+    if (codepoint >= 0x30A1 && codepoint <= 0x30F6) return codepoint - 0x60;
+    return codepoint;
+}
+
+bool starts_with_ci_utf8(const char *text, const char *query)
+{
+    while (*query) {
+        if (!*text) return false;
+        const uint32_t text_codepoint = decode_codepoint(&text);
+        const uint32_t query_codepoint = decode_codepoint(&query);
+        if (fold_search_codepoint(text_codepoint) != fold_search_codepoint(query_codepoint)) return false;
+    }
+    return true;
+}
+
+} // namespace
+
 bool contains_ci(const char *text, const char *query)
 {
     if (!query || !*query) return true;
-    const size_t query_length = std::strlen(query);
-    for (; *text; ++text) {
-        size_t i = 0;
-        while (i < query_length && text[i] &&
-               std::tolower(static_cast<unsigned char>(text[i])) ==
-                   std::tolower(static_cast<unsigned char>(query[i]))) ++i;
-        if (i == query_length) return true;
+    if (!text) return false;
+    for (const char *start = text; *start;) {
+        if (starts_with_ci_utf8(start, query)) return true;
+        decode_codepoint(&start);
     }
     return false;
 }

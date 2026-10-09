@@ -21,11 +21,13 @@ RAW_LABEL_ALLOWLIST = {
     "1",
     "12:30",
     "100%  ",
+    "Emotivate",
     "+6dB",
     "-6dB",
     "",
     "Emotivate Lyra",
     "JC3248W535EN",
+    "Lyra",
     "1.0.1",
     "i",
 }

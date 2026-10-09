@@ -18,6 +18,9 @@ constexpr size_t kEqualizerBandCount = lyra::audio::kEqualizerBandCount;
 
 // Persisted IDs: append new themes without changing existing values.
 enum class Theme : uint8_t { Standard, NeonSky, CutePink, Zeno, Aura, Count };
+enum class KeyboardLayout : uint8_t {
+    English, Russian, Korean, ChinesePinyin, JapaneseKana, Count,
+};
 
 struct Values {
     bool gapless;
@@ -39,6 +42,8 @@ struct Values {
     bool language_selected;
     // Independent of the classic dark/light and accent preferences.
     Theme theme = Theme::Standard;
+    // Global input method selection, independent of the interface language.
+    KeyboardLayout keyboard_layout = KeyboardLayout::English;
 };
 
 // Loads only valid persisted values, leaving caller-provided defaults intact.

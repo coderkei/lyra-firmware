@@ -9,6 +9,10 @@ namespace lyra::gui::internal {
 
 void render(View view)
 {
+    if ((s_view == View::Search || s_view == View::PlaylistCreate) && s_view != view) {
+        commit_keyboard_preedit();
+    }
+    if (view != View::Search && view != View::PlaylistCreate) close_keyboard_picker();
     lyra::font::init();
     s_view = view;
     s_search_label = nullptr;

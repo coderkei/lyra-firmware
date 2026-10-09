@@ -109,6 +109,9 @@ int s_crossfade_transition_direction = 0;
 bool s_crossfade_pause_pending = false;
 bool s_search_keyboard_visible = true;
 bool s_library_keyboard_symbols = false;
+bool s_library_keyboard_accents = false;
+lyra::gui_settings::KeyboardLayout s_library_keyboard_layout =
+    lyra::gui_settings::KeyboardLayout::English;
 bool s_playlists_from_library = false;
 bool s_playlist_add_mode = false;
 bool s_playlist_manage_mode = false;

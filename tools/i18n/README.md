@@ -28,7 +28,9 @@ python tools/i18n/check_font_manifest.py
 
 The font check validates the generated LVGL cmaps used by the primary font and
 the catalog-specific CJK fallback. `lyra_glyph_manifest.txt` records the
-locale code points used for the repeatable GUI review.
+locale code points, non-ASCII input glyphs used by the search keyboard, and
+every output glyph in the generated offline IME dictionaries. The dictionary
+assets must be present before running the check.
 
 The check scans `main/gui/` for direct string literals passed to `make_label()`
 and validates every catalog locale, placeholder signature, and line-break

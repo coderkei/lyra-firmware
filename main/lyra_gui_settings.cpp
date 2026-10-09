@@ -23,6 +23,7 @@ constexpr const char *kNeonHudKey = "neon_hud";
 constexpr const char *kThemeKey = "theme";
 constexpr const char *kAccentColorKey = "accent_color";
 constexpr const char *kLanguageKey = "language";
+constexpr const char *kKeyboardLayoutKey = "keyboard";
 constexpr const char *kSpeakerOutputKey = "speaker_output";
 constexpr const char *kEqualizerPresetKey = "eq_preset";
 constexpr const char *kDateFormatKey = "date_format";
@@ -87,6 +88,14 @@ void load(Values *values, size_t accent_palette_count, uint8_t equalizer_preset_
         lyra::i18n::is_valid_language(value)) {
         values->language = static_cast<lyra::i18n::Language>(value);
         values->language_selected = true;
+    }
+    if (nvs_get_u8(handle, kKeyboardLayoutKey, &value) == ESP_OK) {
+        // Stored value 5 was the previous Japanese Romaji option. Preserve
+        // those users' Japanese keyboard preference as Kana flick.
+        if (value == 5) values->keyboard_layout = KeyboardLayout::JapaneseKana;
+        else if (value < static_cast<uint8_t>(KeyboardLayout::Count)) {
+            values->keyboard_layout = static_cast<KeyboardLayout>(value);
+        }
     }
     if (nvs_get_u8(handle, kSpeakerOutputKey, &value) == ESP_OK && value <= 1) {
         values->speaker_output_enabled = value != 0;
@@ -154,6 +163,10 @@ esp_err_t save(const Values &values)
                                                values.date_format < 3 ? values.date_format : 0);
     if (result == ESP_OK) result = nvs_set_u8(handle, kUse24HourKey, values.use_24_hour ? 1 : 0);
     if (result == ESP_OK) result = nvs_set_u8(handle, kDstKey, values.dst_enabled ? 1 : 0);
+    if (result == ESP_OK && values.keyboard_layout < KeyboardLayout::Count) {
+        result = nvs_set_u8(handle, kKeyboardLayoutKey,
+                            static_cast<uint8_t>(values.keyboard_layout));
+    }
     if (result == ESP_OK) result = nvs_commit(handle);
     nvs_close(handle);
     if (result != ESP_OK) {

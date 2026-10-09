@@ -27,6 +27,7 @@ idf_component_register(
         "gui/settings/lyra_gui_equalizer.cpp"
         "gui/settings/lyra_gui_settings_system.cpp"
         "gui/search/lyra_gui_search.cpp"
+        "gui/search/lyra_gui_ime.cpp"
         "gui/lifecycle/lyra_gui_lifecycle.cpp"
         "lyra_gui_settings.cpp"
         "lyra_audio.cpp"
@@ -83,6 +84,7 @@ idf_component_register(
         nvs_flash
         libjpeg-turbo
         libpng
+        zlib
         esp_audio_codec
 )
 

@@ -214,6 +214,7 @@ esp_err_t save_user_settings()
         s_dst_enabled,
         true,
         s_theme,
+        s_library_keyboard_layout,
     };
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
@@ -239,6 +240,7 @@ void load_user_settings()
         s_dst_enabled,
         false,
         s_theme,
+        s_library_keyboard_layout,
     };
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
@@ -254,6 +256,7 @@ void load_user_settings()
     s_brightness_percent = values.brightness_percent;
     s_dark_mode = values.dark_mode;
     s_theme = values.theme;
+    s_library_keyboard_layout = values.keyboard_layout;
     s_accent_colour = values.accent_colour;
     lyra::i18n::set_language(values.language);
     s_speaker_output_enabled = values.speaker_output_enabled;
