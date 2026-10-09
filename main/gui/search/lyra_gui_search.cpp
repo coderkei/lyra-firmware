@@ -247,6 +247,8 @@ enum class KeyboardCommand : uintptr_t {
 struct KanaFlickKey {
     const char *variants[5]; // centre, up, right, down, left
     lv_point_t start;
+    lv_obj_t *popup_keys[5]{};
+    lv_obj_t *popup_labels[5]{};
 };
 
 KanaFlickKey s_kana_flick_keys[10]{};
@@ -268,10 +270,12 @@ void make_keyboard_command_key(lv_obj_t *parent, int x, int y, int width, int he
                         reinterpret_cast<void *>(static_cast<uintptr_t>(command)));
 }
 
-void make_keyboard_selector(lv_obj_t *parent, int x, int y, int width, int height)
+void make_keyboard_selector(lv_obj_t *parent, int x, int y, int width, int height,
+                            bool icon_only = false)
 {
     lv_obj_t *button = make_button(parent, x, y, width, height, kSurfaceRaised, 7);
-    lv_obj_t *label = make_label(button, keyboard_short_name(), kAccent);
+    lv_obj_t *label = make_label(button,
+        icon_only ? LV_SYMBOL_KEYBOARD : keyboard_short_name(), kAccent);
     lv_obj_center(label);
     lv_obj_add_event_cb(button, keyboard_selector_cb, LV_EVENT_CLICKED, nullptr);
 }
@@ -415,11 +419,11 @@ void make_keyboard_picker(lv_obj_t *keyboard)
 void make_kana_keyboard(lv_obj_t *keyboard, const char *action)
 {
     static constexpr const char *variants[10][5] = {
-        {"あ", "い", "う", "お", "え"}, {"か", "き", "く", "こ", "け"},
-        {"さ", "し", "す", "そ", "せ"}, {"た", "ち", "つ", "と", "て"},
-        {"な", "に", "ぬ", "の", "ね"}, {"は", "ひ", "ふ", "ほ", "へ"},
-        {"ま", "み", "む", "も", "め"}, {"や", "ゆ", "よ", "", ""},
-        {"ら", "り", "る", "ろ", "れ"}, {"わ", "を", "ん", "ー", "、"},
+        {"あ", "う", "え", "お", "い"}, {"か", "く", "け", "こ", "き"},
+        {"さ", "す", "せ", "そ", "し"}, {"た", "つ", "て", "と", "ち"},
+        {"な", "ぬ", "ね", "の", "に"}, {"は", "ふ", "へ", "ほ", "ひ"},
+        {"ま", "む", "め", "も", "み"}, {"や", "ゆ", "", "よ", ""},
+        {"ら", "る", "れ", "ろ", "り"}, {"わ", "ん", "ー", "、", "を"},
     };
     const int gap = 2;
     s_ime_candidates = make_box(keyboard, 0, 2, 320, 30, kKeyboardSurface);
@@ -430,19 +434,21 @@ void make_kana_keyboard(lv_obj_t *keyboard, const char *action)
     const int key_width = (320 - 6 - gap * 2) / 3;
     for (size_t index = 0; index < 10; ++index) {
         KanaFlickKey &context = s_kana_flick_keys[index];
-        for (size_t variant = 0; variant < 5; ++variant) context.variants[variant] = variants[index][variant];
+        for (size_t variant = 0; variant < 5; ++variant) {
+            context.variants[variant] = variants[index][variant];
+            context.popup_keys[variant] = nullptr;
+            context.popup_labels[variant] = nullptr;
+        }
         const int row = static_cast<int>(index / 3);
         const int column = static_cast<int>(index % 3);
         lv_obj_t *key = make_button(keyboard, 3 + column * (key_width + gap),
             first_y + row * (key_height + gap), key_width, key_height, kSurfaceRaised, 5);
-        char caption[64];
-        std::snprintf(caption, sizeof(caption), "%s ↑%s →%s\n←%s ↓%s",
-            variants[index][0], variants[index][1], variants[index][2],
-            variants[index][4], variants[index][3]);
-        lv_obj_t *label = make_label(key, caption, kTextPrimary);
+        lv_obj_t *label = make_label(key, variants[index][0], kTextPrimary);
         lv_obj_center(label);
         lv_obj_add_event_cb(key, kana_flick_cb, LV_EVENT_PRESSED, &context);
+        lv_obj_add_event_cb(key, kana_flick_cb, LV_EVENT_PRESSING, &context);
         lv_obj_add_event_cb(key, kana_flick_cb, LV_EVENT_RELEASED, &context);
+        lv_obj_add_event_cb(key, kana_flick_cb, LV_EVENT_PRESS_LOST, &context);
     }
     const int row4_y = first_y + 3 * (key_height + gap);
     lv_obj_t *modifier = make_button(keyboard, 3 + key_width + gap, row4_y,
@@ -585,6 +591,77 @@ void keyboard_text_cb(lv_event_t *event)
     refresh_ime_candidates();
 }
 
+void hide_kana_flick_picker(KanaFlickKey *context)
+{
+    if (!context) return;
+    for (size_t index = 0; index < 5; ++index) {
+        if (context->popup_keys[index]) lv_obj_delete(context->popup_keys[index]);
+        context->popup_keys[index] = nullptr;
+        context->popup_labels[index] = nullptr;
+    }
+}
+
+size_t kana_flick_variant(int dx, int dy)
+{
+    if (std::abs(dx) <= 18 && std::abs(dy) <= 18) return 0;
+    if (std::abs(dx) > std::abs(dy)) return dx > 0 ? 2 : 4;
+    return dy > 0 ? 3 : 1;
+}
+
+void show_kana_flick_picker(KanaFlickKey *context, lv_obj_t *key)
+{
+    if (!context || !key || !s_screen) return;
+    hide_kana_flick_picker(context);
+
+    constexpr int cell_width = 44;
+    constexpr int cell_height = 42;
+    constexpr int gap = 2;
+    constexpr int picker_width = cell_width * 3 + gap * 2;
+    constexpr int picker_height = cell_height * 3 + gap * 2;
+    constexpr int step_x = cell_width + gap;
+    constexpr int step_y = cell_height + gap;
+    constexpr int cell_x[] = {step_x, step_x, step_x * 2, step_x, 0};
+    constexpr int cell_y[] = {step_y, 0, step_y, step_y * 2, step_y};
+
+    lv_area_t key_area{};
+    lv_area_t screen_area{};
+    lv_obj_get_coords(key, &key_area);
+    lv_obj_get_coords(s_screen, &screen_area);
+    const int center_x = (key_area.x1 + key_area.x2 + 1) / 2 - screen_area.x1;
+    const int center_y = (key_area.y1 + key_area.y2 + 1) / 2 - screen_area.y1;
+    const int screen_width = lv_obj_get_width(s_screen);
+    const int screen_height = lv_obj_get_height(s_screen);
+    const int x = std::max(0, std::min(screen_width - picker_width,
+                                       center_x - picker_width / 2));
+    const int y = std::max(0, std::min(screen_height - picker_height,
+                                       center_y - picker_height / 2));
+
+    for (size_t variant = 0; variant < 5; ++variant) {
+        if (!context->variants[variant] || !context->variants[variant][0]) continue;
+        lv_obj_t *button = make_button(s_screen, x + cell_x[variant], y + cell_y[variant],
+            cell_width, cell_height, variant == 0 ? kAccentDark : kSurfaceRaised, 5, true);
+        lv_obj_remove_flag(button, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_t *label = make_label(button, context->variants[variant],
+            variant == 0 ? kTextOnAccent : kTextPrimary);
+        lv_obj_center(label);
+        context->popup_keys[variant] = button;
+        context->popup_labels[variant] = label;
+    }
+}
+
+void update_kana_flick_picker(KanaFlickKey *context, size_t selected)
+{
+    if (!context) return;
+    for (size_t variant = 0; variant < 5; ++variant) {
+        if (!context->popup_keys[variant] || !context->popup_labels[variant]) continue;
+        const bool active = variant == selected;
+        lv_obj_set_style_bg_color(context->popup_keys[variant],
+            active ? kAccentDark : kSurfaceRaised, LV_STATE_DEFAULT);
+        lv_obj_set_style_text_color(context->popup_labels[variant],
+            active ? kTextOnAccent : kTextPrimary, LV_STATE_DEFAULT);
+    }
+}
+
 void keyboard_action_cb(lv_event_t *event)
 {
     const auto command = static_cast<KeyboardCommand>(
@@ -675,18 +752,29 @@ void kana_flick_cb(lv_event_t *event)
     lv_point_t point{};
     lv_indev_t *indev = lv_indev_active();
     if (indev) lv_indev_get_point(indev, &point);
-    if (lv_event_get_code(event) == LV_EVENT_PRESSED) {
+    const lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_PRESSED) {
         context->start = point;
+        show_kana_flick_picker(context,
+            static_cast<lv_obj_t *>(lv_event_get_target(event)));
+        update_kana_flick_picker(context, 0);
         return;
     }
     int dx = point.x - context->start.x;
     int dy = point.y - context->start.y;
-    size_t variant = 0;
-    if (std::abs(dx) > 18 || std::abs(dy) > 18) {
-        if (std::abs(dx) > std::abs(dy)) variant = dx > 0 ? 2 : 4;
-        else variant = dy > 0 ? 3 : 1;
+    if (code == LV_EVENT_PRESSING) {
+        update_kana_flick_picker(context, kana_flick_variant(dx, dy));
+        return;
     }
+    if (code == LV_EVENT_PRESS_LOST) {
+        hide_kana_flick_picker(context);
+        return;
+    }
+    if (code != LV_EVENT_RELEASED) return;
+
+    const size_t variant = kana_flick_variant(dx, dy);
     const char *kana = context->variants[variant];
+    hide_kana_flick_picker(context);
     if (kana && *kana) {
         lyra::gui::ime::process_kana_flick(
             ime_layout(), kana, keyboard_input_text(), keyboard_input_capacity());
@@ -780,15 +868,15 @@ void toggle_search_keyboard_cb(lv_event_t *)
 {
     s_search_keyboard_visible = !s_search_keyboard_visible;
     if (!s_search_keyboard || !s_search_results || !s_search_keyboard_toggle) return;
+    lv_label_set_text(s_search_keyboard_toggle,
+                      s_search_keyboard_visible ? LV_SYMBOL_DOWN : LV_SYMBOL_UP);
     if (s_search_keyboard_visible) {
         lv_obj_remove_flag(s_search_keyboard, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_height(s_search_results,
                           content_height(kStatusHeight) - library_keyboard_height() - 84);
-        lv_label_set_text(s_search_keyboard_toggle, tr(lyra::i18n::StringId::HideKeyboard));
     } else {
         lv_obj_add_flag(s_search_keyboard, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_height(s_search_results, content_height(kStatusHeight) - 84);
-        lv_label_set_text(s_search_keyboard_toggle, tr(lyra::i18n::StringId::ShowKeyboard));
     }
     lv_obj_invalidate(s_search_results);
 }
@@ -796,21 +884,19 @@ void toggle_search_keyboard_cb(lv_event_t *)
 void render_search()
 {
     lv_obj_t *body = make_box(s_screen, 0, kStatusHeight, 320, content_height(kStatusHeight), kBackground);
-    lv_obj_t *input = make_box(body, 9, 4, 124, 43, kSurfaceRaised, 7);
+    constexpr int input_width = 170;
+    lv_obj_t *input = make_box(body, 9, 4, input_width, 43, kSurfaceRaised, 7);
     lv_obj_t *magnifier = make_label(input, LV_SYMBOL_EDIT, kTextSecondary);
     lv_obj_align(magnifier, LV_ALIGN_LEFT_MID, 10, 0);
     s_search_label = make_label(input, "", kTextMuted);
-    make_marquee(s_search_label, 83);
+    make_marquee(s_search_label, input_width - 44);
     lv_obj_align(s_search_label, LV_ALIGN_LEFT_MID, 37, 0);
     update_search_label();
-    make_keyboard_selector(body, 137, 4, 50, 43);
-    make_queue_add_mode_toggle(body, 193, 4);
-    // Four 16 px CJK glyphs need 64 px before any internal spacing. Keep a
-    // full 72 px action button so translated keyboard labels cannot clip.
-    lv_obj_t *toggle = make_button(body, 239, 4, 72, 43, kSurfaceRaised, 7);
-    s_search_keyboard_toggle = make_label(toggle, s_search_keyboard_visible ?
-                                          tr(lyra::i18n::StringId::HideKeyboard) :
-                                          tr(lyra::i18n::StringId::ShowKeyboard), kAccent);
+    make_keyboard_selector(body, 183, 4, 36, 43, true);
+    make_queue_add_mode_toggle(body, 223, 7);
+    lv_obj_t *toggle = make_button(body, 267, 4, 44, 43, kSurfaceRaised, 7);
+    s_search_keyboard_toggle = make_label(toggle,
+        s_search_keyboard_visible ? LV_SYMBOL_DOWN : LV_SYMBOL_UP, kAccent);
     lv_obj_center(s_search_keyboard_toggle);
     lv_obj_add_event_cb(toggle, toggle_search_keyboard_cb, LV_EVENT_CLICKED, nullptr);
     constexpr lyra::media::SearchCategory categories[] = {
