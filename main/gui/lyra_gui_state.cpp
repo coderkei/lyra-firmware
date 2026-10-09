@@ -168,7 +168,7 @@ size_t s_pending_playlist_track = 0;
 
 lv_image_dsc_t s_player_art_descriptor{};
 uint8_t *s_player_art_pixels;
-char s_player_art_album[lyra::media::kMaxName]{};
+char s_player_art_path[lyra::media::kMaxPath]{};
 uint32_t s_player_art_catalog_generation;
 uint32_t s_player_art_generation;
 lv_image_dsc_t s_boot_image_descriptor{};

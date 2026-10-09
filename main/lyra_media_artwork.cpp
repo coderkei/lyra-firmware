@@ -31,7 +31,7 @@ constexpr const char *kArtworkDir = "/sdcard/.lyra/covers";
 constexpr size_t kArtworkReadChunkBytes = 8192;
 constexpr size_t kMaximumArtworkSourceBytes = 16u * 1024u * 1024u;
 constexpr size_t kMaximumOggCommentPacketBytes = 2u * 1024u * 1024u;
-constexpr uint32_t kLargeArtworkCacheVersion = 2;
+constexpr uint32_t kLargeArtworkCacheVersion = 3;
 constexpr const char *kFolderArtworkNames[] = {"cover.jpg", "folder.jpg", "cover.png"};
 
 uint32_t read_be32(const uint8_t *bytes)
@@ -168,12 +168,10 @@ void hash_text(uint32_t *hash, const char *text)
 uint32_t key(const Track &track)
 {
     uint32_t hash = 2166136261u;
-    // Keep songs from one album in a folder grouped, while separating same-
-    // named albums in different folders that can have different folder covers.
-    hash_text(&hash, track.album);
-    const char *separator = std::strrchr(track.path, '/');
-    if (separator) hash_bytes(&hash, track.path, static_cast<size_t>(separator - track.path) + 1);
-    else hash_text(&hash, track.path);
+    // Embedded artwork belongs to a track and can differ between songs in the
+    // same album or folder. Album-scoped keys let one song's image shadow the
+    // embedded image on another song before extraction gets a chance to run.
+    hash_text(&hash, track.path);
     return hash;
 }
 

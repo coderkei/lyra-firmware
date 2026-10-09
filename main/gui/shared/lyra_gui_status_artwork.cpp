@@ -233,7 +233,7 @@ bool load_player_art(const lyra::media::Track &track)
     const uint16_t artwork_size = media_status.artwork_size;
     const size_t player_art_pixels = static_cast<size_t>(artwork_size) * artwork_size;
     const size_t player_art_bytes = player_art_pixels * sizeof(uint16_t);
-    if (s_player_art_pixels && std::strcmp(s_player_art_album, track.album) == 0 &&
+    if (s_player_art_pixels && std::strcmp(s_player_art_path, track.path) == 0 &&
         s_player_art_catalog_generation == media_status.catalog_generation &&
         s_player_art_generation == media_status.artwork_generation) return true;
 
@@ -248,7 +248,7 @@ bool load_player_art(const lyra::media::Track &track)
 
     heap_caps_free(s_player_art_pixels);
     s_player_art_pixels = reinterpret_cast<uint8_t *>(pixels);
-    copy_ui_text(s_player_art_album, sizeof(s_player_art_album), track.album);
+    copy_ui_text(s_player_art_path, sizeof(s_player_art_path), track.path);
     s_player_art_catalog_generation = media_status.catalog_generation;
     s_player_art_generation = media_status.artwork_generation;
     s_player_art_descriptor = {};

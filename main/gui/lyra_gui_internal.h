@@ -300,7 +300,7 @@ extern size_t s_pending_playlist_track;
 
 extern lv_image_dsc_t s_player_art_descriptor;
 extern uint8_t *s_player_art_pixels;
-extern char s_player_art_album[lyra::media::kMaxName];
+extern char s_player_art_path[lyra::media::kMaxPath];
 extern uint32_t s_player_art_catalog_generation;
 extern uint32_t s_player_art_generation;
 extern lv_image_dsc_t s_boot_image_descriptor;
