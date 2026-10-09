@@ -10,7 +10,6 @@ namespace lyra::gui::internal {
 void render(View view)
 {
     lyra::font::init();
-    s_list_scrolling = false;
     s_view = view;
     s_search_label = nullptr;
     s_search_results = nullptr;
@@ -254,7 +253,7 @@ void update_sorting_overlay(const lyra::media::Status &status)
     format_u32_u32(lyra::i18n::StringId::PreparingProgress,
                    static_cast<uint32_t>(status.sorting_indexed),
                    static_cast<uint32_t>(status.sorting_total), progress, sizeof(progress));
-    lv_label_set_text(s_sort_progress_label, progress);
+    set_label_text_if_changed(s_sort_progress_label, progress);
 }
 
 void catalog_poll_cb(lv_timer_t *)
@@ -277,7 +276,7 @@ void catalog_poll_cb(lv_timer_t *)
             format_u32_u32(lyra::i18n::StringId::SearchingProgress,
                            static_cast<uint32_t>(search.processed),
                            static_cast<uint32_t>(search.total), progress, sizeof(progress));
-            lv_label_set_text(s_search_progress_label, progress);
+            set_label_text_if_changed(s_search_progress_label, progress);
         }
         if (search.generation != s_seen_search_generation) {
             s_seen_search_generation = search.generation;
@@ -296,11 +295,11 @@ void catalog_poll_cb(lv_timer_t *)
         char count[48];
         format_count(lyra::i18n::StringId::ScanSongsFound,
                      static_cast<uint32_t>(status.scan_found), count, sizeof(count));
-        if (s_scan_count_label) lv_label_set_text(s_scan_count_label, count);
+        if (s_scan_count_label) set_label_text_if_changed(s_scan_count_label, count);
         if (s_scan_phase_label) {
-            lv_label_set_text(s_scan_phase_label,
-                              status.scan_indexing ? tr(lyra::i18n::StringId::BuildingLibraryIndexes) :
-                              tr(lyra::i18n::StringId::ReadingMicroSdFolders));
+            set_label_text_if_changed(s_scan_phase_label,
+                status.scan_indexing ? tr(lyra::i18n::StringId::BuildingLibraryIndexes) :
+                tr(lyra::i18n::StringId::ReadingMicroSdFolders));
         }
         if (!status.scanning) render(View::SystemSettings);
         return;

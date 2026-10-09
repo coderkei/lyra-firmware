@@ -13,7 +13,8 @@ namespace {
 constexpr size_t kTextPageBytes = 2048;
 constexpr uint16_t kImageViewHeight = 408;
 constexpr uint32_t kNativeZoom = 65536;
-constexpr int64_t kDetailDelayUs = 150000;
+constexpr int64_t kDetailDelayUs = 50000;
+constexpr uint16_t kDetailPatchSize = 512;
 char s_file_path[lyra::media::kMaxPath];
 lyra::media::FileKind s_file_kind;
 std::atomic<bool> s_image_busy{false};
@@ -39,6 +40,7 @@ struct Viewer {
     lv_image_dsc_t descriptor{}, detail_descriptor{};
     lyra::media::ImageFileInfo file_info{};
     lyra::media::ImageViewport work_view{};
+    lyra::media::ImageViewport detail_view{};
     uint32_t work_revision{}, applied_revision{};
     uint32_t zoom{kNativeZoom}, fit_zoom{kNativeZoom};
     int64_t changed_at_us{};
@@ -372,9 +374,46 @@ uint32_t scaled_dimension(uint32_t source, uint32_t zoom)
     return std::max<uint64_t>(1, uint64_t(source) * zoom / kNativeZoom);
 }
 
+bool image_view_contains(const lyra::media::ImageViewport &patch, uint32_t x, uint32_t y)
+{
+    return patch.width && patch.height && x >= patch.x && y >= patch.y &&
+        uint64_t(x) + kScreenWidth <= uint64_t(patch.x) + patch.width &&
+        uint64_t(y) + kImageViewHeight <= uint64_t(patch.y) + patch.height;
+}
+
+lyra::media::ImageViewport image_detail_view(Viewer *v)
+{
+    const uint32_t width = scaled_dimension(v->file_info.width, v->zoom);
+    const uint32_t height = scaled_dimension(v->file_info.height, v->zoom);
+    const uint32_t x = std::max<int32_t>(0, lv_obj_get_scroll_x(v->body));
+    const uint32_t y = std::max<int32_t>(0, lv_obj_get_scroll_y(v->body));
+    const uint16_t patch_width = std::min<uint32_t>(kDetailPatchSize, std::max<uint32_t>(kScreenWidth, width));
+    const uint16_t patch_height = std::min<uint32_t>(kDetailPatchSize, std::max<uint32_t>(kImageViewHeight, height));
+    const uint32_t patch_x = std::min<uint32_t>(
+        x > (patch_width - kScreenWidth) / 2 ? x - (patch_width - kScreenWidth) / 2 : 0,
+        width > patch_width ? width - patch_width : 0);
+    const uint32_t patch_y = std::min<uint32_t>(
+        y > (patch_height - kImageViewHeight) / 2 ? y - (patch_height - kImageViewHeight) / 2 : 0,
+        height > patch_height ? height - patch_height : 0);
+    return {width, height, patch_x, patch_y, patch_width, patch_height};
+}
+
 void request_image_detail(Viewer *v)
 {
     if (!v->loaded || v->changing_scale) return;
+    const uint32_t x = std::max<int32_t>(0, lv_obj_get_scroll_x(v->body));
+    const uint32_t y = std::max<int32_t>(0, lv_obj_get_scroll_y(v->body));
+    if (v->detail && !lv_obj_has_flag(v->detail, LV_OBJ_FLAG_HIDDEN) &&
+        image_view_contains(v->detail_view, x, y)) {
+        // A completed patch already covers the screen. Cancel any pending
+        // request for an area the user has panned away from.
+        if (v->revision.load() != v->applied_revision) {
+            v->applied_revision = v->revision.fetch_add(1) + 1;
+        }
+        return;
+    }
+    if (v->decoding_started && v->revision.load() == v->work_revision &&
+        image_view_contains(v->work_view, x, y)) return;
     v->revision.fetch_add(1);
     v->changed_at_us = esp_timer_get_time();
 }
@@ -400,6 +439,7 @@ void image_scale(Viewer *v, uint32_t zoom, bool centre = false)
     // The preview stretches immediately. A viewport patch from the original
     // file replaces its visible pixels once the requested decode completes.
     if (v->detail) lv_obj_add_flag(v->detail, LV_OBJ_FLAG_HIDDEN);
+    v->detail_view = {};
     lv_obj_set_size(v->canvas, std::max(kScreenWidth, width), std::max<int>(kImageViewHeight, height));
     lv_obj_set_size(v->image, width, height);
     lv_image_set_inner_align(v->image, LV_IMAGE_ALIGN_STRETCH);
@@ -481,11 +521,7 @@ void start_image_task(Viewer *v)
     v->work_initial = !v->loaded;
     v->work_revision = v->revision.load();
     if (v->loaded) {
-        v->work_view = {scaled_dimension(v->file_info.width, v->zoom),
-            scaled_dimension(v->file_info.height, v->zoom),
-            static_cast<uint32_t>(std::max<int32_t>(0, lv_obj_get_scroll_x(v->body))),
-            static_cast<uint32_t>(std::max<int32_t>(0, lv_obj_get_scroll_y(v->body))),
-            kScreenWidth, kImageViewHeight};
+        v->work_view = image_detail_view(v);
     }
     v->references.fetch_add(1);
     if (xTaskCreatePinnedToCore(image_task, "file_image", 24 * 1024, v, 1, nullptr, 1) != pdPASS) {
@@ -524,7 +560,9 @@ void image_poll(lv_timer_t *timer)
                 heap_caps_free(v->detail_pixels);
                 v->detail_pixels = v->work_pixels;
                 v->work_pixels = nullptr;
-                image_descriptor(&v->detail_descriptor, v->detail_pixels, kScreenWidth, kImageViewHeight);
+                v->detail_view = v->work_view;
+                image_descriptor(&v->detail_descriptor, v->detail_pixels,
+                    v->detail_view.width, v->detail_view.height);
                 if (!v->detail) v->detail = lv_image_create(v->canvas);
                 lv_image_set_src(v->detail, &v->detail_descriptor);
                 lv_obj_set_pos(v->detail, v->work_view.x, v->work_view.y);

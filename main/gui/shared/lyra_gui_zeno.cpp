@@ -427,7 +427,8 @@ void update_zeno_transport()
 {
     if (!is_zeno_theme() || !s_play_icon) return;
     const lyra::audio::Status status = lyra::audio::status();
-    lv_label_set_text(s_play_icon, status.playing && !status.paused ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
+    set_label_text_if_changed(s_play_icon,
+                              status.playing && !status.paused ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
 }
 
 } // namespace lyra::gui::internal

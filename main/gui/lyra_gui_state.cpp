@@ -135,7 +135,6 @@ uint32_t s_seen_artwork_generation = 0;
 uint32_t s_seen_duration_generation = 0;
 uint32_t s_seen_sorting_generation = 0;
 bool s_seen_scanning = false;
-bool s_list_scrolling = false;
 uint32_t s_seen_search_generation = 0;
 NavigationState s_navigation[kNavigationDepth]{};
 size_t s_navigation_depth = 0;

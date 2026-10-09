@@ -13,7 +13,7 @@ void update_status_time_label()
     const lyra::clock::DateTime current = lyra::clock::now();
     char value[16];
     format_clock_time(current, value, sizeof(value));
-    lv_label_set_text(s_status_time_label, value);
+    set_label_text_if_changed(s_status_time_label, value);
 }
 
 void make_status_bar()

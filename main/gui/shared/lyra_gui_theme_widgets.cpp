@@ -451,6 +451,14 @@ lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color)
     return label;
 }
 
+void set_label_text_if_changed(lv_obj_t *label, const char *text)
+{
+    if (!label || !text) return;
+    const char *current = lv_label_get_text(label);
+    if (current && std::strcmp(current, text) == 0) return;
+    lv_label_set_text(label, text);
+}
+
 void make_marquee(lv_obj_t *label, int width)
 {
     if (!label || width <= 0) return;
@@ -530,13 +538,6 @@ void configure_cover_aware_scroll(lv_obj_t *body)
     lv_obj_add_flag(body, LV_OBJ_FLAG_SCROLL_MOMENTUM);
     lv_obj_set_scroll_dir(body, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_add_event_cb(body, [](lv_event_t *) { s_list_scrolling = true; }, LV_EVENT_SCROLL_BEGIN, nullptr);
-    lv_obj_add_event_cb(body, [](lv_event_t *event) {
-        s_list_scrolling = false;
-        // Covers entering the viewport were deliberately skipped during the
-        // swipe. Refresh once at rest to populate only the final visible rows.
-        lv_obj_invalidate(lv_event_get_current_target_obj(event));
-    }, LV_EVENT_SCROLL_END, nullptr);
 }
 
 lv_obj_t *make_scroll_body(int top)

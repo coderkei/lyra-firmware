@@ -679,7 +679,7 @@ void update_player_progress_preview()
         (static_cast<uint64_t>(s_player_progress_drag_value) * audio_status.duration_ms) / 1000u);
     char elapsed[16];
     format_playback_time(preview_ms, false, elapsed, sizeof(elapsed));
-    if (s_player_elapsed_label) lv_label_set_text(s_player_elapsed_label, elapsed);
+    if (s_player_elapsed_label) set_label_text_if_changed(s_player_elapsed_label, elapsed);
 }
 
 void player_progress_touch_cb(lv_event_t *event)
@@ -760,8 +760,8 @@ void update_player_progress()
     char duration[16];
     format_playback_time(position_ms, false, elapsed, sizeof(elapsed));
     format_playback_time(duration_ms, duration_ms == 0, duration, sizeof(duration));
-    if (s_player_elapsed_label) lv_label_set_text(s_player_elapsed_label, elapsed);
-    if (s_player_duration_label) lv_label_set_text(s_player_duration_label, duration);
+    if (s_player_elapsed_label) set_label_text_if_changed(s_player_elapsed_label, elapsed);
+    if (s_player_duration_label) set_label_text_if_changed(s_player_duration_label, duration);
     update_player_lyrics();
 }
 
@@ -860,7 +860,7 @@ void update_player_progress_seek_preview(uint32_t position_ms, uint32_t duration
     }
     char elapsed[16];
     format_playback_time(s_player_seek_preview_position_ms, false, elapsed, sizeof(elapsed));
-    if (s_player_elapsed_label) lv_label_set_text(s_player_elapsed_label, elapsed);
+    if (s_player_elapsed_label) set_label_text_if_changed(s_player_elapsed_label, elapsed);
 }
 
 void render_player()
