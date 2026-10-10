@@ -13,6 +13,7 @@
 
 namespace lyra::board::jc3248w535en {
 
+constexpr const char *kBoardModelName = "JC3248W535EN";
 constexpr int kDisplayWidth = 320;
 constexpr int kDisplayHeight = 480;
 constexpr int kDisplayBitsPerPixel = 16;

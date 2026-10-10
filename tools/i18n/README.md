@@ -2,8 +2,8 @@
 
 `lyra_i18n_catalog.inc` is the source-of-truth catalog for the embedded GUI.
 It is an X-macro file so the `StringId` enum and the flash-resident lookup
-table are generated from the same list; an ID cannot be present in one and
-missing from the other.
+table are generated from the same list, keeping identifiers and flash entries
+aligned.
 
 Each completed row uses `LYRA_I18N_ENTRY` with separate English, French,
 German, Spanish, Italian, Japanese, Korean, Russian, Simplified Chinese, and
@@ -29,12 +29,12 @@ python tools/i18n/check_font_manifest.py
 The font check validates the generated LVGL cmaps used by the primary font and
 the catalog-specific CJK fallback. `lyra_glyph_manifest.txt` records the
 locale code points, non-ASCII input glyphs used by the search keyboard, and
-every output glyph in the generated offline IME dictionaries. The dictionary
-assets must be present before running the check.
+every output glyph in the generated offline IME dictionaries. Include the
+dictionary assets when checking their output glyph coverage.
 
 The check scans `main/gui/` for direct string literals passed to `make_label()`
 and validates every catalog locale, placeholder signature, and line-break
 signature. New user-facing label text must be added to the catalog.
 
-The catalog is included in the application image at compile time. It is not
-loaded from MicroSD or any other runtime storage.
+The catalog is compiled into application flash, and runtime lookups read it
+from there.

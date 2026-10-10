@@ -1,8 +1,8 @@
 # Emulator runtime source
 
-The Windows and Linux launchers use the prebuilt `app/wasm/esp32sim.wasm.gz`. Normal GUI
-changes are read from `lyra_firmware_merged.bin` each time the emulator starts;
-the WASM runtime does not contain a copy of the Lyra UI.
+The Windows and Linux launchers use the prebuilt `app/wasm/esp32sim.wasm.gz`.
+The emulator reads the firmware UI from `lyra_firmware_merged.bin` each time
+it starts.
 
 The runtime is based on [`joakimeriksson/esp32sim`](https://github.com/joakimeriksson/esp32sim)
 at commit `4ab7e900fee998d0137c2c57d59de9d05339d093`. `esp32sim-lyra.patch`
@@ -15,8 +15,8 @@ single-threaded execution scheduler.
 
 ## Rebuild the runtime
 
-Runtime rebuilds are only needed when changing the emulator hardware model or
-WASM engine. They need Git, Rust/Cargo and the `wasm32-unknown-unknown` target.
+Change the emulator hardware model or WASM engine by rebuilding the runtime.
+Runtime rebuilds use Git, Rust/Cargo and the `wasm32-unknown-unknown` target.
 From this directory, install the WASM target and run the platform's build script:
 
 ```powershell

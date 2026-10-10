@@ -3,13 +3,12 @@
 This matrix is the repeatable manual review record for the 320 × 480 GUI. The
 owner should run the firmware on the JC3248W535EN board, select each locale,
 and replace each `[ ]` with `[x]` after checking the row's screen or dialog.
-Do not run device validation from the implementation agent.
+The repository owner runs physical-device validation.
 
-For every cell, check that text is translated, glyphs are not boxes, labels do
-not clip or overlap controls, counts and formatted values are correct, and
-changing language does not restore stale English text. For scrollable rows,
-also check that the marquee remains readable and does not cover adjacent
-controls.
+For every cell, check that text is translated, glyphs render correctly, labels
+fit within their controls, counts and formatted values are correct, and a
+language change refreshes every label. For scrollable rows, check that the
+marquee remains readable within its row and leaves adjacent controls clear.
 
 | Screen or dialog | en | fr | de | es | it | ja | ko | ru | zh-Hans | zh-Hant |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -68,6 +67,5 @@ py -3 tools/i18n/check_i18n.py
 py -3 tools/i18n/check_font_manifest.py
 ```
 
-The implementation agent does not run the ESP-IDF build, flash, monitor, or
-physical board checks. The owner should perform those checks after the static
-checks pass.
+After the static checks pass, the repository owner performs the ESP-IDF build,
+flash, monitor, and physical-board checks.

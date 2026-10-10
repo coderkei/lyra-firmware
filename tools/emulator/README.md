@@ -6,24 +6,23 @@ Both launchers open the same local browser emulator and load
 the `build` directory otherwise. If neither image is present, the emulator
 opens and waits for you to choose a merged `.bin` with **Open .bin**. You can
 pass a different merged `.bin` as an argument to either launcher; on Windows,
-you can also drag it onto the `.cmd` file. The browser reads the image locally;
-it is not uploaded.
+you can also drag it onto the `.cmd` file. The browser loads and runs the
+merged firmware image from local disk.
 
 The launchers share `scripts/emulator.py` and need Python 3.8 or later. The
 server and launcher use only the Python standard library. Windows uses Python's
 `py -3` launcher when available; Linux uses `python3`.
 
 The hidden `.build-src` and `.tools` folders are local build caches: the former
-is the patched esp32sim source and build tree, and the latter contains a
-Windows Rust/Cargo toolchain. They were used for a local runtime build, but are
-not needed to run the emulator. The rebuild scripts use the pinned source and
-the host's installed Rust toolchain instead. These folders are ignored by Git.
+contains the patched esp32sim source and build tree, and the latter contains a
+Windows Rust/Cargo toolchain. Runtime rebuild scripts use the pinned source
+and the host's installed Rust toolchain. These folders are ignored by Git.
 
 The emulator executes the ESP32-S3 image in a bundled WebAssembly machine and
 renders the actual 320 × 480 frames written by the firmware. Click and drag on
 the display to send touch input to the emulated AXS15231B controller. The .bin
-is the firmware input, so firmware UI changes appear on the next run without
-editing an emulator screen model. The emulator's **Restart** button and the
+supplies the firmware UI, so firmware changes appear in the emulator on the
+next run. The emulator's **Restart** button and the
 firmware's own reboot both perform an ESP32-S3 reset in place, retaining NVS
 and virtual MicroSD contents. The SDMMC controller is reinitialized so the
 card mounts again after either reset. Reopening the same firmware image restores
@@ -44,7 +43,7 @@ Use **Fit** to scale the display to the available preview width or **1×** to
 map each display pixel to one physical screen pixel, accounting for browser
 zoom and operating system display scaling. The scale choice is remembered in
 the browser. **Capture PNG** saves the current framebuffer, and **Pause** /
-**Resume** freezes and continues firmware execution without resetting it. The
+**Resume** continues the same firmware session after a pause. The
 preview reports emulation speed, CPU throughput, and clock resynchronizations.
 Use **Save log** in the serial console to download the recent emulator and
 firmware output.
@@ -59,11 +58,12 @@ file manager changes are saved to `storage/virtual-sd.img` in this emulator
 folder. **Save card** exports an image; **Open card image** replaces the
 persistent card. Restart firmware after changing the inserted card.
 
-## Requirements and limits
+## Requirements and emulator coverage
 
 - Windows 10/11 or Linux with Python 3.8 or later and a current Edge, Chrome,
   Chromium, or Firefox browser.
-- No ESP-IDF, Rust, Node.js, or .NET installation is required to run it.
+- Running the emulator uses Python and a supported browser; rebuilding its
+  WebAssembly runtime uses Rust/Cargo and the `wasm32-unknown-unknown` target.
 - The launcher uses a loopback-only local server for the browser's WebAssembly
   worker and keeps it in the visible launcher command window. Leave that window
   open while using the emulator; press **Ctrl+C** there to stop the server.
@@ -71,8 +71,8 @@ persistent card. Restart firmware after changing the inserted card.
 - The 16 MiB internal flash image, including NVS and OTA partitions, is saved
   to `storage/internal-flash.bin` in this emulator folder. Flash and MicroSD
   writes are saved while the firmware runs and survive closing the browser.
-- Screen, touch, and card storage are emulated. The firmware's I²S audio output
-  is not routed to Windows speakers.
+- Screen, touch, and card storage are emulated. Use the physical development
+  kit to evaluate audible I²S playback.
 
 The WebAssembly runtime is based on [esp32sim](https://github.com/joakimeriksson/esp32sim),
 an MIT-licensed ESP32-S3 emulator. Its source revision, local board/SDMMC patch,

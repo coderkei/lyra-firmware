@@ -1,13 +1,13 @@
-# Emotivate Lyra firmware reference — JC3248W535EN
+# Lyra OS reference implementation — JC3248W535EN
 
-This is the primary technical reference for the native Lyra firmware. It
-describes the checked-in ESP-IDF project for the JC3248W535EN development
-kit. Product-level goals are in the
-[firmware product baseline](EMOTIVATE_LYRA_OS_SPEC_BASELINE.md); documented
-board information in
-[JC3248W535EN_HARDWARE.md](JC3248W535EN_HARDWARE.md).
+This is the primary technical reference for the current native Lyra OS
+implementation. It describes the checked-in ESP-IDF project for the
+JC3248W535EN development kit, which is a convenient development/test reference
+for vendors and developers adapting Lyra OS to their own product designs. Platform-level goals are in the
+[Lyra OS platform baseline](EMOTIVATE_LYRA_OS_SPEC_BASELINE.md); exact board
+information is in the [JC3248W535EN hardware reference](JC3248W535EN_HARDWARE.md).
 
-## Device information
+## Reference configuration
 
 | Item | Value |
 |---|---|
@@ -44,27 +44,27 @@ hardware references.
 
 The display is initialised with its backlight off. Lyra renders the boot
 screen before enabling the panel, then starts its regular LVGL worker after
-the GUI is ready. A missing MicroSD card or unavailable audio service is
-reported to the UI instead of preventing the system shell from starting.
+the GUI is ready. The system shell reports MicroSD and audio-service status
+while keeping its settings and recovery interface available.
 
 ## Media and persistence
 
-- The system clock is initialized before MicroSD mounting. If the ESP32 has no
-  retained RTC/system-clock value, it starts at `00:00 01/01/2000` and counts
-  forward while powered. **Settings > System > Time & date** opens separate
+- The system clock is initialized before MicroSD mounting. At startup, a
+  missing retained RTC/system-clock value uses the `00:00 01/01/2000` fallback
+  and counts forward while powered. **Settings > System > Time & date** opens separate
   numeric **Set time** and **Set date** screens. The screens use a number pad
   with left/right cursor movement so individual digits can be corrected. The
   clock menu also stores the selected date format, 12/24-hour display format,
-  and a manual daylight-saving correction. Because this board has no
-  battery-backed RTC, a full power loss returns it to the fallback epoch.
+  and a manual daylight-saving correction. After full power loss, startup
+  initializes the clock to its fallback epoch.
 - The MicroSD card mounts at `/sdcard`. A user starts the library scan from
   `Settings > System > Scan music library`.
 - Library scans still walk the card to discover additions and removals, but
   reuse catalog records whose path, size, and filesystem modification time are
-  unchanged. Changed files are reparsed and records for files no longer on the
-  card are omitted from the replacement catalog. Non-default sort caches are
-  built lazily by the background indexer so catalog publication does not block
-  the GUI.
+  unchanged. Changed files are reparsed, and the replacement catalog reflects
+  the files found on the card. Non-default sort caches are
+  built lazily by the background indexer, keeping the GUI responsive during
+  catalog publication.
 - The recursive catalog accepts MP3, WAV, FLAC, AAC, M4A, OGG, Opus, AIFF,
   AIF, and AIFC files. The maximum catalog size is 10,000 tracks.
 - The catalog is stored at `/sdcard/.lyra/catalog-v10.bin` and is published
@@ -77,10 +77,10 @@ reported to the UI instead of preventing the system shell from starting.
 - The active queue is stored separately at `/sdcard/.lyra/queue-v1.m3u8`.
 - Settings, volume, equalizer preferences, sort choices, and artwork-cache
   choices use the `lyra` NVS namespace.
-- Album art is loaded on demand. Embedded artwork takes priority; tracks
-  without embedded artwork can use `cover.jpg`, `folder.jpg`, or `cover.png`
-  from their containing folder. Lyra keeps the display image in memory and
-  can retain selected decoded artwork in `/sdcard/.lyra/covers`.
+- Album art is loaded on demand. Embedded artwork takes priority, and folder
+  artwork can come from `cover.jpg`, `folder.jpg`, or `cover.png`. Lyra keeps
+  the display image in memory and can retain selected decoded artwork in
+  `/sdcard/.lyra/covers`.
 - Track catalog records capture each file's filesystem modification timestamp
   and refresh the size/date when file metadata is read, so files created or
   changed by Lyra receive the active clock date.
@@ -99,7 +99,7 @@ The audio task preloads the queued successor in a second decoder and keeps one
 PCM/I2S output stream across track boundaries. Configured crossfades mix both
 decoded streams before output processing. See
 [audio transition validation](AUDIO_TRANSITION_VALIDATION.md) for the device
-measurements and codec limitations.
+measurements and codec behavior.
 
 The five EQ bands are centred at 60 Hz, 250 Hz, 1 kHz, 4 kHz, and 16 kHz.
 Custom EQ and the included Flat, Full Bass, Full Treble, Bass & Treble, Rock,

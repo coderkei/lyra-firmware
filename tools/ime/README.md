@@ -2,7 +2,7 @@
 
 Chinese Pinyin and Japanese Kana conversion use small, independently compressed
 dictionary blocks on the MicroSD card. The firmware loads the index and one
-block at a time; the data is not embedded in the application image.
+block at a time, keeping dictionary data on removable storage.
 
 ## Install
 
@@ -20,9 +20,9 @@ Replace `E:\` with the SD card's drive root. The installed paths must be:
 .lyra/ime/lyra_ime_ja.bin
 ```
 
-Without the Chinese file, Pinyin remains visible as unconverted text. Without
-the Japanese file, Kana can still be entered and saved, but Kanji conversion
-will not be available.
+With the Chinese dictionary installed, Pinyin entry includes candidate
+conversion. With the Japanese dictionary installed, Kana entry includes
+Kanji conversion; both layouts support entering and saving text.
 
 ## Generate
 
