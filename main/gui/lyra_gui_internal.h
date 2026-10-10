@@ -130,6 +130,7 @@ struct NavigationState {
     LibraryTab library_tab;
     ArtistDetailTab artist_detail_tab;
     size_t list_page;
+    int32_t scroll_y;
     size_t selected_playlist;
     bool selected_playlist_is_smart;
     lyra::media::SmartPlaylistKind selected_smart_playlist;
@@ -147,6 +148,7 @@ struct ArtistDetailListContext;
 struct AlbumListContext;
 
 extern bool s_dark_mode;
+extern bool s_listening_hub;
 using Theme = lyra::gui_settings::Theme;
 extern Theme s_theme;
 inline bool is_zeno_theme() { return s_theme == Theme::Zeno; }
@@ -179,6 +181,8 @@ constexpr const char *kHeartOutline = "\xE2\x99\xA1";
 constexpr const char *kHeartFilled = "\xE2\x99\xA5";
 
 extern lv_obj_t *s_screen;
+extern lv_obj_t *s_scroll_body;
+extern int32_t s_pending_scroll_restore_y;
 extern lv_obj_t *s_search_label;
 extern lv_obj_t *s_search_results;
 extern lv_obj_t *s_search_keyboard;
@@ -463,7 +467,6 @@ void style_zeno_box(lv_obj_t *box, lv_color_t color, int width, int height);
 void style_zeno_button(lv_obj_t *button, lv_color_t color, int width, int height);
 const lv_font_t *zeno_heading_font(bool large = false);
 lv_obj_t *make_zeno_label(lv_obj_t *parent, const char *text, bool large = false);
-void render_zeno_menu();
 void render_zeno_library();
 void render_zeno_settings();
 void make_zeno_album_song_row(lv_obj_t *parent, int y, size_t track_index, size_t ordinal);
@@ -590,7 +593,8 @@ void render_playlist_create();
 void add_playlist_track_cb(lv_event_t *event);
 void render_playlist_add();
 void toggle_bool_cb(lv_event_t *event);
-void make_setting_toggle(lv_obj_t *parent, int y, const char *title, const char *subtitle, bool *value);
+void make_setting_toggle(lv_obj_t *parent, int y, const char *title, const char *subtitle,
+                         bool *value, bool enabled = true);
 void accent_colour_cb(lv_event_t *event);
 void make_accent_selector(lv_obj_t *parent, int y);
 void artwork_setting_cb(lv_event_t *event);

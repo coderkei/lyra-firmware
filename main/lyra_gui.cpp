@@ -78,6 +78,8 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     s_artist_detail_tab = ArtistDetailTab::Songs;
     s_sort_section = lyra::media::SortSection::Songs;
     s_navigation_depth = 0;
+    s_scroll_body = nullptr;
+    s_pending_scroll_restore_y = -1;
     s_playback_scope = PlaybackScope::Single;
     clear_saved_queue();
     s_saved_queue_pending = lyra::media::queue_snapshot_exists();
@@ -97,6 +99,7 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     s_use_24_hour = true;
     s_dst_enabled = false;
     s_dark_mode = true;
+    s_listening_hub = true;
     s_theme = Theme::Standard;
     s_neon_hud = false;
     s_accent_colour = 0;

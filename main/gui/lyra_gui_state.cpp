@@ -19,6 +19,7 @@ extern const AccentPalette kAccentPalettes[] = {
 };
 
 bool s_dark_mode = true;
+bool s_listening_hub = true;
 Theme s_theme = Theme::Standard;
 bool s_neon_hud = false;
 uint8_t s_accent_colour = 0;
@@ -41,6 +42,8 @@ extern const lv_color_t kOverlay = lv_color_hex(0x000000);
 extern const lv_color_t kTextOnAccent = lv_color_hex(0xFFFFFF);
 
 lv_obj_t *s_screen = nullptr;
+lv_obj_t *s_scroll_body = nullptr;
+int32_t s_pending_scroll_restore_y = -1;
 lv_obj_t *s_search_label = nullptr;
 lv_obj_t *s_search_results = nullptr;
 lv_obj_t *s_search_keyboard = nullptr;

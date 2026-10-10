@@ -335,6 +335,16 @@ void render_artist_detail()
         context->entry_count = total;
         context->tab = s_artist_detail_tab;
         append_artist_detail_rows(body, context);
+        if (s_pending_scroll_restore_y > 0) {
+            lv_obj_update_layout(body);
+            while (context->loaded < context->entry_count &&
+                   lv_obj_get_scroll_bottom(body) < s_pending_scroll_restore_y) {
+                const size_t loaded = context->loaded;
+                append_artist_detail_rows(body, context);
+                if (context->loaded == loaded) break;
+                lv_obj_update_layout(body);
+            }
+        }
         lv_obj_add_event_cb(body, artist_detail_list_event_cb, LV_EVENT_SCROLL, context);
         lv_obj_add_event_cb(body, artist_detail_list_event_cb, LV_EVENT_SCROLL_END, context);
         lv_obj_add_event_cb(body, artist_detail_list_event_cb, LV_EVENT_DELETE, context);
@@ -422,6 +432,16 @@ void render_album_detail()
         context->group_index = s_selected_group;
         context->track_count = album.track_count;
         append_album_song_rows(body, context);
+        if (s_pending_scroll_restore_y > 0) {
+            lv_obj_update_layout(body);
+            while (context->loaded < context->track_count &&
+                   lv_obj_get_scroll_bottom(body) < s_pending_scroll_restore_y) {
+                const size_t loaded = context->loaded;
+                append_album_song_rows(body, context);
+                if (context->loaded == loaded) break;
+                lv_obj_update_layout(body);
+            }
+        }
         lv_obj_add_event_cb(body, album_list_event_cb, LV_EVENT_SCROLL, context);
         lv_obj_add_event_cb(body, album_list_event_cb, LV_EVENT_SCROLL_END, context);
         lv_obj_add_event_cb(body, album_list_event_cb, LV_EVENT_DELETE, context);

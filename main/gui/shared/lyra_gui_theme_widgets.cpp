@@ -217,6 +217,7 @@ esp_err_t save_user_settings()
         s_library_keyboard_layout,
         !s_setup_pending,
     };
+    values.listening_hub = s_listening_hub;
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
     return lyra::gui_settings::save(values);
@@ -258,6 +259,7 @@ void load_user_settings()
     s_brightness_percent = values.brightness_percent;
     s_dark_mode = values.dark_mode;
     s_theme = values.theme;
+    s_listening_hub = values.listening_hub;
     s_library_keyboard_layout = values.keyboard_layout;
     s_accent_colour = values.accent_colour;
     lyra::i18n::set_language(values.language);
@@ -302,7 +304,10 @@ void begin_crossfade_fade_in();
 NavigationState capture_navigation_state()
 {
     NavigationState state{
-        s_view, s_library_tab, s_artist_detail_tab, s_list_page, s_selected_playlist,
+        s_view, s_library_tab, s_artist_detail_tab, s_list_page,
+        s_scroll_body ? std::max<int32_t>(
+            0, lv_obj_get_scroll_y(s_scroll_body)) : 0,
+        s_selected_playlist,
         s_selected_playlist_is_smart, s_selected_smart_playlist, s_selected_group,
         s_selected_group_kind, s_playlists_from_library, s_playlist_add_mode, {}, {}, {}};
     copy_ui_text(state.track_list_title, sizeof(state.track_list_title), s_track_list_title);
@@ -338,6 +343,7 @@ void restore_navigation_state(const NavigationState &state, size_t list_page)
     s_selected_group_kind = state.selected_group_kind;
     s_playlists_from_library = state.playlists_from_library;
     s_playlist_add_mode = state.playlist_add_mode;
+    s_pending_scroll_restore_y = std::max<int32_t>(0, state.scroll_y);
     copy_ui_text(s_track_list_title, sizeof(s_track_list_title), state.track_list_title);
     copy_ui_text(s_folder_path, sizeof(s_folder_path), state.folder_path);
     copy_ui_text(s_folder_playlist_path, sizeof(s_folder_playlist_path), state.folder_playlist_path);
@@ -549,6 +555,7 @@ lv_obj_t *make_scroll_body(int top)
 {
     lv_obj_t *body = make_box(s_screen, 0, top, kScreenWidth, content_height(top), kBackground);
     configure_cover_aware_scroll(body);
+    s_scroll_body = body;
     return body;
 }
 
@@ -566,6 +573,7 @@ void style_root()
     s_volume_popup = nullptr;
     s_status_volume_label = nullptr;
     s_status_time_label = nullptr;
+    s_scroll_body = nullptr;
     lv_obj_clean(s_screen);
     lv_obj_set_style_bg_color(s_screen, kBackground, 0);
     lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);

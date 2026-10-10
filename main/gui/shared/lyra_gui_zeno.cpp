@@ -313,39 +313,6 @@ void style_zeno_button(lv_obj_t *button, lv_color_t color, int width, int height
     lv_obj_add_event_cb(button, selection_press_cb, LV_EVENT_PRESS_LOST, nullptr);
 }
 
-void render_zeno_menu()
-{
-    lv_obj_t *body = make_scroll_body(kStatusHeight);
-    struct Item { lyra::i18n::StringId title; View view; lv_event_cb_t callback; };
-    const Item items[] = {
-        {lyra::i18n::StringId::Music, View::Library, open_library_cb},
-        {lyra::i18n::StringId::NowPlaying, View::Player,
-            [](lv_event_t *) { show_now_playing(); }},
-        {lyra::i18n::StringId::BrowseFolders, View::Folders, open_folders_cb},
-        {lyra::i18n::StringId::Queue, View::Queue, open_queue_cb},
-        {lyra::i18n::StringId::Search, View::Search, nullptr},
-        {lyra::i18n::StringId::Settings, View::Settings, nullptr},
-        {lyra::i18n::StringId::Equalizer, View::Equalizer, nullptr},
-    };
-    for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
-        lv_obj_t *row = make_button(body, 0, 16 + static_cast<int>(i) * 60, 320, 58, kBackground, 0);
-        lv_obj_set_style_border_width(row, 0, 0);
-        lv_obj_t *label = make_zeno_label(row, tr(items[i].title), i == 0);
-        make_marquee(label, 282);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, 23, 0);
-        lv_obj_set_style_text_color(label, i == 0 ? kTextPrimary : kTextMuted, 0);
-        if (i == 0) {
-            lv_obj_t *stripe = make_box(row, 0, 0, 7, 58, kAccent);
-            lv_obj_remove_flag(stripe, LV_OBJ_FLAG_CLICKABLE);
-        }
-        if (items[i].callback) lv_obj_add_event_cb(row, items[i].callback, LV_EVENT_CLICKED, nullptr);
-        else add_route(row, items[i].view);
-    }
-    lv_obj_t *brand = make_label(body, "Emotivate Lyra", kTextSecondary);
-    lv_obj_set_style_text_letter_space(brand, 2, 0);
-    lv_obj_set_pos(brand, 24, 453);
-}
-
 void render_zeno_library()
 {
     make_header(tr(lyra::i18n::StringId::Music), View::Menu, true);

@@ -45,6 +45,8 @@ struct Values {
     KeyboardLayout keyboard_layout = KeyboardLayout::English;
     // False until the post-reset setup flow reaches its completion screen.
     bool setup_complete = false;
+    // True selects the listening hub; false restores the classic seven-row menu.
+    bool listening_hub = true;
 };
 
 // Loads only valid persisted values, leaving caller-provided defaults intact.

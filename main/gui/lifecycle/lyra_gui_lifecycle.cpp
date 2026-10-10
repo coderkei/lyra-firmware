@@ -91,6 +91,14 @@ void render(View view)
         !((is_zeno_theme() || is_aura_theme()) && view == View::Player)) {
         make_virtual_nav();
     }
+    if (s_pending_scroll_restore_y >= 0 && s_scroll_body) {
+        lv_obj_update_layout(s_scroll_body);
+        const int32_t max_scroll_y = std::max<int32_t>(
+            0, lv_obj_get_scroll_bottom(s_scroll_body));
+        const int32_t scroll_y = std::min(s_pending_scroll_restore_y, max_scroll_y);
+        lv_obj_scroll_to_y(s_scroll_body, scroll_y, LV_ANIM_OFF);
+    }
+    s_pending_scroll_restore_y = -1;
     if (view != View::FileViewer) {
         if (s_neon_hud) style_hud_controls(s_screen);
         if (is_cute_theme()) style_cute_controls(s_screen);

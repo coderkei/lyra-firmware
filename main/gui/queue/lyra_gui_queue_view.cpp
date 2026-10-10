@@ -186,9 +186,188 @@ void open_folders_cb(lv_event_t *)
     }
 }
 
-void render_menu()
+namespace {
+
+struct MenuEntry {
+    lyra::i18n::StringId label;
+    View view;
+    const char *icon;
+};
+
+constexpr MenuEntry kListeningDestinations[] = {
+    {lyra::i18n::StringId::MusicLibrary, View::Library, LV_SYMBOL_AUDIO},
+    {lyra::i18n::StringId::Search, View::Search, LV_SYMBOL_EDIT},
+    {lyra::i18n::StringId::Queue, View::Queue, LV_SYMBOL_LIST},
+    {lyra::i18n::StringId::Playlists, View::Playlists, LV_SYMBOL_PLAY},
+};
+
+constexpr MenuEntry kUtilityDestinations[] = {
+    {lyra::i18n::StringId::BrowseFolders, View::Folders, LV_SYMBOL_DIRECTORY},
+    {lyra::i18n::StringId::Equalizer, View::Equalizer, LV_SYMBOL_VOLUME_MID},
+    {lyra::i18n::StringId::Settings, View::Settings, LV_SYMBOL_SETTINGS},
+};
+
+constexpr MenuEntry kClassicDestinations[] = {
+    {lyra::i18n::StringId::NowPlaying, View::Player, LV_SYMBOL_AUDIO},
+    {lyra::i18n::StringId::MusicLibrary, View::Library, LV_SYMBOL_LIST},
+    {lyra::i18n::StringId::BrowseFolders, View::Folders, LV_SYMBOL_DIRECTORY},
+    {lyra::i18n::StringId::Queue, View::Queue, LV_SYMBOL_LIST},
+    {lyra::i18n::StringId::Equalizer, View::Equalizer, LV_SYMBOL_VOLUME_MID},
+    {lyra::i18n::StringId::Search, View::Search, LV_SYMBOL_EDIT},
+    {lyra::i18n::StringId::Settings, View::Settings, LV_SYMBOL_SETTINGS},
+};
+
+constexpr uint32_t kCutePrimaryColors[] = {0xFFD6ED, 0xF3EDFF, 0xEDF7FF, 0xEDF9F5};
+constexpr uint32_t kCuteUtilityColors[] = {0xF6EEFF, 0xEEF5FF, 0xFFF0F7};
+
+void menu_destination_cb(lv_event_t *event)
 {
-    if (is_zeno_theme()) { render_zeno_menu(); return; }
+    const View destination = static_cast<View>(
+        reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    switch (destination) {
+        case View::Player: show_now_playing(); break;
+        case View::Library: open_library_cb(event); break;
+        case View::Folders: open_folders_cb(event); break;
+        case View::Queue: open_queue_cb(event); break;
+        case View::Playlists:
+            s_playlists_from_library = false;
+            navigate_to(View::Playlists);
+            break;
+        default: navigate_to(destination); break;
+    }
+}
+
+lv_obj_t *make_menu_action(lv_obj_t *parent, const MenuEntry &entry,
+                           int x, int y, int width, int height,
+                           lv_color_t fill, bool primary, bool centered = false)
+{
+    const int radius = s_neon_hud ? 0 : is_cute_theme() ? 18 : is_aura_theme() ? 12 : 7;
+    lv_obj_t *button = make_button(parent, x, y, width, height, fill, radius, true);
+    lv_obj_add_event_cb(button, menu_destination_cb, LV_EVENT_CLICKED,
+                        reinterpret_cast<void *>(static_cast<uintptr_t>(entry.view)));
+
+    if (is_cute_theme() && primary) {
+        make_cute_menu_icon(button, entry.view);
+        lv_obj_t *icon = lv_obj_get_child(button, lv_obj_get_child_count(button) - 1);
+        lv_obj_set_pos(icon, (width - 32) / 2, 5);
+        lv_obj_t *label = make_label(button, tr(entry.label), kTextPrimary);
+        make_marquee(label, width - 12);
+        lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -7);
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+        return button;
+    }
+
+    const bool icon_above = centered && !is_standard_theme();
+    const lv_color_t icon_color = s_neon_hud ? kTextSecondary : kAccent;
+    lv_obj_t *icon = make_label(button, entry.icon, icon_color);
+    if (icon_above) {
+        lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, is_aura_theme() ? 7 : 5);
+    } else {
+        lv_obj_align(icon, LV_ALIGN_LEFT_MID, 11, 0);
+    }
+
+    const lv_color_t label_color = lv_color_eq(fill, kAccentSurface) && !is_cute_theme() ?
+                                   kTextOnAccent : kTextPrimary;
+    lv_obj_t *label = make_label(button, tr(entry.label), label_color);
+    if (icon_above) {
+        make_marquee(label, width - 10);
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -5);
+    } else if (centered) {
+        lv_obj_set_width(label, width - 8);
+        lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -4);
+    } else {
+        make_marquee(label, width - 48);
+        lv_obj_align(label, LV_ALIGN_LEFT_MID, 39, 0);
+    }
+    return button;
+}
+
+void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int height)
+{
+    const lv_color_t fill = is_cute_theme() ? kAccentSurface :
+                            is_aura_theme() ? kAccentSurface :
+                            s_neon_hud ? kSurface : kSurfaceRaised;
+    const int radius = s_neon_hud ? 0 : is_cute_theme() ? 20 : is_aura_theme() ? 12 : 7;
+    lv_obj_t *entry = make_button(parent, x, y, width, height, fill, radius, true);
+    lv_obj_add_event_cb(entry, menu_destination_cb, LV_EVENT_CLICKED,
+                        reinterpret_cast<void *>(static_cast<uintptr_t>(View::Player)));
+    if (s_neon_hud) {
+        add_hud_frame(entry, true);
+    }
+
+    // The hub reads catalog text only; keep it out of the player artwork path.
+    lyra::media::Track track{};
+    const lyra::audio::Status playback = lyra::audio::status();
+    const bool has_track = (s_has_active_queue || playback.playing) &&
+                           lyra::media::track_at(s_current_track, &track) && track.title[0];
+    const char *title_text = has_track ? track.title : tr(lyra::i18n::StringId::NowPlaying);
+    const lyra::i18n::StringId state_id = !playback.playing ?
+        lyra::i18n::StringId::PlaybackIdle : playback.paused ?
+        lyra::i18n::StringId::PlaybackPaused : lyra::i18n::StringId::PlaybackPlaying;
+    const char *state_text = tr(state_id);
+    const bool accent_fill = lv_color_eq(fill, kAccentSurface) && !is_cute_theme();
+    const lv_color_t title_color = accent_fill ? kTextOnAccent : kTextPrimary;
+    const lv_color_t state_color = accent_fill ? kTextOnAccent :
+                                   s_neon_hud ? kTextSecondary : kAccent;
+    lv_obj_t *title = make_label(entry, title_text, title_color);
+    make_marquee(title, width - 28);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, height >= 50 ? 5 : 3);
+    lv_obj_set_style_text_color(title, title_color, 0);
+    lv_obj_t *state = make_label(entry, state_text, state_color);
+    lv_obj_set_width(state, width - 28);
+    lv_label_set_long_mode(state, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_align(state, LV_ALIGN_BOTTOM_LEFT, 14, -4);
+}
+
+void add_standard_utility_rows(lv_obj_t *body, int y)
+{
+    for (size_t i = 0; i < 3; ++i) {
+        make_menu_action(body, kUtilityDestinations[i], 10, y + static_cast<int>(i) * 44,
+                         300, 42, kSurface, false);
+    }
+}
+
+void render_classic_zeno_menu()
+{
+    lv_obj_t *body = make_scroll_body(kStatusHeight);
+    constexpr MenuEntry items[] = {
+        {lyra::i18n::StringId::Music, View::Library, LV_SYMBOL_AUDIO},
+        {lyra::i18n::StringId::NowPlaying, View::Player, LV_SYMBOL_PLAY},
+        {lyra::i18n::StringId::BrowseFolders, View::Folders, LV_SYMBOL_DIRECTORY},
+        {lyra::i18n::StringId::Queue, View::Queue, LV_SYMBOL_LIST},
+        {lyra::i18n::StringId::Search, View::Search, LV_SYMBOL_EDIT},
+        {lyra::i18n::StringId::Settings, View::Settings, LV_SYMBOL_SETTINGS},
+        {lyra::i18n::StringId::Equalizer, View::Equalizer, LV_SYMBOL_VOLUME_MID},
+    };
+    for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
+        lv_obj_t *row = make_button(body, 0, 16 + static_cast<int>(i) * 60,
+                                    320, 58, kBackground, 0);
+        lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_t *label = make_zeno_label(row, tr(items[i].label), i == 0);
+        make_marquee(label, 282);
+        lv_obj_align(label, LV_ALIGN_LEFT_MID, 23, 0);
+        lv_obj_set_style_text_color(label, i == 0 ? kTextPrimary : kTextMuted, 0);
+        if (i == 0) {
+            lv_obj_t *stripe = make_box(row, 0, 0, 7, 58, kAccent);
+            lv_obj_remove_flag(stripe, LV_OBJ_FLAG_CLICKABLE);
+        }
+        lv_obj_add_event_cb(row, menu_destination_cb, LV_EVENT_CLICKED,
+            reinterpret_cast<void *>(static_cast<uintptr_t>(items[i].view)));
+    }
+    lv_obj_t *brand = make_label(body, "Emotivate Lyra", kTextSecondary);
+    lv_obj_set_style_text_letter_space(brand, 2, 0);
+    lv_obj_set_pos(brand, 24, 453);
+}
+
+void render_classic_menu()
+{
+    if (is_zeno_theme()) {
+        render_classic_zeno_menu();
+        return;
+    }
     if (is_aura_theme()) {
         lv_obj_t *banner = make_box(s_screen, 0, kStatusHeight, kScreenWidth, 68, kBackground);
         lv_obj_set_style_bg_opa(banner, LV_OPA_TRANSP, 0);
@@ -201,64 +380,124 @@ void render_menu()
         lv_obj_t *icon = make_label(play, LV_SYMBOL_PLAY, kAccent);
         lv_obj_set_style_text_font(icon, &lv_font_montserrat_28, 0);
         lv_obj_center(icon);
-        lv_obj_add_event_cb(play, [](lv_event_t *) { show_now_playing(); }, LV_EVENT_CLICKED, nullptr);
+        lv_obj_add_event_cb(play, [](lv_event_t *) { show_now_playing(); },
+                            LV_EVENT_CLICKED, nullptr);
     } else {
         make_header(tr(lyra::i18n::StringId::Menu), View::Menu);
     }
+
     lv_obj_t *body = make_scroll_body(is_aura_theme() ? 96 : 72);
-    struct MenuItem { const char *icon; const char *label; View view; };
-    const MenuItem items[] = {
-        {LV_SYMBOL_AUDIO, tr(lyra::i18n::StringId::NowPlaying), View::Player},
-        {LV_SYMBOL_LIST, tr(lyra::i18n::StringId::MusicLibrary), View::Library},
-        {LV_SYMBOL_DIRECTORY, tr(lyra::i18n::StringId::BrowseFolders), View::Folders},
-        {LV_SYMBOL_LIST, tr(lyra::i18n::StringId::Queue), View::Queue},
-        {LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::Equalizer), View::Equalizer},
-        {LV_SYMBOL_EDIT, tr(lyra::i18n::StringId::Search), View::Search},
-        {LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::Settings), View::Settings},
+    constexpr uint32_t cute_row_colors[] = {
+        0xFFD6ED, 0xF3EDFF, 0xEDF7FF, 0xEDF9F5,
+        0xF6EEFF, 0xEEF5FF, 0xFFF0F7,
     };
-    for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
+    for (size_t i = 0; i < sizeof(kClassicDestinations) / sizeof(kClassicDestinations[0]); ++i) {
+        const MenuEntry &entry = kClassicDestinations[i];
         lv_obj_t *row = make_row(body, static_cast<int>(i) * (is_aura_theme() ? 46 : 56),
-                                 items[i].icon, items[i].label, nullptr, items[i].view,
+                                 entry.icon, tr(entry.label), nullptr, entry.view,
                                  is_aura_theme() ? 44 : 51);
-        if (is_aura_theme() && items[i].view == View::Player) {
-            // A blue selected row mirrors the reference's prominent Now Playing entry.
+        if (is_aura_theme() && entry.view == View::Player) {
             lv_obj_set_style_bg_color(row, kAccentSurface, 0);
             lv_obj_set_style_bg_grad_color(row, kAccent, 0);
-            for (uint32_t child = 0; child < lv_obj_get_child_count(row); ++child)
+            for (uint32_t child = 0; child < lv_obj_get_child_count(row); ++child) {
                 lv_obj_set_style_text_color(lv_obj_get_child(row, child), kTextOnAccent, 0);
+            }
             lv_obj_set_style_bg_color(row, kAccent, LV_STATE_PRESSED);
             lv_obj_set_style_bg_grad_color(row, kAccentDark, LV_STATE_PRESSED);
         }
         if (is_cute_theme()) {
-            constexpr uint32_t pastel_rows[] = {
-                0xFFD6ED, 0xF3EDFF, 0xEDF7FF, 0xEDF9F5,
-                0xF6EEFF, 0xEEF5FF, 0xFFF0F7,
-            };
-            lv_obj_set_style_bg_color(row, lv_color_hex(pastel_rows[i]), 0);
-            // make_row's first child is its stock font icon. Keep the label
-            // geometry and replace only that decoration in Cute & Pink.
+            lv_obj_set_style_bg_color(row, lv_color_hex(cute_row_colors[i]), 0);
             lv_obj_add_flag(lv_obj_get_child(row, 0), LV_OBJ_FLAG_HIDDEN);
-            if (items[i].view == View::Player) {
+            if (entry.view == View::Player) {
                 lv_obj_set_style_border_color(row, kAccent, 0);
                 lv_obj_set_style_text_color(lv_obj_get_child(row, 1), kAccent, 0);
             }
-            make_cute_menu_icon(row, items[i].view);
+            make_cute_menu_icon(row, entry.view);
+        } else if (s_neon_hud) {
+            add_hud_frame(row, false);
         }
-        if (items[i].view == View::Queue) {
-            lv_obj_remove_event_cb(row, route_cb);
-            lv_obj_add_event_cb(row, open_queue_cb, LV_EVENT_CLICKED, nullptr);
-        } else if (items[i].view == View::Player) {
-            lv_obj_remove_event_cb(row, route_cb);
-            lv_obj_add_event_cb(row, [](lv_event_t *) { show_now_playing(); },
-                                LV_EVENT_CLICKED, nullptr);
-        } else if (items[i].view == View::Library) {
-            lv_obj_remove_event_cb(row, route_cb);
-            lv_obj_add_event_cb(row, open_library_cb, LV_EVENT_CLICKED, nullptr);
-        } else if (items[i].view == View::Folders) {
-            lv_obj_remove_event_cb(row, route_cb);
-            lv_obj_add_event_cb(row, open_folders_cb, LV_EVENT_CLICKED, nullptr);
-        }
+        lv_obj_remove_event_cb(row, route_cb);
+        lv_obj_add_event_cb(row, menu_destination_cb, LV_EVENT_CLICKED,
+            reinterpret_cast<void *>(static_cast<uintptr_t>(entry.view)));
     }
+}
+
+void render_standard_menu(lv_obj_t *body)
+{
+    make_menu_playback_entry(body, 8, 5, 304, 50);
+    constexpr int x[] = {9, 164, 9, 164};
+    constexpr int y[] = {64, 64, 146, 146};
+    for (size_t i = 0; i < 4; ++i) {
+        make_menu_action(body, kListeningDestinations[i], x[i], y[i], 147, 76,
+                         kSurface, true);
+    }
+    add_standard_utility_rows(body, 230);
+}
+
+void render_cute_menu(lv_obj_t *body)
+{
+    make_menu_playback_entry(body, 8, 5, 304, 50);
+    constexpr int x[] = {9, 164, 9, 164};
+    constexpr int y[] = {64, 64, 154, 154};
+    for (size_t i = 0; i < 4; ++i) {
+        make_menu_action(body, kListeningDestinations[i], x[i], y[i], 147, 82,
+                         lv_color_hex(kCutePrimaryColors[i]), true);
+    }
+    for (size_t i = 0; i < 3; ++i) {
+        lv_obj_t *button = make_button(body, 8 + static_cast<int>(i) * 103, 247,
+            98, 66, lv_color_hex(kCuteUtilityColors[i]), 18, true);
+        lv_obj_add_event_cb(button, menu_destination_cb, LV_EVENT_CLICKED,
+            reinterpret_cast<void *>(static_cast<uintptr_t>(kUtilityDestinations[i].view)));
+        lv_obj_t *label = make_label(button, tr(kUtilityDestinations[i].label), kTextPrimary);
+        make_marquee(label, 88);
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_center(label);
+    }
+}
+
+void render_aura_menu(lv_obj_t *body)
+{
+    make_menu_playback_entry(body, 8, 5, 304, 50);
+    constexpr int x[] = {9, 164, 9, 164};
+    constexpr int y[] = {64, 64, 154, 154};
+    for (size_t i = 0; i < 4; ++i) {
+        make_menu_action(body, kListeningDestinations[i], x[i], y[i], 147, 82,
+                         i == 0 ? kAccentSurface : kSurface, true, true);
+    }
+    for (size_t i = 0; i < 3; ++i) {
+        make_menu_action(body, kUtilityDestinations[i], 8 + static_cast<int>(i) * 103,
+                         247, 98, 66, kSurfaceRaised, false, true);
+    }
+}
+
+void render_hud_menu(lv_obj_t *body)
+{
+    make_menu_playback_entry(body, 8, 5, 304, 50);
+    constexpr int x[] = {9, 164, 9, 164};
+    constexpr int y[] = {64, 64, 154, 154};
+    for (size_t i = 0; i < 4; ++i) {
+        lv_obj_t *button = make_menu_action(body, kListeningDestinations[i], x[i], y[i],
+            147, 82, kSurface, true, true);
+        add_hud_frame(button, true);
+    }
+    for (size_t i = 0; i < 3; ++i) {
+        lv_obj_t *button = make_menu_action(body, kUtilityDestinations[i],
+            8 + static_cast<int>(i) * 103, 247, 98, 66, kSurface, false, true);
+        add_hud_frame(button, false);
+    }
+}
+
+} // namespace
+
+void render_menu()
+{
+    if (!s_listening_hub || is_zeno_theme()) { render_classic_menu(); return; }
+    make_header(tr(lyra::i18n::StringId::Menu), View::Menu);
+    lv_obj_t *body = make_scroll_body(72);
+    if (is_cute_theme()) render_cute_menu(body);
+    else if (is_aura_theme()) render_aura_menu(body);
+    else if (s_neon_hud) render_hud_menu(body);
+    else render_standard_menu(body);
 }
 
 void queue_track_cb(lv_event_t *event)

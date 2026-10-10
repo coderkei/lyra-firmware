@@ -120,6 +120,11 @@ void toggle_bool_cb(lv_event_t *event)
         render(s_view);
         return;
     }
+    if (value == &s_listening_hub) {
+        save_user_settings();
+        render(View::DisplaySettings);
+        return;
+    }
     if (value == &s_show_nav) {
         // This setting changes the usable page height and dock object tree.
         render(s_view);
@@ -140,10 +145,13 @@ void toggle_bool_cb(lv_event_t *event)
     lv_obj_set_x(lv_obj_get_child(toggle, 0), *value ? 21 : 3);
 }
 
-void make_setting_toggle(lv_obj_t *parent, int y, const char *title, const char *subtitle, bool *value)
+void make_setting_toggle(lv_obj_t *parent, int y, const char *title, const char *subtitle,
+                         bool *value, bool enabled)
 {
-    lv_obj_t *row = make_button(parent, 7, y, 306, 62, kSurface, 6, true);
-    lv_obj_t *title_label = make_label(row, title, kTextPrimary);
+    const bool checked = enabled && *value;
+    lv_obj_t *row = make_button(parent, 7, y, 306, 62,
+                                enabled ? kSurface : kBackground, 6, enabled);
+    lv_obj_t *title_label = make_label(row, title, enabled ? kTextPrimary : kTextMuted);
     make_marquee(title_label, 220);
     lv_obj_align(title_label, LV_ALIGN_LEFT_MID, 12, subtitle == nullptr ? 0 : -10);
     if (subtitle != nullptr) {
@@ -151,11 +159,16 @@ void make_setting_toggle(lv_obj_t *parent, int y, const char *title, const char 
         make_marquee(sub, 220);
         lv_obj_align(sub, LV_ALIGN_LEFT_MID, 12, 12);
     }
-    lv_obj_t *toggle = make_box(row, 250, 17, 42, 24, *value ? kAccent : kDivider, 12);
-    make_box(toggle, *value ? 21 : 3, 3, 18, 18,
-             *value ? kTextOnAccent : kTextPrimary, 9);
-    lv_obj_set_user_data(toggle, value);
-    lv_obj_add_event_cb(row, toggle_bool_cb, LV_EVENT_CLICKED, toggle);
+    lv_obj_t *toggle = make_box(row, 250, 17, 42, 24, checked ? kAccent : kDivider, 12);
+    make_box(toggle, checked ? 21 : 3, 3, 18, 18,
+             checked ? kTextOnAccent : enabled ? kTextPrimary : kTextMuted, 9);
+    if (enabled) {
+        lv_obj_set_user_data(toggle, value);
+        lv_obj_add_event_cb(row, toggle_bool_cb, LV_EVENT_CLICKED, toggle);
+    } else {
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_opa(row, LV_OPA_60, 0);
+    }
 }
 
 void accent_colour_cb(lv_event_t *event)
@@ -1290,6 +1303,12 @@ void render_settings_page(View view)
                  theme_name(s_theme),
                  View::ThemeOptions, 62);
         int next_y = 66;
+        make_setting_toggle(body, next_y, tr(lyra::i18n::StringId::MenuLayout),
+                            tr(is_zeno_theme() ? lyra::i18n::StringId::ClassicList :
+                                s_listening_hub ? lyra::i18n::StringId::ListeningHub :
+                                                  lyra::i18n::StringId::ClassicList),
+                            &s_listening_hub, !is_zeno_theme());
+        next_y += 66;
         if (is_standard_theme()) {
             make_setting_toggle(body, next_y, tr(lyra::i18n::StringId::DarkMode),
                                 s_dark_mode ? tr(lyra::i18n::StringId::DarkColours) :

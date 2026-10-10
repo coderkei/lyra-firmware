@@ -150,6 +150,14 @@ void cute_menu_icon_cb(lv_event_t *event)
                 pen.line(16, 11 + row * 6, 24, 11 + row * 6, purple, 2);
             }
             break;
+        case View::Playlists:
+            // A two-card mint stack distinguishes saved lists from the queue.
+            pen.box(5, 7, 20, 18, 4, 0xD7ECFF, purple);
+            pen.box(9, 4, 20, 18, 4, 0xCBEEE4, purple);
+            pen.line(13, 10, 24, 10, pink, 2);
+            pen.line(13, 15, 24, 15, purple, 2);
+            pen.box(13, 19, 4, 4, LV_RADIUS_CIRCLE, 0xF0ABD4);
+            break;
         case View::Equalizer:
             // Toy-like sliders and round candy knobs.
             pen.box(4, 4, 25, 25, 6, 0xE3DBFA, purple);
