@@ -119,7 +119,7 @@ esp_err_t set_artwork_sd_cache_enabled(bool enabled)
 
 esp_err_t set_artwork_size(uint16_t size)
 {
-    if (size != kDefaultArtworkSize && size != kLargeArtworkSize) return ESP_ERR_INVALID_ARG;
+    if (size != kSmallArtworkSize && size != kLargeArtworkSize) return ESP_ERR_INVALID_ARG;
     Lock lock;
     if (s_status.artwork_busy || s_status.scanning) return ESP_ERR_INVALID_STATE;
     if (s_status.artwork_size == size) return ESP_OK;

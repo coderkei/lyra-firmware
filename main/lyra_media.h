@@ -19,8 +19,9 @@ constexpr size_t kMaxPlaylists = 32;
 constexpr size_t kMaxPath = 256;
 constexpr size_t kMaxName = 96;
 constexpr size_t kTrackPageSize = 5;
-constexpr uint16_t kDefaultArtworkSize = 240;
+constexpr uint16_t kSmallArtworkSize = 240;
 constexpr uint16_t kLargeArtworkSize = 320;
+constexpr uint16_t kDefaultArtworkSize = kLargeArtworkSize;
 constexpr uint16_t kMaximumArtworkSize = kLargeArtworkSize;
 
 struct Track {

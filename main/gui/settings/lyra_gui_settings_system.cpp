@@ -234,7 +234,7 @@ void artwork_setting_cb(lv_event_t *event)
         lyra::media::set_artwork_sd_cache_enabled(!status.artwork_sd_cache_enabled) :
         lyra::media::set_artwork_size(
             status.artwork_size == lyra::media::kLargeArtworkSize ?
-            lyra::media::kDefaultArtworkSize : lyra::media::kLargeArtworkSize);
+            lyra::media::kSmallArtworkSize : lyra::media::kLargeArtworkSize);
     if (result != ESP_OK) {
         ESP_LOGW(kTag, "could not save artwork setting: %s", esp_err_to_name(result));
     }
@@ -1374,7 +1374,7 @@ void render_about()
     if (load_brand_logo()) {
         lv_obj_t *logo = lv_image_create(body);
         lv_image_set_src(logo, &s_brand_logo_descriptor);
-        lv_obj_set_pos(logo, 10, 22);
+        lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 22);
         lv_obj_add_flag(logo, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(logo, [](lv_event_t *) {
             s_debug_tab = DebugTab::Info;

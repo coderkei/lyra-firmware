@@ -87,7 +87,7 @@ void load_artwork_settings()
         s_status.artwork_sd_cache_enabled = cache_enabled != 0;
     }
     if (nvs_get_u16(handle, kArtworkSizeKey, &size) == ESP_OK &&
-        (size == kDefaultArtworkSize || size == kLargeArtworkSize)) {
+        (size == kSmallArtworkSize || size == kLargeArtworkSize)) {
         s_status.artwork_size = size;
     }
     nvs_close(handle);
