@@ -37,13 +37,14 @@ struct Values {
     uint8_t date_format;
     bool use_24_hour;
     bool dst_enabled;
-    // False when the language key is absent or invalid, identifying the
-    // first GUI boot after a factory reset.
+    // True when a valid language has been persisted.
     bool language_selected;
     // Independent of the classic dark/light and accent preferences.
     Theme theme = Theme::Standard;
     // Global input method selection, independent of the interface language.
     KeyboardLayout keyboard_layout = KeyboardLayout::English;
+    // False until the post-reset setup flow reaches its completion screen.
+    bool setup_complete = false;
 };
 
 // Loads only valid persisted values, leaving caller-provided defaults intact.

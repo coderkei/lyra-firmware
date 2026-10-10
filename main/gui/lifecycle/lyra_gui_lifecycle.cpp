@@ -9,6 +9,9 @@ namespace lyra::gui::internal {
 
 void render(View view)
 {
+    if (s_view == View::SetupWelcome && view != View::SetupWelcome) {
+        stop_setup_welcome_cycle();
+    }
     if ((s_view == View::Search || s_view == View::PlaylistCreate) && s_view != view) {
         commit_keyboard_preedit();
     }
@@ -27,7 +30,11 @@ void render(View view)
     s_sort_progress_label = nullptr;
     s_status_time_label = nullptr;
     style_root();
-    if (view != View::FullscreenInfoArt && view != View::FileViewer) make_status_bar();
+    const bool setup_view = view == View::SetupWelcome || view == View::SetupLanguage ||
+        view == View::SetupClock || view == View::SetupTheme || view == View::SetupScan ||
+        view == View::SetupComplete || (s_setup_pending &&
+        (view == View::ClockTimeSettings || view == View::ClockDateSettings));
+    if (view != View::FullscreenInfoArt && view != View::FileViewer && !setup_view) make_status_bar();
     switch (view) {
         case View::Menu: render_menu(); break;
         case View::Player: render_player(); break;
@@ -55,6 +62,12 @@ void render(View view)
         case View::Equalizer: render_equalizer(); break;
         case View::EqualizerPresets: render_equalizer_presets(); break;
         case View::ThemeOptions: render_theme_options(); break;
+        case View::SetupWelcome: render_setup_welcome(); break;
+        case View::SetupLanguage: render_setup_language(); break;
+        case View::SetupClock: render_setup_clock(); break;
+        case View::SetupTheme: render_setup_theme(); break;
+        case View::SetupScan: render_setup_scan(); break;
+        case View::SetupComplete: render_setup_complete(); break;
         case View::Search: render_search(); break;
         case View::Settings: render_settings_menu(); break;
         case View::SortingSettings: render_sorting_settings(); break;
@@ -74,7 +87,7 @@ void render(View view)
         case View::DebugMenu: render_debug_menu(); break;
         case View::Licenses: render_licenses(); break;
     }
-    if (s_show_nav && !s_language_setup_pending && view != View::FullscreenInfoArt && view != View::FileViewer &&
+    if (s_show_nav && !s_setup_pending && view != View::FullscreenInfoArt && view != View::FileViewer &&
         !((is_zeno_theme() || is_aura_theme()) && view == View::Player)) {
         make_virtual_nav();
     }
@@ -305,7 +318,17 @@ void catalog_poll_cb(lv_timer_t *)
                 status.scan_indexing ? tr(lyra::i18n::StringId::BuildingLibraryIndexes) :
                 tr(lyra::i18n::StringId::ReadingMicroSdFolders));
         }
-        if (!status.scanning) render(View::SystemSettings);
+        if (!status.scanning) {
+            const bool setup_scan = s_setup_scan_active;
+            s_setup_scan_active = false;
+            if (setup_scan && status.last_error != ESP_OK) {
+                render(View::SetupScan);
+                show_notice(tr(lyra::i18n::StringId::ScanMusicLibrary),
+                            tr(lyra::i18n::StringId::SetupScanFailed));
+            } else {
+                render(setup_scan ? View::SetupComplete : View::SystemSettings);
+            }
+        }
         return;
     }
     if (status.sorting_indexing) {

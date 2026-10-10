@@ -644,12 +644,12 @@ void clock_input_save_cb(lv_event_t *)
                     tr(lyra::i18n::StringId::ClockInvalid));
         return;
     }
-    navigate_back(View::ClockSettings);
+    navigate_back(s_setup_pending ? View::SetupClock : View::ClockSettings);
 }
 
 void clock_input_cancel_cb(lv_event_t *)
 {
-    navigate_back(View::ClockSettings);
+    navigate_back(s_setup_pending ? View::SetupClock : View::ClockSettings);
 }
 
 void make_clock_input_display(lv_obj_t *parent)
@@ -811,8 +811,7 @@ void language_option_cb(lv_event_t *event)
     if (!lyra::i18n::is_valid_language(value)) return;
 
     const auto language = static_cast<lyra::i18n::Language>(value);
-    const bool completing_initial_setup = s_language_setup_pending;
-    if (language == lyra::i18n::current_language() && !completing_initial_setup) return;
+    if (language == lyra::i18n::current_language()) return;
 
     lyra::i18n::set_language(language);
     // These buffers contain translated status messages rather than user data.
@@ -828,19 +827,12 @@ void language_option_cb(lv_event_t *event)
         show_notice(tr(lyra::i18n::StringId::SelectLanguage), message);
         return;
     }
-    if (completing_initial_setup) {
-        s_language_setup_pending = false;
-        render(View::Menu);
-    } else {
-        render(s_view);
-    }
+    render(s_view);
 }
 
 void render_language_options()
 {
-    make_header(s_language_setup_pending ? tr(lyra::i18n::StringId::SelectLanguage) :
-                                            tr(lyra::i18n::StringId::Language),
-                View::SystemSettings, !s_language_setup_pending);
+    make_header(tr(lyra::i18n::StringId::Language), View::SystemSettings, true);
     lv_obj_t *body = make_scroll_body(72);
     for (size_t index = 0; index < lyra::i18n::kLanguageCount; ++index) {
         const auto language = static_cast<lyra::i18n::Language>(index);
@@ -937,12 +929,8 @@ void render_settings_menu()
     make_row(body, 290, LV_SYMBOL_WARNING, tr(lyra::i18n::StringId::About), nullptr, View::About, 54);
 }
 
-void scan_library_cb(lv_event_t *)
+void make_scan_overlay()
 {
-    if (lyra::media::start_scan() != ESP_OK) {
-        render(View::SystemSettings);
-        return;
-    }
     s_scan_overlay = make_box(s_screen, 0, 0, kScreenWidth, kScreenHeight, kOverlay);
     lv_obj_set_style_bg_opa(s_scan_overlay, LV_OPA_80, 0);
     lv_obj_add_flag(s_scan_overlay, LV_OBJ_FLAG_CLICKABLE);
@@ -966,6 +954,27 @@ void scan_library_cb(lv_event_t *)
     lv_obj_align(s_scan_count_label, LV_ALIGN_TOP_MID, 0, 137);
     s_scan_phase_label = make_label(dialog, tr(lyra::i18n::StringId::ReadingMicroSdFolders), kTextSecondary);
     lv_obj_align(s_scan_phase_label, LV_ALIGN_TOP_MID, 0, 169);
+}
+
+void scan_library_cb(lv_event_t *)
+{
+    s_setup_scan_active = false;
+    if (lyra::media::start_scan() != ESP_OK) {
+        render(View::SystemSettings);
+        return;
+    }
+    make_scan_overlay();
+}
+
+void setup_scan_now_cb(lv_event_t *)
+{
+    if (lyra::media::start_scan() != ESP_OK) {
+        show_notice(tr(lyra::i18n::StringId::ScanMusicLibrary),
+                    tr(lyra::i18n::StringId::SetupScanFailed));
+        return;
+    }
+    s_setup_scan_active = true;
+    make_scan_overlay();
 }
 
 void save_active_queue_snapshot(const lyra::audio::Status &audio_status)

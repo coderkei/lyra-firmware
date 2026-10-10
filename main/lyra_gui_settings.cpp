@@ -23,6 +23,7 @@ constexpr const char *kNeonHudKey = "neon_hud";
 constexpr const char *kThemeKey = "theme";
 constexpr const char *kAccentColorKey = "accent_color";
 constexpr const char *kLanguageKey = "language";
+constexpr const char *kSetupCompleteKey = "setup_done";
 constexpr const char *kKeyboardLayoutKey = "keyboard";
 constexpr const char *kSpeakerOutputKey = "speaker_output";
 constexpr const char *kEqualizerPresetKey = "eq_preset";
@@ -50,6 +51,7 @@ void load(Values *values, size_t accent_palette_count, uint8_t equalizer_preset_
     values->language = lyra::i18n::Language::English;
     values->language_selected = false;
     values->theme = Theme::Standard;
+    values->setup_complete = false;
 
     nvs_handle_t handle;
     if (nvs_open(kSettingsNamespace, NVS_READONLY, &handle) != ESP_OK) return;
@@ -89,6 +91,14 @@ void load(Values *values, size_t accent_palette_count, uint8_t equalizer_preset_
         values->language = static_cast<lyra::i18n::Language>(value);
         values->language_selected = true;
     }
+    if (nvs_get_u8(handle, kSetupCompleteKey, &value) == ESP_OK && value <= 1) {
+        values->setup_complete = value != 0;
+    } else {
+        // Existing installations predate the explicit setup marker. A saved
+        // language means their original first-run language screen was completed.
+        values->setup_complete = values->language_selected;
+    }
+    if (!values->language_selected) values->setup_complete = false;
     if (nvs_get_u8(handle, kKeyboardLayoutKey, &value) == ESP_OK) {
         // Stored value 5 was the previous Japanese Romaji option. Preserve
         // those users' Japanese keyboard preference as Kana flick.
@@ -150,6 +160,8 @@ esp_err_t save(const Values &values)
             static_cast<uint8_t>(lyra::i18n::Language::English);
         result = nvs_set_u8(handle, kLanguageKey, language);
     }
+    if (result == ESP_OK) result = nvs_set_u8(handle, kSetupCompleteKey,
+                                               values.setup_complete ? 1 : 0);
     if (result == ESP_OK) {
         result = nvs_set_u8(handle, kSpeakerOutputKey, values.speaker_output_enabled ? 1 : 0);
     }

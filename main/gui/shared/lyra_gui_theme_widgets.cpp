@@ -215,6 +215,7 @@ esp_err_t save_user_settings()
         true,
         s_theme,
         s_library_keyboard_layout,
+        !s_setup_pending,
     };
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
@@ -241,12 +242,13 @@ void load_user_settings()
         false,
         s_theme,
         s_library_keyboard_layout,
+        false,
     };
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
     lyra::gui_settings::load(&values, kAccentPaletteCount,
                              static_cast<uint8_t>(EqualizerPreset::Count));
-    s_language_setup_pending = !values.language_selected;
+    s_setup_pending = !values.setup_complete;
     const bool clear_fallback_dst = lyra::clock::is_using_default_time() && values.dst_enabled;
     if (clear_fallback_dst) values.dst_enabled = false;
     s_gapless = values.gapless;
@@ -267,7 +269,7 @@ void load_user_settings()
     s_dst_enabled = values.dst_enabled;
     std::memcpy(s_equalizer_custom_bands, values.equalizer_custom_bands,
                 sizeof(s_equalizer_custom_bands));
-    if (clear_fallback_dst && !s_language_setup_pending) save_user_settings();
+    if (clear_fallback_dst && !s_setup_pending) save_user_settings();
 }
 
 void copy_ui_text(char *destination, size_t capacity, const char *source)
@@ -363,7 +365,7 @@ void navigate_back(View fallback)
 
 int content_bottom()
 {
-    return kScreenHeight - (s_show_nav && !s_language_setup_pending &&
+    return kScreenHeight - (s_show_nav && !s_setup_pending &&
         !((is_zeno_theme() || is_aura_theme()) && s_view == View::Player) ? kNavHeight : 0);
 }
 
@@ -634,6 +636,12 @@ View back_view(View view)
         case View::ClockTimeSettings:
         case View::ClockDateSettings: return View::ClockSettings;
         case View::LanguageOptions: return View::SystemSettings;
+        case View::SetupWelcome:
+        case View::SetupLanguage:
+        case View::SetupClock:
+        case View::SetupTheme:
+        case View::SetupScan:
+        case View::SetupComplete: return View::Menu;
         case View::SortingOptions: return View::SortingSettings;
         case View::CrossfadeOptions:
         case View::SleepTimerOptions: return View::PlaybackSettings;

@@ -26,6 +26,7 @@ idf_component_register(
         "gui/now_playing/lyra_gui_now_playing.cpp"
         "gui/settings/lyra_gui_equalizer.cpp"
         "gui/settings/lyra_gui_settings_system.cpp"
+        "gui/setup/lyra_gui_setup.cpp"
         "gui/search/lyra_gui_search.cpp"
         "gui/search/lyra_gui_ime.cpp"
         "gui/lifecycle/lyra_gui_lifecycle.cpp"

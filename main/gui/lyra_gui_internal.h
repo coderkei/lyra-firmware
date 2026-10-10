@@ -100,6 +100,7 @@ enum class View : uintptr_t {
     LanguageOptions, DatabaseStorage,
     About, DebugMenu, PageJump,
     Licenses, TrackList, ThemeOptions,
+    SetupWelcome, SetupLanguage, SetupClock, SetupTheme, SetupScan, SetupComplete,
 };
 enum class LibraryTab : uint8_t { Songs, Artists, Albums, Genres, Years };
 enum class ArtistDetailTab : uint8_t { Songs, Albums };
@@ -254,7 +255,8 @@ extern bool s_playlist_create_from_queue;
 extern bool s_queue_add_mode;
 extern bool s_queue_edit_mode;
 extern bool s_show_nav;
-extern bool s_language_setup_pending;
+extern bool s_setup_pending;
+extern bool s_setup_scan_active;
 extern char s_search_query[48];
 extern char s_submitted_search_query[48];
 extern lyra::media::SearchCategory s_search_category;
@@ -333,6 +335,15 @@ void add_hud_frame(lv_obj_t *object, bool octagonal = false);
 void make_hud_equalizer_grid(lv_obj_t *parent, int x, int y, int width, int height);
 void style_hud_controls(lv_obj_t *object);
 void render_theme_options();
+void render_setup_welcome();
+void render_setup_language();
+void render_setup_clock();
+void render_setup_theme();
+void render_setup_scan();
+void render_setup_complete();
+void stop_setup_welcome_cycle();
+void setup_scan_now_cb(lv_event_t *event);
+void begin_clock_input(ClockInputKind kind);
 const char *equalizer_preset_name(EqualizerPreset preset);
 const int16_t *equalizer_preset_bands(EqualizerPreset preset);
 bool equalizer_is_custom();
