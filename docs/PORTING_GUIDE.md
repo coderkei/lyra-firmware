@@ -2,6 +2,24 @@
 
 This guide is a source map and engineering checklist. Current development follows the JC3248W535EN reference implementation; adapting another target starts with board-specific code changes, hardware testing, and a clear record of its differences.
 
+## Commercial licensing gate
+
+The current audio decoder dependency, `espressif/esp_audio_codec` 2.6.2, is
+licensed under Espressif Modified MIT (`LicenseRef-Espressif-Modified-MIT`).
+Its terms require use with Espressif Systems products and prohibit source or
+binary redistribution for use with non-Espressif products. Review the
+[versioned component license](https://components.espressif.com/components/espressif/esp_audio_codec/versions/2.6.2/license)
+before selecting a target. For a commercial port, confirm that the complete
+product falls within those terms; obtain written authorization from Espressif
+or replace the dependency before distributing a product outside that scope.
+Record the replacement decoder's license as part of the port review.
+
+Licensing follows each shipped component and asset: Lyra application source
+uses Apache-2.0, the audio codec uses Espressif Modified MIT, and the offline
+IME dictionaries use CC BY-SA 4.0. See the central
+[third-party notices](../THIRD_PARTY_NOTICES.md) for the dependency and data
+inventory and its distribution notes.
+
 ## Source locations to study
 
 | Path | What it currently contains |
