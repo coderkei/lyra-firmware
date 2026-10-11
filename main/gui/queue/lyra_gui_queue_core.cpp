@@ -744,7 +744,11 @@ bool move_in_playback_queue(int direction, bool automatic)
         }
     }
     s_audio_eof_seen = false;
-    if (!automatic || s_view == View::Player) render(View::Player);
+    if (!automatic || s_view == View::Player) {
+        render(View::Player);
+    } else if (s_view == View::Menu && s_listening_hub && !is_zeno_theme()) {
+        render(View::Menu);
+    }
     return true;
 }
 
@@ -862,7 +866,11 @@ void sync_audio_handoff(const lyra::audio::Status &audio_status)
         ESP_LOGW(kTag, "could not record playback for %s: %s", track.path,
                  esp_err_to_name(stats_result));
     }
-    if (s_view == View::Player) render(View::Player);
+    if (s_view == View::Player) {
+        render(View::Player);
+    } else if (s_view == View::Menu && s_listening_hub && !is_zeno_theme()) {
+        render(View::Menu);
+    }
 }
 
 bool begin_crossfade_pause()
