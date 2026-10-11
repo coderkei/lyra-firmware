@@ -367,7 +367,7 @@ void catalog_poll_cb(lv_timer_t *)
         return;
     }
     if (artwork_changed) {
-        if (s_view == View::Player ||
+        if (s_view == View::Menu || s_view == View::Player ||
             s_view == View::TrackInfo || s_view == View::FullscreenInfoArt ||
             s_view == View::AlbumDetail) {
             render(s_view);

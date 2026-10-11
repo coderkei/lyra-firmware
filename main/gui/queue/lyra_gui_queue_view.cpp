@@ -298,7 +298,6 @@ void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int hei
         add_hud_frame(entry, true);
     }
 
-    // The hub reads catalog text only; keep it out of the player artwork path.
     lyra::media::Track track{};
     const lyra::audio::Status playback = lyra::audio::status();
     const bool has_track = (s_has_active_queue || playback.playing) &&
@@ -308,18 +307,60 @@ void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int hei
         lyra::i18n::StringId::PlaybackIdle : playback.paused ?
         lyra::i18n::StringId::PlaybackPaused : lyra::i18n::StringId::PlaybackPlaying;
     const char *state_text = tr(state_id);
+    const bool detailed_overview = height >= 96;
+    const bool show_album = detailed_overview && has_track && track.album[0];
+    const bool show_artist = detailed_overview && has_track && track.artist[0];
     const bool accent_fill = lv_color_eq(fill, kAccentSurface) && !is_cute_theme();
     const lv_color_t title_color = accent_fill ? kTextOnAccent : kTextPrimary;
     const lv_color_t state_color = accent_fill ? kTextOnAccent :
                                    s_neon_hud ? kTextSecondary : kAccent;
+    const int artwork_size = detailed_overview ? 80 : 48;
+    constexpr int kArtworkX = 10;
+    const int artwork_y = (height - artwork_size) / 2;
+    const int text_x = kArtworkX + artwork_size + 10;
+    const int text_width = width - text_x - 12;
+    const int artwork_radius = s_neon_hud ? 0 : is_cute_theme() ? 8 : 6;
+    lv_obj_t *artwork = make_box(entry, kArtworkX, artwork_y, artwork_size,
+                                 artwork_size, kArtworkSurface, artwork_radius);
+    if (has_track) {
+        make_artwork_contents(artwork, artwork_size, artwork_size, track,
+                              artwork_radius, true);
+    } else {
+        lv_obj_t *placeholder = make_label(artwork, LV_SYMBOL_AUDIO, kAccent);
+        lv_obj_center(placeholder);
+    }
     lv_obj_t *title = make_label(entry, title_text, title_color);
-    make_marquee(title, width - 28);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, height >= 50 ? 5 : 3);
+    make_marquee(title, text_width);
     lv_obj_set_style_text_color(title, title_color, 0);
     lv_obj_t *state = make_label(entry, state_text, state_color);
-    lv_obj_set_width(state, width - 28);
+    lv_obj_set_width(state, text_width);
     lv_label_set_long_mode(state, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_align(state, LV_ALIGN_BOTTOM_LEFT, 14, -4);
+    if (detailed_overview) {
+        constexpr int kOverviewLineHeight = 24;
+        const int line_count = 2 + static_cast<int>(show_album) +
+                               static_cast<int>(show_artist);
+        int line_y = (height - line_count * kOverviewLineHeight) / 2;
+        lv_obj_align(title, LV_ALIGN_TOP_LEFT, text_x, line_y);
+        line_y += kOverviewLineHeight;
+        if (show_album) {
+            lv_obj_t *album = make_label(entry, track.album,
+                accent_fill ? kTextOnAccent : kTextMuted);
+            make_marquee(album, text_width);
+            lv_obj_align(album, LV_ALIGN_TOP_LEFT, text_x, line_y);
+            line_y += kOverviewLineHeight;
+        }
+        if (show_artist) {
+            lv_obj_t *artist = make_label(entry, track.artist,
+                accent_fill ? kTextOnAccent : kTextSecondary);
+            make_marquee(artist, text_width);
+            lv_obj_align(artist, LV_ALIGN_TOP_LEFT, text_x, line_y);
+            line_y += kOverviewLineHeight;
+        }
+        lv_obj_align(state, LV_ALIGN_TOP_LEFT, text_x, line_y);
+    } else {
+        lv_obj_align(title, LV_ALIGN_TOP_LEFT, text_x, 10);
+        lv_obj_align(state, LV_ALIGN_BOTTOM_LEFT, text_x, -10);
+    }
 }
 
 void add_standard_utility_rows(lv_obj_t *body, int y)
@@ -424,11 +465,11 @@ void render_classic_menu()
 
 void render_standard_menu(lv_obj_t *body)
 {
-    make_menu_playback_entry(body, 8, 5, 304, 50);
+    make_menu_playback_entry(body, 8, 5, 304, 68);
     constexpr int x[] = {9, 164, 9, 164};
-    constexpr int y[] = {64, 64, 146, 146};
+    constexpr int y[] = {80, 80, 154, 154};
     for (size_t i = 0; i < 4; ++i) {
-        make_menu_action(body, kListeningDestinations[i], x[i], y[i], 147, 76,
+        make_menu_action(body, kListeningDestinations[i], x[i], y[i], 147, 68,
                          kSurface, true);
     }
     add_standard_utility_rows(body, 230);
@@ -436,15 +477,15 @@ void render_standard_menu(lv_obj_t *body)
 
 void render_cute_menu(lv_obj_t *body)
 {
-    make_menu_playback_entry(body, 8, 5, 304, 50);
+    make_menu_playback_entry(body, 8, 5, 304, 104);
     constexpr int x[] = {9, 164, 9, 164};
-    constexpr int y[] = {64, 64, 154, 154};
+    constexpr int y[] = {116, 116, 194, 194};
     for (size_t i = 0; i < 4; ++i) {
-        make_menu_action(body, kListeningDestinations[i], x[i], y[i], 147, 82,
+        make_menu_action(body, kListeningDestinations[i], x[i], y[i], 147, 70,
                          lv_color_hex(kCutePrimaryColors[i]), true);
     }
     for (size_t i = 0; i < 3; ++i) {
-        lv_obj_t *button = make_button(body, 8 + static_cast<int>(i) * 103, 247,
+        lv_obj_t *button = make_button(body, 8 + static_cast<int>(i) * 103, 275,
             98, 66, lv_color_hex(kCuteUtilityColors[i]), 18, true);
         lv_obj_add_event_cb(button, menu_destination_cb, LV_EVENT_CLICKED,
             reinterpret_cast<void *>(static_cast<uintptr_t>(kUtilityDestinations[i].view)));
@@ -457,32 +498,32 @@ void render_cute_menu(lv_obj_t *body)
 
 void render_aura_menu(lv_obj_t *body)
 {
-    make_menu_playback_entry(body, 8, 5, 304, 50);
+    make_menu_playback_entry(body, 8, 5, 304, 104);
     constexpr int x[] = {9, 164, 9, 164};
-    constexpr int y[] = {64, 64, 154, 154};
+    constexpr int y[] = {116, 116, 194, 194};
     for (size_t i = 0; i < 4; ++i) {
-        make_menu_action(body, kListeningDestinations[i], x[i], y[i], 147, 82,
+        make_menu_action(body, kListeningDestinations[i], x[i], y[i], 147, 70,
                          i == 0 ? kAccentSurface : kSurface, true, true);
     }
     for (size_t i = 0; i < 3; ++i) {
         make_menu_action(body, kUtilityDestinations[i], 8 + static_cast<int>(i) * 103,
-                         247, 98, 66, kSurfaceRaised, false, true);
+                         275, 98, 66, kSurfaceRaised, false, true);
     }
 }
 
 void render_hud_menu(lv_obj_t *body)
 {
-    make_menu_playback_entry(body, 8, 5, 304, 50);
+    make_menu_playback_entry(body, 8, 5, 304, 104);
     constexpr int x[] = {9, 164, 9, 164};
-    constexpr int y[] = {64, 64, 154, 154};
+    constexpr int y[] = {116, 116, 194, 194};
     for (size_t i = 0; i < 4; ++i) {
         lv_obj_t *button = make_menu_action(body, kListeningDestinations[i], x[i], y[i],
-            147, 82, kSurface, true, true);
+            147, 70, kSurface, true, true);
         add_hud_frame(button, true);
     }
     for (size_t i = 0; i < 3; ++i) {
         lv_obj_t *button = make_menu_action(body, kUtilityDestinations[i],
-            8 + static_cast<int>(i) * 103, 247, 98, 66, kSurface, false, true);
+            8 + static_cast<int>(i) * 103, 275, 98, 66, kSurface, false, true);
         add_hud_frame(button, false);
     }
 }
