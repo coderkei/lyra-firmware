@@ -13,7 +13,7 @@ namespace {
 
 constexpr size_t kPlayerBookmarkCount = 5;
 constexpr uint32_t kPlayerBookmarkMagic = 0x4C594250;
-constexpr uint16_t kPlayerBookmarkVersion = 1;
+constexpr uint16_t kPlayerBookmarkVersion = 2;
 constexpr const char *kPlayerBookmarkDirectory =
     "/sdcard/.lyra/playback-bookmarks";
 
@@ -21,10 +21,28 @@ struct PlayerBookmarks {
     uint32_t magic = kPlayerBookmarkMagic;
     uint16_t version = kPlayerBookmarkVersion;
     uint8_t count = 0;
-    uint8_t reserved = 0;
+    uint8_t occupied_mask = 0;
     char path[lyra::audio::kMaxPath]{};
     uint32_t positions_ms[kPlayerBookmarkCount]{};
 };
+
+uint8_t bookmark_slot_bit(size_t index)
+{
+    return static_cast<uint8_t>(1u << index);
+}
+
+uint8_t bookmark_mask_for_count(uint8_t count)
+{
+    return count >= kPlayerBookmarkCount ?
+        static_cast<uint8_t>((1u << kPlayerBookmarkCount) - 1u) :
+        static_cast<uint8_t>((1u << count) - 1u);
+}
+
+bool bookmark_slot_is_saved(const PlayerBookmarks &bookmarks, size_t index)
+{
+    return index < kPlayerBookmarkCount &&
+           (bookmarks.occupied_mask & bookmark_slot_bit(index)) != 0;
+}
 
 enum class MoreAction : uintptr_t {
     Equalizer,
@@ -175,9 +193,21 @@ bool read_player_bookmark_candidate(const char *file_path, const char *track_pat
                                              lyra::sd::Client::Filesystem);
     const bool close_ok = lyra::sd::close(file, lyra::sd::Client::Filesystem) == 0;
     if (!read_ok || !close_ok || loaded.magic != kPlayerBookmarkMagic ||
-        loaded.version != kPlayerBookmarkVersion ||
+        (loaded.version != 1 && loaded.version != kPlayerBookmarkVersion) ||
         loaded.count > kPlayerBookmarkCount ||
         std::strncmp(loaded.path, track_path, sizeof(loaded.path)) != 0) return false;
+    if (loaded.version == 1) {
+        loaded.occupied_mask = bookmark_mask_for_count(loaded.count);
+        loaded.version = kPlayerBookmarkVersion;
+    } else {
+        uint8_t occupied_count = 0;
+        for (size_t i = 0; i < kPlayerBookmarkCount; ++i) {
+            if (bookmark_slot_is_saved(loaded, i)) ++occupied_count;
+        }
+        const uint8_t valid_mask = bookmark_mask_for_count(kPlayerBookmarkCount);
+        if ((loaded.occupied_mask & static_cast<uint8_t>(~valid_mask)) != 0 ||
+            occupied_count != loaded.count) return false;
+    }
     *bookmarks = loaded;
     return true;
 }
@@ -324,7 +354,8 @@ void player_bookmark_jump_cb(lv_event_t *event)
     const lyra::audio::Status audio_status = lyra::audio::status();
     if (!current_player_track_path(track_path, sizeof(track_path)) ||
         std::strcmp(track_path, audio_status.path) != 0 ||
-        !load_player_bookmarks(track_path, &bookmarks) || index >= bookmarks.count) {
+        !load_player_bookmarks(track_path, &bookmarks) ||
+        !bookmark_slot_is_saved(bookmarks, index)) {
         show_notice(tr(lyra::i18n::StringId::PlayerBookmarks),
                     tr(lyra::i18n::StringId::PlaybackIdle));
         return;
@@ -343,15 +374,15 @@ void player_bookmark_remove_cb(lv_event_t *event)
     char track_path[lyra::audio::kMaxPath];
     PlayerBookmarks bookmarks{};
     if (!current_player_track_path(track_path, sizeof(track_path)) ||
-        !load_player_bookmarks(track_path, &bookmarks) || index >= bookmarks.count) {
+        !load_player_bookmarks(track_path, &bookmarks) ||
+        !bookmark_slot_is_saved(bookmarks, index)) {
         show_notice(tr(lyra::i18n::StringId::PlayerBookmarks),
                     tr(lyra::i18n::StringId::ReaderBookmarkRemoveFailed));
         return;
     }
-    for (size_t i = index + 1; i < bookmarks.count; ++i) {
-        bookmarks.positions_ms[i - 1] = bookmarks.positions_ms[i];
-    }
-    bookmarks.positions_ms[--bookmarks.count] = 0;
+    bookmarks.positions_ms[index] = 0;
+    bookmarks.occupied_mask &= static_cast<uint8_t>(~bookmark_slot_bit(index));
+    --bookmarks.count;
     if (!save_player_bookmarks(bookmarks)) {
         show_notice(tr(lyra::i18n::StringId::PlayerBookmarks),
                     tr(lyra::i18n::StringId::ReaderBookmarkRemoveFailed));
@@ -361,22 +392,27 @@ void player_bookmark_remove_cb(lv_event_t *event)
     show_player_bookmarks_overlay();
 }
 
-void player_bookmark_add_cb(lv_event_t *)
+void player_bookmark_add_cb(lv_event_t *event)
 {
+    const size_t index = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
     char track_path[lyra::audio::kMaxPath];
     PlayerBookmarks bookmarks{};
     const lyra::audio::Status audio_status = lyra::audio::status();
     if (!current_player_track_path(track_path, sizeof(track_path)) ||
         std::strcmp(track_path, audio_status.path) != 0 ||
         audio_status.duration_ms == 0 || audio_status.last_error != ESP_OK ||
+        index >= kPlayerBookmarkCount ||
         !load_player_bookmarks(track_path, &bookmarks) ||
+        bookmark_slot_is_saved(bookmarks, index) ||
         bookmarks.count >= kPlayerBookmarkCount) {
         show_notice(tr(lyra::i18n::StringId::PlayerBookmarks),
                     tr(lyra::i18n::StringId::ReaderBookmarkFailed));
         return;
     }
-    bookmarks.positions_ms[bookmarks.count++] = std::min(
+    bookmarks.positions_ms[index] = std::min(
         audio_status.position_ms, audio_status.duration_ms);
+    bookmarks.occupied_mask |= bookmark_slot_bit(index);
+    ++bookmarks.count;
     if (!save_player_bookmarks(bookmarks)) {
         show_notice(tr(lyra::i18n::StringId::PlayerBookmarks),
                     tr(lyra::i18n::StringId::ReaderBookmarkFailed));
@@ -397,6 +433,8 @@ void show_player_bookmarks_overlay()
         return;
     }
 
+    const int overlay_height = content_bottom();
+    const int dialog_height = std::min(400, overlay_height - 36);
     lv_obj_t *dialog = nullptr;
     if (!make_player_overlay(&s_bookmarks_overlay, 400, &dialog)) return;
     lv_obj_t *title = make_label(dialog, tr(lyra::i18n::StringId::PlayerBookmarks),
@@ -408,10 +446,19 @@ void show_player_bookmarks_overlay()
     lv_obj_add_event_cb(close, [](lv_event_t *) { close_bookmarks_overlay(); },
                         LV_EVENT_CLICKED, nullptr);
 
-    const int list_height = lv_obj_get_height(dialog) - 56;
+    // Use the dimensions passed to make_player_overlay. LVGL's object coords
+    // may not be laid out yet when this dialog is created from a click event.
+    const int list_height = dialog_height - 56;
     lv_obj_t *list = make_box(dialog, 8, 48, 272, list_height, kSurface, 6);
+    constexpr int kBookmarkRowHeight = 44;
+    constexpr int kBookmarkRowGap = 4;
+    constexpr int kBookmarkRowsHeight =
+        kPlayerBookmarkCount * kBookmarkRowHeight +
+        (kPlayerBookmarkCount - 1) * kBookmarkRowGap;
+    const int row_left = (272 - 268) / 2;
+    const int rows_top = std::max(0, (list_height - kBookmarkRowsHeight) / 2);
     for (size_t i = 0; i < kPlayerBookmarkCount; ++i) {
-        const bool saved = i < bookmarks.count;
+        const bool saved = bookmark_slot_is_saved(bookmarks, i);
         char label_text[32];
         if (saved) {
             char time[16];
@@ -422,8 +469,10 @@ void show_player_bookmarks_overlay()
             std::snprintf(label_text, sizeof(label_text), "#%u",
                           static_cast<unsigned>(i + 1));
         }
-        const int row_y = static_cast<int>(i) * 48;
-        lv_obj_t *jump = make_button(list, 0, row_y, 220, 44,
+        const int row_y = rows_top + static_cast<int>(i) *
+            (kBookmarkRowHeight + kBookmarkRowGap);
+        lv_obj_t *jump = make_button(list, row_left, row_y, 220,
+                                     kBookmarkRowHeight,
                                      saved ? kBackground : kSurfaceRaised,
                                      5, true);
         lv_obj_t *label = make_label(jump, label_text,
@@ -432,21 +481,21 @@ void show_player_bookmarks_overlay()
         if (saved) {
             lv_obj_add_event_cb(jump, player_bookmark_jump_cb, LV_EVENT_CLICKED,
                                 reinterpret_cast<void *>(static_cast<uintptr_t>(i)));
-            lv_obj_t *remove = make_button(list, 224, row_y, 44, 44,
+            lv_obj_t *remove = make_button(list, row_left + 224, row_y, 44,
+                                           kBookmarkRowHeight,
                                            kDangerSurface, 5);
             lv_obj_t *remove_icon = make_label(remove, LV_SYMBOL_CLOSE, kTextSecondary);
             lv_obj_center(remove_icon);
             lv_obj_add_event_cb(remove, player_bookmark_remove_cb, LV_EVENT_CLICKED,
                                 reinterpret_cast<void *>(static_cast<uintptr_t>(i)));
+        } else {
+            lv_obj_t *add = make_button(list, row_left + 224, row_y, 44,
+                                        kBookmarkRowHeight, kAccentDark, 5);
+            lv_obj_t *add_icon = make_label(add, LV_SYMBOL_PLUS, kTextOnAccent);
+            lv_obj_center(add_icon);
+            lv_obj_add_event_cb(add, player_bookmark_add_cb, LV_EVENT_CLICKED,
+                                reinterpret_cast<void *>(static_cast<uintptr_t>(i)));
         }
-    }
-    if (bookmarks.count < kPlayerBookmarkCount) {
-        lv_obj_t *add = make_button(list, 0, static_cast<int>(kPlayerBookmarkCount) * 48,
-                                    268, 44, kAccentDark, 5, true);
-        lv_obj_t *add_label = make_label(add,
-            tr(lyra::i18n::StringId::AddPlaybackBookmark), kTextOnAccent);
-        lv_obj_center(add_label);
-        lv_obj_add_event_cb(add, player_bookmark_add_cb, LV_EVENT_CLICKED, nullptr);
     }
 }
 
