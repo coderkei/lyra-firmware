@@ -9,6 +9,7 @@ namespace lyra::gui::internal {
 
 void render(View view)
 {
+    if (s_view != view) stop_apps_runtime_timers(view);
     if (s_view == View::SetupWelcome && view != View::SetupWelcome) {
         stop_setup_welcome_cycle();
     }
@@ -41,6 +42,13 @@ void render(View view)
         case View::TrackInfo: render_track_info(); break;
         case View::FullscreenInfoArt: render_fullscreen_info_art(); break;
         case View::Queue: render_queue(); break;
+        case View::Apps: render_apps(); break;
+        case View::Calculator: render_calculator(); break;
+        case View::Calendar: render_calendar(); break;
+        case View::Stopwatch: render_stopwatch(); break;
+        case View::Timer: render_timer(); break;
+        case View::Photos:
+        case View::Ebook: render_app_files(); break;
         case View::Library: render_library(); break;
         case View::LibrarySongs: render_library_section(LibraryTab::Songs); break;
         case View::LibraryArtists: render_library_section(LibraryTab::Artists); break;

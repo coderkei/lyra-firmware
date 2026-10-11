@@ -179,6 +179,17 @@ esp_err_t play(const char *path)
     return play_from_position(path, 0, false);
 }
 
+esp_err_t play_timer_alarm()
+{
+    if (!s_initialized || !s_audio_task) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    s_timer_alarm_stream_handled.store(false, std::memory_order_release);
+    s_timer_alarm_started_us = esp_timer_get_time();
+    xSemaphoreGive(s_state_mutex);
+    xTaskNotifyGive(s_audio_task);
+    return ESP_OK;
+}
+
 esp_err_t play_from_position(const char *path, uint32_t position_ms, bool paused)
 {
     if (!s_initialized || s_state_mutex == nullptr) return ESP_ERR_INVALID_STATE;

@@ -33,6 +33,22 @@ void pcm_output_task(void *context)
         paused = s_status.paused;
         xSemaphoreGive(s_state_mutex);
         if (paused && !output->stop_requested) {
+            constexpr size_t kAlarmFrames = 256;
+            if (s_i2s_started && output->staging_buffer &&
+                timer_alarm_active() && output->sample_rate) {
+                constexpr size_t alarm_bytes = kAlarmFrames * kI2sFrameBytes;
+                std::memset(output->staging_buffer, 0, alarm_bytes);
+                mix_timer_alarm(reinterpret_cast<int16_t *>(output->staging_buffer),
+                                kAlarmFrames, output->sample_rate);
+                lyra::audio::pcm::apply_output_processing(
+                    output, output->staging_buffer, alarm_bytes, pcm_processing_settings());
+                mirror_to_speaker(output->staging_buffer, alarm_bytes);
+                const esp_err_t alarm_write = write_i2s_data(
+                    s_i2s_tx, output->staging_buffer, alarm_bytes);
+                if (alarm_write != ESP_OK) fail_pcm_output(output, alarm_write);
+                if (output->error) break;
+                continue;
+            }
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
             continue;
         }
@@ -79,6 +95,8 @@ void pcm_output_task(void *context)
             fail_pcm_output(output, ESP_ERR_INVALID_SIZE);
             break;
         }
+        mix_timer_alarm(reinterpret_cast<int16_t *>(output->staging_buffer),
+                        received / kI2sFrameBytes, output->sample_rate);
         lyra::audio::pcm::apply_output_processing(
             output, output->staging_buffer, received, pcm_processing_settings());
         mirror_to_speaker(output->staging_buffer, received);

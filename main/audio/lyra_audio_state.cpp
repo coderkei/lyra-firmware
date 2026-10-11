@@ -25,6 +25,8 @@ uint32_t s_equalizer_generation = 1;
 
 char s_requested_path[lyra::audio::kMaxPath];
 std::atomic<uint32_t> s_request_generation{0};
+int64_t s_timer_alarm_started_us;
+std::atomic<bool> s_timer_alarm_stream_handled{false};
 uint32_t s_requested_seek_ms;
 bool s_requested_pause_after_seek;
 bool s_audio_session_active;

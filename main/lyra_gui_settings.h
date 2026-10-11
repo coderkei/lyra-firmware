@@ -47,6 +47,7 @@ struct Values {
     bool setup_complete = false;
     // True selects the listening hub; false restores the classic seven-row menu.
     bool listening_hub = true;
+    bool timer_alarm_enabled = true;
 };
 
 // Loads only valid persisted values, leaving caller-provided defaults intact.

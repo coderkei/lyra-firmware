@@ -10,6 +10,15 @@ namespace {
 
 constexpr size_t kMixFrames = 512;
 constexpr size_t kPreloadFrames = 2048;
+constexpr uint32_t kTimerAlarmSampleRate = 44100;
+constexpr size_t kTimerAlarmFramesPerChunk = 1024;
+constexpr int64_t kTimerAlarmFirstBeepUs = 380000;
+constexpr int64_t kTimerAlarmBeepPeriodUs = 420000;
+constexpr int64_t kTimerAlarmBeepLengthUs = 180000;
+constexpr size_t kTimerAlarmBeepCount = 4;
+constexpr int64_t kTimerAlarmDurationUs = kTimerAlarmFirstBeepUs +
+    static_cast<int64_t>(kTimerAlarmBeepCount - 1) * kTimerAlarmBeepPeriodUs +
+    kTimerAlarmBeepLengthUs;
 
 enum class FrameResult { kReady, kWaiting, kEnd };
 
@@ -284,6 +293,58 @@ void log_diagnostics(const Diagnostics &d)
              static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
 }
 
+bool mix_timer_alarm_at(int16_t *stereo_samples, size_t frames,
+                        uint32_t sample_rate, int64_t block_start_us,
+                        int64_t alarm_start_us)
+{
+    if (!stereo_samples || !sample_rate || alarm_start_us <= 0) return false;
+    constexpr int32_t kAmplitude = 5600;
+    constexpr uint64_t kFrequencyHz = 880;
+    const uint64_t phase_step = (kFrequencyHz << 32) / sample_rate;
+    const int64_t frame_step_us = 1000000 / sample_rate;
+    const uint32_t frame_step_remainder = 1000000 % sample_rate;
+    uint32_t time_remainder = 0;
+    uint32_t phase_accumulator = 0;
+    int64_t previous_beep_index = -1;
+    int64_t elapsed_us = block_start_us - alarm_start_us;
+    bool added_tone = false;
+    for (size_t frame = 0; frame < frames; ++frame) {
+        if (elapsed_us >= kTimerAlarmFirstBeepUs && elapsed_us < kTimerAlarmDurationUs) {
+            const int64_t beep_time_us = elapsed_us - kTimerAlarmFirstBeepUs;
+            const int64_t beep_index = beep_time_us / kTimerAlarmBeepPeriodUs;
+            const int64_t phase_us = beep_time_us % kTimerAlarmBeepPeriodUs;
+            if (beep_index < static_cast<int64_t>(kTimerAlarmBeepCount) &&
+                phase_us < kTimerAlarmBeepLengthUs) {
+                if (beep_index != previous_beep_index) {
+                    phase_accumulator = 0;
+                    previous_beep_index = beep_index;
+                }
+                const int64_t edge_us = std::min(phase_us,
+                                                  kTimerAlarmBeepLengthUs - phase_us);
+                const int32_t envelope = static_cast<int32_t>(
+                    std::min<int64_t>(1000, edge_us * 1000 / 6000));
+                const int32_t wave = (phase_accumulator & 0x80000000u) ? -kAmplitude : kAmplitude;
+                const int32_t tone = wave * envelope / 1000;
+                for (size_t channel = 0; channel < 2; ++channel) {
+                    const size_t index = frame * 2 + channel;
+                    stereo_samples[index] = static_cast<int16_t>(std::clamp<int32_t>(
+                        static_cast<int32_t>(stereo_samples[index]) + tone,
+                        INT16_MIN, INT16_MAX));
+                }
+                phase_accumulator += static_cast<uint32_t>(phase_step);
+                added_tone = true;
+            }
+        }
+        elapsed_us += frame_step_us;
+        time_remainder += frame_step_remainder;
+        if (time_remainder >= sample_rate) {
+            ++elapsed_us;
+            time_remainder -= sample_rate;
+        }
+    }
+    return added_tone;
+}
+
 } // namespace
 
 bool decoder_is_current(DecoderStream *track)
@@ -315,6 +376,92 @@ void sample_audio_memory()
     xSemaphoreGive(s_state_mutex);
 }
 
+bool timer_alarm_active()
+{
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    int64_t started_us = s_timer_alarm_started_us;
+    if (started_us <= 0) {
+        xSemaphoreGive(s_state_mutex);
+        return false;
+    }
+    const bool active = esp_timer_get_time() - started_us < kTimerAlarmDurationUs;
+    if (!active && s_timer_alarm_started_us == started_us) s_timer_alarm_started_us = 0;
+    xSemaphoreGive(s_state_mutex);
+    return active;
+}
+
+void mix_timer_alarm(int16_t *stereo_samples, size_t frames, uint32_t sample_rate)
+{
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    const int64_t started_us = s_timer_alarm_started_us;
+    xSemaphoreGive(s_state_mutex);
+    if (started_us <= 0) return;
+    const int64_t block_start_us = esp_timer_get_time();
+    if (block_start_us - started_us >= kTimerAlarmDurationUs) {
+        xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+        if (s_timer_alarm_started_us == started_us) s_timer_alarm_started_us = 0;
+        xSemaphoreGive(s_state_mutex);
+        return;
+    }
+    if (mix_timer_alarm_at(stereo_samples, frames, sample_rate, block_start_us, started_us)) {
+        xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+        if (s_timer_alarm_started_us == started_us) {
+            s_timer_alarm_stream_handled.store(true, std::memory_order_release);
+        }
+        xSemaphoreGive(s_state_mutex);
+    }
+}
+
+namespace {
+void play_idle_timer_alarm(uint32_t generation)
+{
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    if (generation != s_request_generation || s_status.playing || s_audio_session_active ||
+        s_timer_alarm_stream_handled.load(std::memory_order_acquire) ||
+        s_timer_alarm_started_us <= 0) {
+        xSemaphoreGive(s_state_mutex);
+        return;
+    }
+    const int64_t alarm_started_us = s_timer_alarm_started_us;
+    s_audio_session_active = true;
+    xSemaphoreGive(s_state_mutex);
+
+    PcmOutput output{};
+    output.sample_rate = kTimerAlarmSampleRate;
+    esp_err_t result = configure_i2s(kTimerAlarmSampleRate);
+    if (result == ESP_OK && !start_pcm_output(&output)) result = ESP_ERR_NO_MEM;
+    int16_t samples[kTimerAlarmFramesPerChunk * 2]{};
+    uint64_t generated_frames = 0;
+    const uint64_t total_frames = static_cast<uint64_t>(kTimerAlarmDurationUs) *
+                                  kTimerAlarmSampleRate / 1000000;
+    while (result == ESP_OK && generated_frames < total_frames &&
+           generation_is_current(generation)) {
+        std::memset(samples, 0, sizeof(samples));
+        const size_t frames = static_cast<size_t>(std::min<uint64_t>(
+            kTimerAlarmFramesPerChunk, total_frames - generated_frames));
+        const int64_t block_start_us = alarm_started_us +
+            static_cast<int64_t>(generated_frames) * 1000000 / kTimerAlarmSampleRate;
+        (void)mix_timer_alarm_at(samples, frames, kTimerAlarmSampleRate,
+                                 block_start_us, alarm_started_us);
+        result = queue_pcm(reinterpret_cast<const uint8_t *>(samples),
+                           frames * kI2sFrameBytes, &output, generation);
+        generated_frames += frames;
+    }
+    if (output.stream) {
+        stop_pcm_output(&output, result == ESP_OK && generation_is_current(generation),
+                        generation);
+    }
+    if (s_i2s_started) {
+        i2s_channel_disable(s_i2s_tx);
+        s_i2s_started = false;
+    }
+    disable_speaker_i2s();
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    if (generation == s_request_generation) s_audio_session_active = false;
+    xSemaphoreGive(s_state_mutex);
+}
+} // namespace
+
 void audio_task(void *)
 {
     uint32_t handled_generation = 0;
@@ -338,6 +485,16 @@ void audio_task(void *)
         }
         xSemaphoreGive(s_state_mutex);
         if (generation == handled_generation) {
+            if (timer_alarm_active() &&
+                !s_timer_alarm_stream_handled.load(std::memory_order_acquire)) {
+                xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+                const bool idle = !s_status.playing && !s_audio_session_active;
+                xSemaphoreGive(s_state_mutex);
+                if (idle) {
+                    play_idle_timer_alarm(generation);
+                    continue;
+                }
+            }
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
             continue;
         }

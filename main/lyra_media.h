@@ -277,6 +277,16 @@ struct FolderFile {
 // Direct filesystem listing; images/text never enter the music catalog.
 size_t folder_files(const char *path, size_t offset, FolderFile *files,
                     size_t capacity, size_t *total = nullptr);
+// Recursively collect supported image or text documents beneath a mounted SD path.
+// The returned array uses PSRAM when available and must be released with
+// free_folder_tree_files(). /sdcard results are cached on the card unless
+// refresh_cache is true. progress is called with the number of matching files
+// discovered or loaded so far.
+using FolderTreeProgressCallback = void (*)(void *context, size_t found);
+bool folder_tree_files(const char *path, FileKind kind, FolderFile **files,
+                       size_t *count, FolderTreeProgressCallback progress = nullptr,
+                       void *progress_context = nullptr, bool refresh_cache = false);
+void free_folder_tree_files(FolderFile *files);
 // Resolve catalog metadata when available, otherwise retain a temporary path
 // handle. Temporary handles are session-only and do not change track_count().
 bool resolve_audio_path(const char *path, size_t *track_index);

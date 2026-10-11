@@ -17,6 +17,7 @@ constexpr int64_t kDetailDelayUs = 50000;
 constexpr uint16_t kDetailPatchSize = 512;
 char s_file_path[lyra::media::kMaxPath];
 lyra::media::FileKind s_file_kind;
+View s_file_back_view = View::Folders;
 std::atomic<bool> s_image_busy{false};
 
 class FileAccess {
@@ -459,7 +460,7 @@ void viewer_action(lv_event_t *event)
     auto *v = static_cast<Viewer *>(lv_event_get_user_data(event));
     const auto action = lv_obj_get_user_data(lv_event_get_current_target_obj(event));
     switch (reinterpret_cast<uintptr_t>(action)) {
-        case 0: navigate_back(View::Folders); return;
+        case 0: navigate_back(s_file_back_view); return;
         case 1:
             if (v->is_text) { if (v->font_size) --v->font_size; reader_style(v); }
             else image_scale(v, std::max(std::min(v->fit_zoom, kNativeZoom), v->zoom / 2));
@@ -675,11 +676,36 @@ void render_file_viewer()
     }
 }
 
-void make_document_row(lv_obj_t *parent, int y, const lyra::media::FolderFile &file)
+void open_document_file(const char *path, lyra::media::FileKind kind, View back_view)
 {
-    auto *copy = static_cast<lyra::media::FolderFile *>(lv_malloc(sizeof(file)));
-    if (!copy) return;
-    *copy = file;
+    copy_ui_text(s_file_path, sizeof(s_file_path), path);
+    s_file_kind = kind;
+    s_file_back_view = back_view;
+    if (back_view == View::Photos || back_view == View::Ebook) {
+        release_app_file_scan(back_view);
+    }
+    navigate_to(View::FileViewer);
+}
+
+View file_viewer_back_view()
+{
+    return s_file_back_view;
+}
+
+namespace {
+struct DocumentRowContext {
+    lyra::media::FolderFile file;
+    View back_view;
+};
+} // namespace
+
+void make_document_row(lv_obj_t *parent, int y, const lyra::media::FolderFile &file,
+                       View back_view)
+{
+    auto *context = static_cast<DocumentRowContext *>(lv_malloc(sizeof(DocumentRowContext)));
+    if (!context) return;
+    context->file = file;
+    context->back_view = back_view;
     lv_obj_t *row = make_button(parent, 7, y, 306, 54, kSurface, 5, true);
     const char *name = std::strrchr(file.path, '/');
     lv_obj_t *icon = make_label(row, file.kind == lyra::media::FileKind::Image ?
@@ -687,16 +713,28 @@ void make_document_row(lv_obj_t *parent, int y, const lyra::media::FolderFile &f
     lv_obj_align(icon, LV_ALIGN_LEFT_MID, 12, 0);
     lv_obj_t *label = make_label(row, name ? name + 1 : file.path, kTextPrimary);
     make_marquee(label, 250);
-    lv_obj_align(label, LV_ALIGN_LEFT_MID, 43, 0);
+    if (back_view == View::Photos || back_view == View::Ebook) {
+        lv_obj_align(label, LV_ALIGN_LEFT_MID, 43, -9);
+        char parent_path[lyra::media::kMaxPath];
+        copy_ui_text(parent_path, sizeof(parent_path), file.path);
+        char *slash = std::strrchr(parent_path, '/');
+        if (slash && slash != parent_path) *slash = '\0';
+        lv_obj_t *location = make_label(row, parent_path, kTextMuted);
+        make_marquee(location, 250);
+        lv_obj_align(location, LV_ALIGN_LEFT_MID, 43, 12);
+    } else {
+        lv_obj_align(label, LV_ALIGN_LEFT_MID, 43, 0);
+    }
     lv_obj_add_event_cb(row, [](lv_event_t *event) {
-        auto *file = static_cast<lyra::media::FolderFile *>(lv_event_get_user_data(event));
-        copy_ui_text(s_file_path, sizeof(s_file_path), file->path);
-        s_file_kind = file->kind;
-        if (file->kind == lyra::media::FileKind::Playlist) open_folder_playlist(file->path);
-        else navigate_to(View::FileViewer);
-    }, LV_EVENT_CLICKED, copy);
+        auto *context = static_cast<DocumentRowContext *>(lv_event_get_user_data(event));
+        if (context->file.kind == lyra::media::FileKind::Playlist) {
+            open_folder_playlist(context->file.path);
+        } else {
+            open_document_file(context->file.path, context->file.kind, context->back_view);
+        }
+    }, LV_EVENT_CLICKED, context);
     lv_obj_add_event_cb(row, [](lv_event_t *event) {
         lv_free(lv_event_get_user_data(event));
-    }, LV_EVENT_DELETE, copy);
+    }, LV_EVENT_DELETE, context);
 }
 } // namespace lyra::gui::internal

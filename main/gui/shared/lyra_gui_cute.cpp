@@ -158,6 +158,14 @@ void cute_menu_icon_cb(lv_event_t *event)
             pen.line(13, 15, 24, 15, purple, 2);
             pen.box(13, 19, 4, 4, LV_RADIUS_CIRCLE, 0xF0ABD4);
             break;
+        case View::Apps:
+            // A compact pastel app grid with one highlighted tile.
+            pen.box(5, 5, 23, 23, 5, 0xF3EDFF, purple);
+            pen.box(8, 8, 7, 7, 2, 0xF3B1D8);
+            pen.box(18, 8, 7, 7, 2, 0xCDEAFF);
+            pen.box(8, 18, 7, 7, 2, 0xCBEEE4);
+            pen.box(18, 18, 7, 7, 2, 0xFFC8E5);
+            break;
         case View::Equalizer:
             // Toy-like sliders and round candy knobs.
             pen.box(4, 4, 25, 25, 6, 0xE3DBFA, purple);

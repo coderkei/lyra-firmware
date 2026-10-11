@@ -198,7 +198,7 @@ constexpr MenuEntry kListeningDestinations[] = {
     {lyra::i18n::StringId::MusicLibrary, View::Library, LV_SYMBOL_AUDIO},
     {lyra::i18n::StringId::Search, View::Search, LV_SYMBOL_EDIT},
     {lyra::i18n::StringId::Queue, View::Queue, LV_SYMBOL_LIST},
-    {lyra::i18n::StringId::Playlists, View::Playlists, LV_SYMBOL_PLAY},
+    {lyra::i18n::StringId::Apps, View::Apps, LV_SYMBOL_LIST},
 };
 
 constexpr MenuEntry kUtilityDestinations[] = {
@@ -214,6 +214,7 @@ constexpr MenuEntry kClassicDestinations[] = {
     {lyra::i18n::StringId::Queue, View::Queue, LV_SYMBOL_LIST},
     {lyra::i18n::StringId::Equalizer, View::Equalizer, LV_SYMBOL_VOLUME_MID},
     {lyra::i18n::StringId::Search, View::Search, LV_SYMBOL_EDIT},
+    {lyra::i18n::StringId::Apps, View::Apps, LV_SYMBOL_LIST},
     {lyra::i18n::StringId::Settings, View::Settings, LV_SYMBOL_SETTINGS},
 };
 
@@ -366,6 +367,7 @@ void render_classic_zeno_menu()
         {lyra::i18n::StringId::BrowseFolders, View::Folders, LV_SYMBOL_DIRECTORY},
         {lyra::i18n::StringId::Queue, View::Queue, LV_SYMBOL_LIST},
         {lyra::i18n::StringId::Search, View::Search, LV_SYMBOL_EDIT},
+        {lyra::i18n::StringId::Apps, View::Apps, LV_SYMBOL_LIST},
         {lyra::i18n::StringId::Settings, View::Settings, LV_SYMBOL_SETTINGS},
         {lyra::i18n::StringId::Equalizer, View::Equalizer, LV_SYMBOL_VOLUME_MID},
     };
@@ -386,7 +388,7 @@ void render_classic_zeno_menu()
     }
     lv_obj_t *brand = make_label(body, "Emotivate Lyra", kTextSecondary);
     lv_obj_set_style_text_letter_space(brand, 2, 0);
-    lv_obj_set_pos(brand, 24, 453);
+    lv_obj_set_pos(brand, 24, 16 + 8 * 60 + 10);
 }
 
 void render_classic_menu()
@@ -416,7 +418,7 @@ void render_classic_menu()
     lv_obj_t *body = make_scroll_body(is_aura_theme() ? 96 : 72);
     constexpr uint32_t cute_row_colors[] = {
         0xFFD6ED, 0xF3EDFF, 0xEDF7FF, 0xEDF9F5,
-        0xF6EEFF, 0xEEF5FF, 0xFFF0F7,
+        0xF6EEFF, 0xEEF5FF, 0xFFF0F7, 0xEAF7F4,
     };
     for (size_t i = 0; i < sizeof(kClassicDestinations) / sizeof(kClassicDestinations[0]); ++i) {
         const MenuEntry &entry = kClassicDestinations[i];

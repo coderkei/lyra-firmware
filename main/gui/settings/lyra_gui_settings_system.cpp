@@ -115,6 +115,11 @@ void toggle_bool_cb(lv_event_t *event)
         save_user_settings();
         if (value == &s_replay_gain) apply_replay_gain_to_current_track();
     }
+    if (value == &s_timer_alarm_enabled) {
+        save_user_settings();
+        render(s_view);
+        return;
+    }
     if (value == &s_dark_mode) {
         apply_theme_palette();
         save_user_settings();

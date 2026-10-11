@@ -90,7 +90,8 @@ extern const AccentPalette kAccentPalettes[8];
 constexpr size_t kAccentPaletteCount = 8;
 
 enum class View : uintptr_t {
-    Menu, Player, TrackInfo, FullscreenInfoArt, Queue,
+    Menu, Player, TrackInfo, FullscreenInfoArt, Queue, Apps, Calculator, Calendar,
+    Stopwatch, Timer, Photos, Ebook,
     Library, LibrarySongs, LibraryArtists, LibraryAlbums, LibraryGenres,
     LibraryYears, AlbumDetail, ArtistDetail, Folders, FolderDetail, FileViewer, FolderPlaylist,
     Playlists, PlaylistDetail, PlaylistCreate, PlaylistAdd, Equalizer,
@@ -236,6 +237,7 @@ extern DateFormat s_date_format;
 extern bool s_use_24_hour;
 extern bool s_dst_enabled;
 extern bool s_speaker_output_enabled;
+extern bool s_timer_alarm_enabled;
 extern EqualizerPreset s_equalizer_preset;
 extern int16_t s_equalizer_custom_bands[lyra::audio::kEqualizerBandCount];
 extern uint16_t s_sleep_timer_minutes;
@@ -447,11 +449,14 @@ void make_search_playlist_row(lv_obj_t *parent, int y, const lyra::media::Search
 void search_album_result_cb(lv_event_t *event);
 void search_artist_result_cb(lv_event_t *event);
 void render_file_viewer();
+void open_document_file(const char *path, lyra::media::FileKind kind, View back_view);
+View file_viewer_back_view();
 extern char s_folder_playlist_path[lyra::media::kMaxPath];
 void open_folder_playlist(const char *path);
 void render_folder_playlist();
 bool play_file_queue(const size_t *indices, size_t count, size_t position);
-void make_document_row(lv_obj_t *parent, int y, const lyra::media::FolderFile &file);
+void make_document_row(lv_obj_t *parent, int y, const lyra::media::FolderFile &file,
+                       View back_view = View::Folders);
 void make_file_row(lv_obj_t *parent, int y, size_t track_index, int height = 54);
 void make_album_art(lv_obj_t *parent, int x, int y, int width, int height, const lyra::media::Track &track, bool preserve_aspect = false);
 void page_cb(lv_event_t *event);
@@ -474,6 +479,14 @@ void make_zeno_album_song_row(lv_obj_t *parent, int y, size_t track_index, size_
 void make_zeno_transport(lv_obj_t *parent, int y);
 void update_zeno_transport();
 void render_menu();
+void render_apps();
+void render_calculator();
+void render_calendar();
+void render_stopwatch();
+void render_timer();
+void render_app_files();
+void release_app_file_scan(View view);
+void stop_apps_runtime_timers(View next_view);
 void queue_track_cb(lv_event_t *event);
 void make_queue_song_row(lv_obj_t *parent, int y, size_t queue_position, bool current);
 void render_queue();

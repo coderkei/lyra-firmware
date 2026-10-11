@@ -263,4 +263,286 @@ size_t folder_files(const char *path, size_t offset, FolderFile *files,
     if (total) *total = matched;
     return found;
 }
+
+namespace {
+constexpr char kFolderTreeCacheMagic[8] = {'L', 'Y', 'R', 'A', 'A', 'P', 'P', 'S'};
+constexpr uint32_t kFolderTreeCacheVersion = 1;
+constexpr size_t kFolderTreeCacheMaximumFiles = 20000;
+
+struct FolderTreeCacheHeader {
+    char magic[8];
+    uint32_t version;
+    uint32_t kind;
+    uint32_t count;
+    uint32_t checksum;
+};
+
+struct FolderTreeFileCollection {
+    FolderFile *files{};
+    size_t count{};
+    size_t capacity{};
+    uint32_t heap_caps{MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT};
+    FileKind kind{FileKind::Text};
+    FolderTreeProgressCallback progress{};
+    void *progress_context{};
+};
+
+bool is_supported_tree_file(const char *name, FileKind kind)
+{
+    const char *ext = extension_of(name);
+    if (kind == FileKind::Image) {
+        return !strcasecmp(ext, "png") || !strcasecmp(ext, "bmp") ||
+               !strcasecmp(ext, "jpg") || !strcasecmp(ext, "jpeg");
+    }
+    return kind == FileKind::Text &&
+           (!strcasecmp(ext, "txt") || !strcasecmp(ext, "lrc"));
+}
+
+const char *folder_tree_cache_path(FileKind kind)
+{
+    return kind == FileKind::Image ? "/sdcard/.lyra/app-images-v1.bin" :
+           kind == FileKind::Text ? "/sdcard/.lyra/app-text-v1.bin" : nullptr;
+}
+
+uint32_t folder_tree_checksum_add(uint32_t checksum, const void *data, size_t size)
+{
+    const auto *bytes = static_cast<const uint8_t *>(data);
+    for (size_t index = 0; index < size; ++index) {
+        checksum = (checksum ^ bytes[index]) * 16777619u;
+    }
+    return checksum;
+}
+
+FolderFile *allocate_folder_tree_files(size_t count)
+{
+    if (!count || count > SIZE_MAX / sizeof(FolderFile)) return nullptr;
+    FolderFile *files = static_cast<FolderFile *>(heap_caps_calloc(
+        count, sizeof(FolderFile), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!files) {
+        files = static_cast<FolderFile *>(heap_caps_calloc(
+            count, sizeof(FolderFile), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    }
+    return files;
+}
+
+bool load_folder_tree_cache(FileKind kind, FolderFile **files, size_t *count,
+                            FolderTreeProgressCallback progress, void *progress_context)
+{
+    const char *cache_path = folder_tree_cache_path(kind);
+    if (!cache_path || !begin_file_access()) return false;
+    FILE *file = std::fopen(cache_path, "rb");
+    if (!file) {
+        end_file_access();
+        return false;
+    }
+
+    FolderTreeCacheHeader header{};
+    bool valid = std::fread(&header, sizeof(header), 1, file) == 1 &&
+        std::memcmp(header.magic, kFolderTreeCacheMagic, sizeof(header.magic)) == 0 &&
+        header.version == kFolderTreeCacheVersion &&
+        header.kind == static_cast<uint32_t>(kind) &&
+        header.count <= kFolderTreeCacheMaximumFiles;
+    FolderFile *loaded = valid ? allocate_folder_tree_files(header.count) : nullptr;
+    if (valid && header.count && !loaded) valid = false;
+
+    uint32_t checksum = 2166136261u;
+    for (size_t index = 0; valid && index < header.count; ++index) {
+        uint16_t path_length = 0;
+        if (std::fread(&path_length, sizeof(path_length), 1, file) != 1 ||
+            path_length == 0 || path_length >= sizeof(loaded[index].path) ||
+            std::fread(loaded[index].path, 1, path_length, file) != path_length) {
+            valid = false;
+            break;
+        }
+        loaded[index].path[path_length] = '\0';
+        if (std::strncmp(loaded[index].path, "/sdcard/", 8) != 0 ||
+            std::strstr(loaded[index].path, "/../") != nullptr ||
+            !is_supported_tree_file(loaded[index].path, kind)) {
+            valid = false;
+            break;
+        }
+        loaded[index].kind = kind;
+        checksum = folder_tree_checksum_add(checksum, &path_length, sizeof(path_length));
+        checksum = folder_tree_checksum_add(checksum, loaded[index].path, path_length);
+        if (progress) progress(progress_context, index + 1);
+    }
+    if (valid && (checksum != header.checksum || std::fgetc(file) != EOF)) valid = false;
+    const bool closed = std::fclose(file) == 0;
+    end_file_access();
+    valid = valid && closed;
+    if (!valid) {
+        heap_caps_free(loaded);
+        return false;
+    }
+    *files = loaded;
+    *count = header.count;
+    return true;
+}
+
+void save_folder_tree_cache(FileKind kind, const FolderFile *files, size_t count)
+{
+    const char *cache_path = folder_tree_cache_path(kind);
+    if (!cache_path || count > kFolderTreeCacheMaximumFiles || !begin_file_access()) return;
+    struct stat directory_info{};
+    if (stat("/sdcard/.lyra", &directory_info) != 0 && mkdir("/sdcard/.lyra", 0775) != 0) {
+        end_file_access();
+        return;
+    }
+
+    char temporary[64];
+    const int path_size = std::snprintf(temporary, sizeof(temporary), "%s.tmp", cache_path);
+    if (path_size <= 0 || static_cast<size_t>(path_size) >= sizeof(temporary)) {
+        end_file_access();
+        return;
+    }
+    FILE *file = std::fopen(temporary, "wb");
+    if (!file) {
+        end_file_access();
+        return;
+    }
+
+    uint32_t checksum = 2166136261u;
+    bool valid = true;
+    for (size_t index = 0; index < count; ++index) {
+        const size_t path_length = strnlen(files[index].path, sizeof(files[index].path));
+        if (!path_length || path_length >= sizeof(files[index].path) ||
+            path_length > UINT16_MAX) {
+            valid = false;
+            break;
+        }
+        const uint16_t stored_length = static_cast<uint16_t>(path_length);
+        checksum = folder_tree_checksum_add(checksum, &stored_length, sizeof(stored_length));
+        checksum = folder_tree_checksum_add(checksum, files[index].path, path_length);
+    }
+
+    FolderTreeCacheHeader header{};
+    std::memcpy(header.magic, kFolderTreeCacheMagic, sizeof(header.magic));
+    header.version = kFolderTreeCacheVersion;
+    header.kind = static_cast<uint32_t>(kind);
+    header.count = static_cast<uint32_t>(count);
+    header.checksum = checksum;
+    valid = valid && std::fwrite(&header, sizeof(header), 1, file) == 1;
+    for (size_t index = 0; valid && index < count; ++index) {
+        const uint16_t path_length = static_cast<uint16_t>(
+            strnlen(files[index].path, sizeof(files[index].path)));
+        valid = std::fwrite(&path_length, sizeof(path_length), 1, file) == 1 &&
+                std::fwrite(files[index].path, 1, path_length, file) == path_length;
+    }
+    const bool closed = std::fclose(file) == 0;
+    valid = valid && closed;
+    if (valid) {
+        std::remove(cache_path);
+        valid = std::rename(temporary, cache_path) == 0;
+    }
+    if (!valid) std::remove(temporary);
+    end_file_access();
+}
+
+bool append_tree_file(FolderTreeFileCollection *collection, const char *path)
+{
+    if (collection->count == collection->capacity) {
+        const size_t next_capacity = collection->capacity ? collection->capacity * 2 : 32;
+        if (next_capacity < collection->capacity ||
+            next_capacity > SIZE_MAX / sizeof(FolderFile)) return false;
+        const bool first_allocation = collection->files == nullptr;
+        FolderFile *grown = static_cast<FolderFile *>(heap_caps_realloc(
+            collection->files, next_capacity * sizeof(FolderFile), collection->heap_caps));
+        if (!grown && first_allocation &&
+            collection->heap_caps == (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) {
+            collection->heap_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+            grown = static_cast<FolderFile *>(heap_caps_realloc(
+                collection->files, next_capacity * sizeof(FolderFile), collection->heap_caps));
+        }
+        if (!grown) return false;
+        collection->files = grown;
+        collection->capacity = next_capacity;
+    }
+    copy_text(collection->files[collection->count].path,
+              sizeof(collection->files[collection->count].path), path);
+    collection->files[collection->count++].kind = collection->kind;
+    if (collection->progress) collection->progress(collection->progress_context,
+                                                   collection->count);
+    return true;
+}
+
+bool collect_tree_files(const char *path, FolderTreeFileCollection *collection,
+                        unsigned depth)
+{
+    if (depth > 32) return false;
+    DIR *directory = opendir(path);
+    if (!directory) return false;
+    bool ok = true;
+    while (ok) {
+        errno = 0;
+        dirent *entry = readdir(directory);
+        if (!entry) { ok = errno == 0; break; }
+        if (entry->d_name[0] == '.') continue;
+        char child[kMaxPath];
+        struct stat info{};
+        if (!join_path(child, sizeof(child), path, entry->d_name)) continue;
+        if (stat(child, &info) != 0) continue;
+        if (S_ISDIR(info.st_mode)) {
+            ok = collect_tree_files(child, collection, depth + 1);
+        } else if (S_ISREG(info.st_mode) &&
+                   is_supported_tree_file(entry->d_name, collection->kind)) {
+            ok = append_tree_file(collection, child);
+        }
+    }
+    closedir(directory);
+    return ok;
+}
+
+int compare_tree_file_paths(const void *left, const void *right)
+{
+    const auto *a = static_cast<const FolderFile *>(left);
+    const auto *b = static_cast<const FolderFile *>(right);
+    const char *a_name = std::strrchr(a->path, '/');
+    const char *b_name = std::strrchr(b->path, '/');
+    const int name_order = strcasecmp(a_name ? a_name + 1 : a->path,
+                                     b_name ? b_name + 1 : b->path);
+    return name_order ? name_order : strcasecmp(a->path, b->path);
+}
+} // namespace
+
+bool folder_tree_files(const char *path, FileKind kind, FolderFile **files,
+                       size_t *count, FolderTreeProgressCallback progress,
+                       void *progress_context, bool refresh_cache)
+{
+    if (files) *files = nullptr;
+    if (count) *count = 0;
+    if (!files || !count || !path ||
+        (kind != FileKind::Image && kind != FileKind::Text) ||
+        std::strncmp(path, "/sdcard", 7) != 0 ||
+        (path[7] && path[7] != '/')) return false;
+
+    const bool cacheable_root = std::strcmp(path, "/sdcard") == 0;
+    if (cacheable_root && !refresh_cache &&
+        load_folder_tree_cache(kind, files, count, progress, progress_context)) return true;
+    if (progress) progress(progress_context, 0);
+    if (!begin_file_access()) return false;
+
+    FolderTreeFileCollection collection{};
+    collection.kind = kind;
+    collection.progress = progress;
+    collection.progress_context = progress_context;
+    const bool ok = collect_tree_files(path, &collection, 0);
+    end_file_access();
+    if (!ok) {
+        heap_caps_free(collection.files);
+        return false;
+    }
+    if (collection.count > 1) {
+        std::qsort(collection.files, collection.count, sizeof(FolderFile),
+                   compare_tree_file_paths);
+    }
+    *files = collection.files;
+    *count = collection.count;
+    if (cacheable_root) save_folder_tree_cache(kind, collection.files, collection.count);
+    return true;
+}
+
+void free_folder_tree_files(FolderFile *files)
+{
+    heap_caps_free(files);
+}
 } // namespace lyra::media

@@ -89,6 +89,8 @@ extern lyra::audio::EqualizerSettings s_equalizer;
 extern uint32_t s_equalizer_generation;
 extern char s_requested_path[lyra::audio::kMaxPath];
 extern std::atomic<uint32_t> s_request_generation;
+extern int64_t s_timer_alarm_started_us;
+extern std::atomic<bool> s_timer_alarm_stream_handled;
 extern uint32_t s_requested_seek_ms;
 extern bool s_requested_pause_after_seek;
 // Protected by s_state_mutex; remains set through decoder and output teardown.
@@ -1171,6 +1173,8 @@ bool start_pcm_output(PcmOutput *output);
 void stop_pcm_output(PcmOutput *output, bool drain, uint32_t generation);
 esp_err_t queue_pcm(const uint8_t *pcm, size_t pcm_bytes, PcmOutput *output, uint32_t generation);
 esp_err_t configure_i2s(uint32_t sample_rate);
+bool timer_alarm_active();
+void mix_timer_alarm(int16_t *stereo_samples, size_t frames, uint32_t sample_rate);
 esp_err_t write_pcm(const uint8_t *pcm, size_t pcm_bytes, uint8_t channels, uint8_t bits_per_sample, int16_t *stereo_buffer, size_t stereo_buffer_bytes, PcmOutput *output, uint32_t generation, bool unsigned_8bit = false);
 esp_err_t decode_file(DecoderStream *track);
 void audio_task(void *);
