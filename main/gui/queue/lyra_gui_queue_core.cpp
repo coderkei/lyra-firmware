@@ -770,7 +770,7 @@ bool can_move_in_playback_queue(int direction)
 
 bool begin_manual_crossfade(int direction)
 {
-    if (s_crossfade_seconds == 0 || s_crossfade_pause_pending ||
+    if (is_player_ab_mode_active() || s_crossfade_seconds == 0 || s_crossfade_pause_pending ||
         !can_move_in_playback_queue(direction)) return false;
     const lyra::audio::Status audio_status = lyra::audio::status();
     if (!audio_status.playing || audio_status.paused || audio_status.eof) return false;
@@ -792,7 +792,7 @@ bool begin_manual_crossfade(int direction)
 
 void prepare_automatic_successor(const lyra::audio::Status &audio_status)
 {
-    if (!audio_status.playing || audio_status.eof || audio_status.transitioning ||
+    if (is_player_ab_mode_active() || !audio_status.playing || audio_status.eof || audio_status.transitioning ||
         !s_has_active_queue) return;
     if (!s_gapless && !s_crossfade_seconds) {
         lyra::audio::prepare_next(nullptr, audio_status.playback_serial, 0, 0, 0);

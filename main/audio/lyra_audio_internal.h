@@ -124,6 +124,7 @@ struct DecoderStream {
     float linear_gain = 1.0f;
     TaskHandle_t worker_task = nullptr;
     uint64_t emitted_frames = 0;
+    uint64_t playback_frames_milli = 0;
     // Resampler state, exclusively accessed by the mixer.
     int16_t cache[512 * 2]{};
     size_t cache_index = 0;

@@ -220,7 +220,7 @@ void player_progress_poll_cb(lv_timer_t *)
     } else if (!s_audio_eof_seen) {
         s_audio_eof_seen = true;
         lyra::audio::set_transition_gain(100);
-        if (automatic_track_advance_available()) {
+        if (!is_player_ab_mode_active() && automatic_track_advance_available()) {
             if (s_gapless) {
                 advance_after_track_end();
             } else {

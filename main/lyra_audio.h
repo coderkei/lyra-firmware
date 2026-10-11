@@ -16,6 +16,9 @@ constexpr size_t kMaxPath = 256;
 constexpr size_t kEqualizerBandCount = 5;
 constexpr int16_t kEqualizerMinimumTenthsDb = -60;
 constexpr int16_t kEqualizerMaximumTenthsDb = 60;
+constexpr uint16_t kMinimumPlaybackSpeedPermille = 250;
+constexpr uint16_t kMaximumPlaybackSpeedPermille = 2000;
+constexpr uint16_t kDefaultPlaybackSpeedPermille = 1000;
 // This is the user-facing scale. The implementation applies an additional
 // digital output cap below full-scale PCM amplitude.
 constexpr uint8_t kMaximumVolumePercent = 100;
@@ -45,6 +48,7 @@ struct Status {
     uint32_t position_ms;
     uint32_t duration_ms;
     uint8_t volume_percent;
+    uint16_t playback_speed_permille;
     char path[kMaxPath];
     // Changes on every start or automatic handoff, including repeat-song.
     uint32_t playback_serial;
@@ -116,6 +120,9 @@ esp_err_t set_speaker_output_enabled(bool enabled);
 // Replaces all five EQ gains atomically. The new filter coefficients are
 // applied at the next PCM block and smoothed over a short transition.
 esp_err_t set_equalizer(const EqualizerSettings &settings);
+// Changes playback rate from 0.25x through 2.00x. Speed adjustment uses the
+// native-rate resampler, so pitch changes with playback speed.
+esp_err_t set_playback_speed(uint16_t speed_permille);
 // Applies a per-track ReplayGain adjustment in tenths of a decibel. The
 // adjustment is capped by the normal maximum output level.
 esp_err_t set_replay_gain_adjustment(int16_t tenths_db);

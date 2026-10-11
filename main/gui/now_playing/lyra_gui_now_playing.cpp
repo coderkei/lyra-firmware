@@ -735,9 +735,11 @@ void update_player_progress()
 {
     update_zeno_transport();
     update_aura_transport();
+    lyra::audio::Status audio_status = lyra::audio::status();
+    const bool ab_mode_changed = update_player_ab_loop(audio_status);
+    if (ab_mode_changed && s_view == View::Player) render(View::Player);
+    audio_status = lyra::audio::status();
     if (!s_player_progress_bar && !s_player_elapsed_label && !s_player_duration_label) return;
-
-    const lyra::audio::Status audio_status = lyra::audio::status();
     if (s_player_seek_preview_active && s_player_seek_preview_release_pending) {
         const bool path_changed = std::strcmp(audio_status.path, s_player_seek_preview_path) != 0;
         if (path_changed || audio_status.last_error != ESP_OK || audio_status.duration_ms > 0) {
@@ -978,13 +980,6 @@ void render_player()
     make_marquee(album, zeno ? 136 : 240);
     lv_obj_align(album, LV_ALIGN_TOP_LEFT, zeno ? 172 : 20, zeno ? 81 : progress_y - 35);
 
-    lv_obj_t *heart_button = make_button(overview, zeno ? 170 : 270, zeno ? 118 : progress_y - 79,
-        36, 36, kBackground, 18);
-    lv_obj_t *heart = make_label(heart_button, favorite ? kHeartFilled : kHeartOutline,
-                                 favorite ? kAccent : kTextPrimary);
-    lv_obj_center(heart);
-    lv_obj_add_event_cb(heart_button, toggle_favorite_cb, LV_EVENT_CLICKED, heart);
-
     lv_obj_t *bar = lv_bar_create(body);
     lv_obj_set_pos(bar, zeno ? 16 : 56, progress_y);
     lv_obj_set_size(bar, zeno ? 288 : 208, (zeno || aura) ? 8 : 5);
@@ -1031,27 +1026,7 @@ void render_player()
         render(s_view);
     }, LV_EVENT_CLICKED, nullptr);
     const int tools_y = (zeno || aura) ? 410 : controls_y + 4;
-    lv_obj_t *equalizer = make_button(body, 76, tools_y, 44, 38, kBackground, 7);
-    make_equalizer_icon(equalizer, kTextSecondary);
-    add_route(equalizer, View::Equalizer);
-    lv_obj_t *playlist_button = make_button(body, 136, tools_y, 44, 38,
-                                            kBackground, 7);
-    lv_obj_t *playlist_icon = make_label(playlist_button, LV_SYMBOL_LIST, kTextSecondary);
-    lv_obj_align(playlist_icon, LV_ALIGN_CENTER, -3, 0);
-    lv_obj_t *playlist_plus = make_label(playlist_button, LV_SYMBOL_PLUS, kTextSecondary);
-    lv_obj_align(playlist_plus, LV_ALIGN_BOTTOM_RIGHT, -4, -1);
-    lv_obj_clear_flag(playlist_icon, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(playlist_plus, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(playlist_button, show_player_playlist_picker_cb, LV_EVENT_CLICKED, nullptr);
-
-    lv_obj_t *info = make_button(body, 196, tools_y, 44, 38, kBackground, 7);
-    lv_obj_t *info_icon = make_label(info, "i", kTextSecondary);
-    lv_obj_set_style_text_font(info_icon, &lv_font_montserrat_18, 0);
-    lv_obj_center(info_icon);
-    lv_obj_add_event_cb(info, [](lv_event_t *) {
-        s_track_info_tab = TrackInfoTab::Song;
-        navigate_to(View::TrackInfo);
-    }, LV_EVENT_CLICKED, nullptr);
+    make_player_action_buttons(body, tools_y, favorite);
 
     lv_obj_t *shuffle = make_button(body, (zeno || aura) ? 16 : 256, controls_y + ((zeno || aura) ? 0 : 4),
         44, (zeno || aura) ? 44 : 38, kBackground, (zeno || aura) ? LV_RADIUS_CIRCLE : 7);

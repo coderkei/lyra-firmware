@@ -562,6 +562,7 @@ lv_obj_t *make_scroll_body(int top)
 void style_root()
 {
     reset_player_lyrics_state();
+    reset_player_action_ui();
     s_player_progress_bar = nullptr;
     s_player_progress_touch = nullptr;
     s_player_elapsed_label = nullptr;

@@ -148,6 +148,7 @@ esp_err_t init()
     s_status.last_error = ESP_OK;
     load_saved_maximum_volume();
     s_status.volume_percent = load_saved_volume();
+    s_status.playback_speed_permille = kDefaultPlaybackSpeedPermille;
     s_requested_seek_ms = 0;
     s_requested_pause_after_seek = false;
     s_initialized = true;
@@ -397,6 +398,18 @@ esp_err_t set_equalizer(const EqualizerSettings &settings)
     s_equalizer = clamped;
     if (changed) ++s_equalizer_generation;
     xSemaphoreGive(s_state_mutex);
+    return ESP_OK;
+}
+
+esp_err_t set_playback_speed(uint16_t speed_permille)
+{
+    if (!s_initialized || s_state_mutex == nullptr) return ESP_ERR_INVALID_STATE;
+    if (speed_permille < kMinimumPlaybackSpeedPermille ||
+        speed_permille > kMaximumPlaybackSpeedPermille) return ESP_ERR_INVALID_ARG;
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    s_status.playback_speed_permille = speed_permille;
+    xSemaphoreGive(s_state_mutex);
+    xTaskNotifyGive(s_audio_task);
     return ESP_OK;
 }
 

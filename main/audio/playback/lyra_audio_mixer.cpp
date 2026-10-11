@@ -39,6 +39,7 @@ bool open_track(DecoderStream *track, const char *path, uint32_t generation,
     track->result = ESP_OK;
     track->status = {};
     track->emitted_frames = 0;
+    track->playback_frames_milli = 0;
     track->cache_index = 0;
     track->cache_frames = 0;
     track->phase = 0;
@@ -138,13 +139,18 @@ FrameResult source_frame(DecoderStream *track, int16_t *frame)
     return FrameResult::kReady;
 }
 
-FrameResult next_frame(DecoderStream *track, uint32_t output_rate, int16_t *frame)
+FrameResult next_frame(DecoderStream *track, uint32_t output_rate,
+                       uint16_t speed_permille, int16_t *frame)
 {
     const uint32_t input_rate = track->native_rate.load(std::memory_order_acquire);
     if (input_rate == 0 || output_rate == 0) return FrameResult::kWaiting;
-    if (input_rate == output_rate) {
+    if (input_rate == output_rate && speed_permille == 1000 &&
+        track->phase == 0 && !track->have_left && !track->have_right) {
         const FrameResult result = source_frame(track, frame);
-        if (result == FrameResult::kReady) ++track->emitted_frames;
+        if (result == FrameResult::kReady) {
+            ++track->emitted_frames;
+            track->playback_frames_milli += speed_permille;
+        }
         return result;
     }
 
@@ -164,9 +170,10 @@ FrameResult next_frame(DecoderStream *track, uint32_t output_rate, int16_t *fram
         track->have_right = true;
     }
 
-    while (track->phase >= output_rate) {
+    const uint64_t phase_limit = static_cast<uint64_t>(output_rate) * 1000u;
+    while (track->phase >= phase_limit) {
         if (track->right_is_last) return FrameResult::kEnd;
-        track->phase -= output_rate;
+        track->phase -= phase_limit;
         track->left[0] = track->right[0];
         track->left[1] = track->right[1];
         track->have_right = false;
@@ -185,10 +192,11 @@ FrameResult next_frame(DecoderStream *track, uint32_t output_rate, int16_t *fram
                                    track->left[channel];
         frame[channel] = static_cast<int16_t>(
             track->left[channel] + difference * static_cast<int64_t>(track->phase) /
-            output_rate);
+            static_cast<int64_t>(phase_limit));
     }
-    track->phase += input_rate;
+    track->phase += static_cast<uint64_t>(input_rate) * speed_permille;
     ++track->emitted_frames;
+    track->playback_frames_milli += speed_permille;
     return FrameResult::kReady;
 }
 
@@ -207,6 +215,7 @@ void publish_track(DecoderStream *track, uint32_t output_rate, bool transitioned
         return;
     }
     const uint8_t volume = s_status.volume_percent;
+    const uint16_t playback_speed_permille = s_status.playback_speed_permille;
     const bool paused = s_status.paused;
     const uint32_t serial = s_status.playback_serial + (transitioned ? 1u : 0u);
     s_status = track->status;
@@ -215,12 +224,15 @@ void publish_track(DecoderStream *track, uint32_t output_rate, bool transitioned
     s_status.eof = false;
     s_status.paused = paused;
     s_status.volume_percent = volume;
+    s_status.playback_speed_permille = playback_speed_permille;
     s_status.playback_serial = serial;
     s_status.queue_cookie = queue_cookie;
     s_status.transitioned = transitioned;
     s_status.transitioning = false;
-    s_status.position_ms = track->start_position_ms +
-        static_cast<uint32_t>(track->emitted_frames * 1000u / output_rate);
+    s_status.position_ms = static_cast<uint32_t>(std::min<uint64_t>(
+        static_cast<uint64_t>(track->start_position_ms) +
+            track->playback_frames_milli / output_rate,
+        UINT32_MAX));
     xSemaphoreGive(s_state_mutex);
 }
 
@@ -233,8 +245,10 @@ void update_position(DecoderStream *track, uint32_t output_rate)
     }
     s_status.decoded_bytes = track->status.decoded_bytes;
     s_status.duration_ms = track->status.duration_ms;
-    s_status.position_ms = track->start_position_ms +
-        static_cast<uint32_t>(track->emitted_frames * 1000u / output_rate);
+    s_status.position_ms = static_cast<uint32_t>(std::min<uint64_t>(
+        static_cast<uint64_t>(track->start_position_ms) +
+            track->playback_frames_milli / output_rate,
+        UINT32_MAX));
     xSemaphoreGive(s_state_mutex);
 }
 
@@ -374,6 +388,7 @@ void audio_task(void *)
             const bool is_paused = s_status.paused;
             const uint32_t serial = s_status.playback_serial;
             const int16_t active_gain = s_replay_gain_tenths_db;
+            const uint16_t playback_speed_permille = s_status.playback_speed_permille;
             const NextTrackRequest snapshot = s_next_track;
             xSemaphoreGive(s_state_mutex);
             if (active_gain != current->replay_gain_tenths_db) {
@@ -448,7 +463,7 @@ void audio_task(void *)
                     duration_ms = current->status.duration_ms;
                     xSemaphoreGive(s_state_mutex);
                     const uint64_t played_ms = static_cast<uint64_t>(current->start_position_ms) +
-                        current->emitted_frames * 1000u / output_rate;
+                        current->playback_frames_milli / output_rate;
                     const uint32_t remaining_ms = duration_ms > played_ms ?
                         static_cast<uint32_t>(duration_ms - played_ms) : 0;
                     if (requested.crossfade_ms &&
@@ -470,7 +485,7 @@ void audio_task(void *)
 
                 int16_t a[2]{}, b[2]{};
                 const FrameResult from_a = held_a ? FrameResult::kReady :
-                    next_frame(current, output_rate, a);
+                    next_frame(current, output_rate, playback_speed_permille, a);
                 if (held_a) {
                     a[0] = held_frame[0];
                     a[1] = held_frame[1];
@@ -493,7 +508,8 @@ void audio_task(void *)
                     break;
                 }
                 if (fading && from_a != FrameResult::kEnd) {
-                    const FrameResult from_b = next_frame(next, output_rate, b);
+                    const FrameResult from_b = next_frame(next, output_rate,
+                                                          playback_speed_permille, b);
                     if (from_b == FrameResult::kWaiting) {
                         held_a = true;
                         held_frame[0] = a[0];
@@ -516,7 +532,8 @@ void audio_task(void *)
                     (fading && fade_index >= fade_frames)) {
                     if (!next->pcm.stream || !track_ready(next)) break;
                     if (from_a == FrameResult::kEnd) {
-                        const FrameResult from_b = next_frame(next, output_rate, b);
+                        const FrameResult from_b = next_frame(next, output_rate,
+                                                              playback_speed_permille, b);
                         if (from_b != FrameResult::kReady) break;
                     }
                     xSemaphoreTake(s_state_mutex, portMAX_DELAY);
