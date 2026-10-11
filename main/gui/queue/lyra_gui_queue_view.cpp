@@ -257,7 +257,7 @@ lv_obj_t *make_menu_action(lv_obj_t *parent, const MenuEntry &entry,
         return button;
     }
 
-    const bool icon_above = centered && !is_standard_theme();
+    const bool icon_above = centered;
     const lv_color_t icon_color = s_neon_hud ? kTextSecondary : kAccent;
     lv_obj_t *icon = make_label(button, entry.icon, icon_color);
     if (icon_above) {
@@ -273,11 +273,6 @@ lv_obj_t *make_menu_action(lv_obj_t *parent, const MenuEntry &entry,
         make_marquee(label, width - 10);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -5);
-    } else if (centered) {
-        lv_obj_set_width(label, width - 8);
-        lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
-        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -4);
     } else {
         make_marquee(label, width - 48);
         lv_obj_align(label, LV_ALIGN_LEFT_MID, 39, 0);
@@ -360,14 +355,6 @@ void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int hei
     } else {
         lv_obj_align(title, LV_ALIGN_TOP_LEFT, text_x, 10);
         lv_obj_align(state, LV_ALIGN_BOTTOM_LEFT, text_x, -10);
-    }
-}
-
-void add_standard_utility_rows(lv_obj_t *body, int y)
-{
-    for (size_t i = 0; i < 3; ++i) {
-        make_menu_action(body, kUtilityDestinations[i], 10, y + static_cast<int>(i) * 44,
-                         300, 42, kSurface, false);
     }
 }
 
@@ -465,14 +452,17 @@ void render_classic_menu()
 
 void render_standard_menu(lv_obj_t *body)
 {
-    make_menu_playback_entry(body, 8, 5, 304, 68);
+    make_menu_playback_entry(body, 8, 5, 304, 104);
     constexpr int x[] = {9, 164, 9, 164};
-    constexpr int y[] = {80, 80, 154, 154};
+    constexpr int y[] = {116, 116, 194, 194};
     for (size_t i = 0; i < 4; ++i) {
-        make_menu_action(body, kListeningDestinations[i], x[i], y[i], 147, 68,
+        make_menu_action(body, kListeningDestinations[i], x[i], y[i], 147, 70,
                          kSurface, true);
     }
-    add_standard_utility_rows(body, 230);
+    for (size_t i = 0; i < 3; ++i) {
+        make_menu_action(body, kUtilityDestinations[i], 8 + static_cast<int>(i) * 103,
+                         275, 98, 66, kSurface, false, true);
+    }
 }
 
 void render_cute_menu(lv_obj_t *body)
