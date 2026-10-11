@@ -15,6 +15,7 @@ namespace {
 // handler. Keep the one-shot task large enough for queue serialization and
 // safe card unmounting.
 constexpr uint32_t kPowerActionTaskStack = 8 * 1024;
+constexpr uint32_t kAudioStopTimeoutMs = 5000;
 
 struct FactoryResetFailure {
     char message[112];
@@ -996,6 +997,9 @@ void save_active_queue_snapshot(const lyra::audio::Status &audio_status)
     const size_t count = playback_queue_count();
     size_t current = 0;
     if (count == 0 || !current_queue_position(&current)) return;
+    const int64_t snapshot_started_us = esp_timer_get_time();
+    ESP_LOGI(kTag, "saving shutdown queue snapshot: tracks=%u",
+             static_cast<unsigned>(count));
 
     uint32_t playback_position_ms = s_saved_playback_position_pending ?
                                     s_saved_playback_position_ms : 0;
@@ -1037,6 +1041,10 @@ void save_active_queue_snapshot(const lyra::audio::Status &audio_status)
     const esp_err_t result = complete ?
         lyra::media::save_queue_snapshot(tracks, count, current, playback_position_ms) : ESP_FAIL;
     heap_caps_free(tracks);
+    ESP_LOGI(kTag, "shutdown queue snapshot finished: tracks=%u elapsed=%u ms result=%s",
+             static_cast<unsigned>(count),
+             static_cast<unsigned>((esp_timer_get_time() - snapshot_started_us) / 1000),
+             esp_err_to_name(result));
     if (result != ESP_OK) {
         ESP_LOGW(kTag, "could not save queue snapshot: %s", esp_err_to_name(result));
     }
@@ -1051,13 +1059,18 @@ void power_action_task(void *context)
     const lyra::audio::Status audio_status = lyra::audio::status();
     // A factory reset must not create or update any files on the MicroSD card,
     // so it deliberately skips the normal shutdown queue/volume persistence.
-    lyra::audio::stop();
-    // The decoder owns an open MicroSD FILE while it is active. Wait for its
-    // worker to release that handle before attempting the filesystem unmount.
-    for (int wait_count = 0; wait_count < 200; ++wait_count) {
-        if (!lyra::audio::status().playing) break;
-        vTaskDelay(pdMS_TO_TICKS(10));
+    ESP_LOGI(kTag, "shutdown: waiting for audio workers to release files");
+    const esp_err_t audio_result = lyra::audio::stop_and_wait(kAudioStopTimeoutMs);
+    if (audio_result != ESP_OK) {
+        ESP_LOGE(kTag, "could not stop audio before shutdown: %s",
+                 esp_err_to_name(audio_result));
+        if (factory_reset) post_factory_reset_failure(audio_result);
+        // Do not write queue state or unmount while a decoder may still own
+        // an open MicroSD file.
+        vTaskDelete(nullptr);
+        return;
     }
+    ESP_LOGI(kTag, "shutdown: audio workers released files");
 
     if (!factory_reset) {
         // Stop playback before writing the queue snapshot so the filesystem
@@ -1066,8 +1079,10 @@ void power_action_task(void *context)
         const esp_err_t volume_result = lyra::audio::save_volume();
         if (volume_result != ESP_OK) ESP_LOGW(kTag, "could not save volume before shutdown: %s",
                                               esp_err_to_name(volume_result));
+        ESP_LOGI(kTag, "shutdown: volume persistence complete");
     }
 
+    ESP_LOGI(kTag, "shutdown: starting safe MicroSD shutdown");
     const esp_err_t media_result = lyra::media::shutdown();
     if (media_result != ESP_OK) {
         ESP_LOGE(kTag, "safe shutdown failed: %s", esp_err_to_name(media_result));

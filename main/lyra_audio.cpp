@@ -144,6 +144,7 @@ esp_err_t init()
     }
 
     s_status = {};
+    s_audio_session_active = false;
     s_status.initialized = true;
     s_status.last_error = ESP_OK;
     load_saved_maximum_volume();
@@ -284,6 +285,25 @@ esp_err_t stop()
     xSemaphoreGive(s_state_mutex);
     xTaskNotifyGive(s_audio_task);
     return ESP_OK;
+}
+
+esp_err_t stop_and_wait(uint32_t timeout_ms)
+{
+    if (!s_initialized || s_state_mutex == nullptr) return ESP_OK;
+
+    const esp_err_t stop_result = stop();
+    if (stop_result != ESP_OK) return stop_result;
+
+    const TickType_t wait_started = xTaskGetTickCount();
+    const TickType_t wait_limit = pdMS_TO_TICKS(timeout_ms);
+    while (true) {
+        xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+        const bool active = s_audio_session_active;
+        xSemaphoreGive(s_state_mutex);
+        if (!active) return ESP_OK;
+        if ((xTaskGetTickCount() - wait_started) >= wait_limit) return ESP_ERR_TIMEOUT;
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
 }
 
 esp_err_t seek(uint32_t position_ms)

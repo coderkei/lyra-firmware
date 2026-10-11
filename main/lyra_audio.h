@@ -107,6 +107,9 @@ esp_err_t prepare_next(const char *path, uint32_t playback_serial,
                        uint32_t queue_cookie, uint32_t crossfade_ms,
                        int16_t replay_gain_tenths_db, bool immediate = false);
 esp_err_t stop();
+// Stops playback and waits until decoder files and output workers are released.
+// Returns ESP_ERR_TIMEOUT if the audio task does not finish teardown in time.
+esp_err_t stop_and_wait(uint32_t timeout_ms);
 esp_err_t toggle_pause();
 esp_err_t seek(uint32_t position_ms);
 esp_err_t set_volume(uint8_t volume_percent);

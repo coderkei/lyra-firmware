@@ -882,16 +882,22 @@ void render_player()
     const size_t queue_count = s_has_active_queue ? playback_queue_count() : 0;
     size_t queue_position = 0;
     const bool queue_position_valid = queue_count > 0 && current_queue_position(&queue_position);
-    if (queue_position_valid && !zeno) {
+    if (queue_position_valid) {
         char position_text[24];
         format_u32_u32(lyra::i18n::StringId::QueuePosition,
                        static_cast<uint32_t>(queue_position + 1),
                        static_cast<uint32_t>(queue_count),
                        position_text, sizeof(position_text));
         lv_obj_t *position = make_label(body, position_text, kTextSecondary);
-        lv_obj_set_width(position, kScreenWidth);
-        lv_obj_set_style_text_align(position, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_align(position, LV_ALIGN_TOP_MID, 0, 0);
+        if (zeno) {
+            // Zeno has its own heading bar; fit the compact queue position
+            // beneath the heading and above the artwork overview.
+            lv_obj_set_pos(position, 16, 34);
+        } else {
+            lv_obj_set_width(position, kScreenWidth);
+            lv_obj_set_style_text_align(position, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_align(position, LV_ALIGN_TOP_MID, 0, 0);
+        }
     }
     const int art_size = aura ? 196 : zeno ? 140 : (s_show_nav || s_quick_seek ? 224 : 272);
     const int art_x = zeno ? 16 : (kScreenWidth - art_size) / 2;

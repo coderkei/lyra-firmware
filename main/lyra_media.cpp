@@ -275,6 +275,7 @@ esp_err_t start_scan()
 
 esp_err_t shutdown(uint32_t timeout_ms)
 {
+    ESP_LOGI(kTag, "safe shutdown requested; stopping new MicroSD work");
     {
         Lock lock;
         s_shutdown_requested = true;
@@ -300,6 +301,7 @@ esp_err_t shutdown(uint32_t timeout_ms)
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 
+    ESP_LOGI(kTag, "MicroSD background work stopped; releasing catalog state");
     Lock lock;
     heap_caps_free(s_artwork_pixels);
     s_artwork_pixels = nullptr;
@@ -307,6 +309,7 @@ esp_err_t shutdown(uint32_t timeout_ms)
     s_artwork_key = 0;
     if (!s_status.mounted || !s_card) return ESP_OK;
     clear_runtime_catalog();
+    ESP_LOGI(kTag, "unmounting MicroSD filesystem");
     const esp_err_t result = esp_vfs_fat_sdcard_unmount(kMount, s_card);
     if (result == ESP_OK) {
         s_card = nullptr;

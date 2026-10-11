@@ -356,6 +356,15 @@ esp_err_t save_queue_snapshot(const size_t *track_indices, size_t track_count,
         std::remove(kQueueSnapshotTempPath);
         return ESP_ERR_NO_MEM;
     }
+    const auto read_snapshot_track = [](size_t track_index, Track *out) {
+        if (!out) return false;
+        if (track_index >= kMaxTracks) return transient_track_at_locked(track_index, out);
+        if (!s_catalog || !s_title_order || track_index >= s_track_count) return false;
+        // Snapshot serialization only needs the catalog path. Avoid
+        // track_at_locked(), which refreshes file size and mtime with a stat
+        // for every song in a large All Songs queue.
+        return read_physical(s_catalog, s_catalog_header, s_title_order[track_index], out);
+    };
     bool written = std::fputs("#EXTM3U\n#LYRA_QUEUE_V2\n", file) >= 0 &&
                    std::fprintf(file, "#CURRENT=%u\n",
                                 static_cast<unsigned>(current_position)) > 0 &&
@@ -365,7 +374,7 @@ esp_err_t save_queue_snapshot(const size_t *track_indices, size_t track_count,
         {
             Lock lock;
             if (!s_status.mounted || s_shutdown_requested ||
-                !track_at_locked(track_indices[position], track)) {
+                !read_snapshot_track(track_indices[position], track)) {
                 written = false;
             }
         }

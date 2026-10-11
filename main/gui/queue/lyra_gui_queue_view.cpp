@@ -321,8 +321,7 @@ void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int hei
         make_artwork_contents(artwork, artwork_size, artwork_size, track,
                               artwork_radius, true);
     } else {
-        lv_obj_t *placeholder = make_label(artwork, LV_SYMBOL_AUDIO, kAccent);
-        lv_obj_center(placeholder);
+        make_artwork_placeholder(artwork, artwork_size, artwork_size);
     }
     lv_obj_t *title = make_label(entry, title_text, title_color);
     make_marquee(title, text_width);

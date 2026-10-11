@@ -91,6 +91,8 @@ extern char s_requested_path[lyra::audio::kMaxPath];
 extern std::atomic<uint32_t> s_request_generation;
 extern uint32_t s_requested_seek_ms;
 extern bool s_requested_pause_after_seek;
+// Protected by s_state_mutex; remains set through decoder and output teardown.
+extern bool s_audio_session_active;
 extern uint8_t s_duration_scan_buffer[kDurationScanBufferBytes];
 extern lyra::audio::Status s_status;
 extern lyra::audio::Diagnostics s_diagnostics;

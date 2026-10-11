@@ -330,6 +330,12 @@ void audio_task(void *)
         gain = s_replay_gain_tenths_db;
         std::memcpy(path, s_requested_path, sizeof(path));
         path[sizeof(path) - 1] = '\0';
+        if (generation != handled_generation && path[0]) {
+            // Publish ownership before releasing the state lock. A shutdown
+            // waiter must not observe an idle gap between request pickup and
+            // decoder file open.
+            s_audio_session_active = true;
+        }
         xSemaphoreGive(s_state_mutex);
         if (generation == handled_generation) {
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -348,6 +354,7 @@ void audio_task(void *)
             s_status.eof = false;
             s_status.transitioning = false;
             s_status.path[0] = '\0';
+            s_audio_session_active = false;
             xSemaphoreGive(s_state_mutex);
             continue;
         }
@@ -643,13 +650,23 @@ void audio_task(void *)
         const Diagnostics final_stats = s_diagnostics;
         xSemaphoreGive(s_state_mutex);
         log_diagnostics(final_stats);
-        if (!generation_is_current(generation)) continue;
+        if (!generation_is_current(generation)) {
+            xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+            s_audio_session_active = false;
+            xSemaphoreGive(s_state_mutex);
+            continue;
+        }
         if (s_i2s_started) {
             i2s_channel_disable(s_i2s_tx);
             s_i2s_started = false;
         }
         disable_speaker_i2s();
         xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+        s_audio_session_active = false;
+        if (generation != s_request_generation) {
+            xSemaphoreGive(s_state_mutex);
+            continue;
+        }
         s_status.playing = false;
         s_status.paused = false;
         s_status.transitioning = false;

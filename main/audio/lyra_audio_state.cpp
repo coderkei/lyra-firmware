@@ -27,6 +27,7 @@ char s_requested_path[lyra::audio::kMaxPath];
 std::atomic<uint32_t> s_request_generation{0};
 uint32_t s_requested_seek_ms;
 bool s_requested_pause_after_seek;
+bool s_audio_session_active;
 uint8_t s_duration_scan_buffer[kDurationScanBufferBytes];
 
 lyra::audio::Status s_status{};

@@ -53,6 +53,11 @@ char s_ab_path[lyra::audio::kMaxPath];
 bool current_player_track_path(char *path, size_t capacity)
 {
     if (!path || capacity == 0) return false;
+    const lyra::audio::Status audio_status = lyra::audio::status();
+    if (audio_status.path[0] && std::strlen(audio_status.path) < capacity) {
+        std::strcpy(path, audio_status.path);
+        return true;
+    }
     lyra::media::Track track{};
     if (!lyra::media::track_at(s_current_track, &track) || !track.path[0] ||
         std::strlen(track.path) >= capacity) return false;
@@ -405,31 +410,38 @@ void show_player_bookmarks_overlay()
 
     const int list_height = lv_obj_get_height(dialog) - 56;
     lv_obj_t *list = make_box(dialog, 8, 48, 272, list_height, kSurface, 6);
-    lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLL_MOMENTUM);
-    lv_obj_set_scroll_dir(list, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
-    for (size_t i = 0; i < bookmarks.count; ++i) {
-        char time[16];
+    for (size_t i = 0; i < kPlayerBookmarkCount; ++i) {
+        const bool saved = i < bookmarks.count;
         char label_text[32];
-        format_playback_time(bookmarks.positions_ms[i], false, time, sizeof(time));
-        std::snprintf(label_text, sizeof(label_text), "#%u   %s",
-                      static_cast<unsigned>(i + 1), time);
-        lv_obj_t *jump = make_button(list, 0, static_cast<int>(i) * 48,
-                                     220, 44, kBackground, 5, true);
-        lv_obj_t *label = make_label(jump, label_text, kTextPrimary);
+        if (saved) {
+            char time[16];
+            format_playback_time(bookmarks.positions_ms[i], false, time, sizeof(time));
+            std::snprintf(label_text, sizeof(label_text), "#%u   %s",
+                          static_cast<unsigned>(i + 1), time);
+        } else {
+            std::snprintf(label_text, sizeof(label_text), "#%u",
+                          static_cast<unsigned>(i + 1));
+        }
+        const int row_y = static_cast<int>(i) * 48;
+        lv_obj_t *jump = make_button(list, 0, row_y, 220, 44,
+                                     saved ? kBackground : kSurfaceRaised,
+                                     5, true);
+        lv_obj_t *label = make_label(jump, label_text,
+                                     saved ? kTextPrimary : kTextMuted);
         lv_obj_align(label, LV_ALIGN_LEFT_MID, 12, 0);
-        lv_obj_add_event_cb(jump, player_bookmark_jump_cb, LV_EVENT_CLICKED,
-                            reinterpret_cast<void *>(static_cast<uintptr_t>(i)));
-        lv_obj_t *remove = make_button(list, 224, static_cast<int>(i) * 48,
-                                       44, 44, kDangerSurface, 5);
-        lv_obj_t *remove_icon = make_label(remove, LV_SYMBOL_CLOSE, kTextSecondary);
-        lv_obj_center(remove_icon);
-        lv_obj_add_event_cb(remove, player_bookmark_remove_cb, LV_EVENT_CLICKED,
-                            reinterpret_cast<void *>(static_cast<uintptr_t>(i)));
+        if (saved) {
+            lv_obj_add_event_cb(jump, player_bookmark_jump_cb, LV_EVENT_CLICKED,
+                                reinterpret_cast<void *>(static_cast<uintptr_t>(i)));
+            lv_obj_t *remove = make_button(list, 224, row_y, 44, 44,
+                                           kDangerSurface, 5);
+            lv_obj_t *remove_icon = make_label(remove, LV_SYMBOL_CLOSE, kTextSecondary);
+            lv_obj_center(remove_icon);
+            lv_obj_add_event_cb(remove, player_bookmark_remove_cb, LV_EVENT_CLICKED,
+                                reinterpret_cast<void *>(static_cast<uintptr_t>(i)));
+        }
     }
     if (bookmarks.count < kPlayerBookmarkCount) {
-        lv_obj_t *add = make_button(list, 0, static_cast<int>(bookmarks.count) * 48,
+        lv_obj_t *add = make_button(list, 0, static_cast<int>(kPlayerBookmarkCount) * 48,
                                     268, 44, kAccentDark, 5, true);
         lv_obj_t *add_label = make_label(add,
             tr(lyra::i18n::StringId::AddPlaybackBookmark), kTextOnAccent);

@@ -16,6 +16,158 @@ void update_status_time_label()
     set_label_text_if_changed(s_status_time_label, value);
 }
 
+static lv_obj_t *make_placeholder_shape(lv_obj_t *parent, int x, int y,
+                                        int width, int height,
+                                        lv_color_t color, int radius,
+                                        lv_color_t border = lv_color_hex(0x000000),
+                                        int border_width = 0)
+{
+    lv_obj_t *shape = lv_obj_create(parent);
+    lv_obj_set_pos(shape, x, y);
+    lv_obj_set_size(shape, width, height);
+    lv_obj_set_style_bg_color(shape, color, 0);
+    lv_obj_set_style_bg_opa(shape, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(shape, border_width, 0);
+    if (border_width > 0) lv_obj_set_style_border_color(shape, border, 0);
+    lv_obj_set_style_radius(shape, radius, 0);
+    lv_obj_set_style_pad_all(shape, 0, 0);
+    lv_obj_clear_flag(shape, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(shape, LV_OBJ_FLAG_SCROLLABLE);
+    return shape;
+}
+
+void make_artwork_placeholder(lv_obj_t *art, int width, int height)
+{
+    if (!art || width <= 0 || height <= 0) return;
+    const int size = std::min(width, height);
+    const int center_x = width / 2;
+    const int center_y = height / 2;
+    const int scale = std::max(1, size / 100);
+    const int inset = std::max(2, size / 12);
+
+    lv_color_t background = kArtworkSurface;
+    if (is_standard_theme()) background = lv_color_hex(s_dark_mode ? 0x111923 : 0xE9EDF2);
+    else if (is_cute_theme()) background = lv_color_hex(0xF9E7F4);
+    else if (is_zeno_theme()) background = lv_color_hex(0x170F1A);
+    else if (is_aura_theme()) background = lv_color_hex(0xE1F4FF);
+    else if (s_neon_hud) background = lv_color_hex(0x07131E);
+    lv_obj_set_style_bg_color(art, background, 0);
+    lv_obj_set_style_bg_opa(art, LV_OPA_COVER, 0);
+
+    if (is_standard_theme()) {
+        // A centered record gives the neutral theme a familiar album-cover cue.
+        const int disc = std::max(12, size * 68 / 100);
+        const int x = center_x - disc / 2;
+        const int y = center_y - disc / 2;
+        make_placeholder_shape(art, x, y, disc, disc, kSurfaceRaised,
+                               LV_RADIUS_CIRCLE, kAccent, scale * 2);
+        const int ring = disc * 68 / 100;
+        make_placeholder_shape(art, center_x - ring / 2, center_y - ring / 2,
+                               ring, ring, background, LV_RADIUS_CIRCLE,
+                               kTextMuted, scale);
+        const int label = std::max(6, disc * 30 / 100);
+        make_placeholder_shape(art, center_x - label / 2, center_y - label / 2,
+                               label, label, kAccent, LV_RADIUS_CIRCLE);
+        const int hole = std::max(2, scale * 2);
+        make_placeholder_shape(art, center_x - hole / 2, center_y - hole / 2,
+                               hole, hole, kTextPrimary, LV_RADIUS_CIRCLE);
+        return;
+    }
+
+    if (s_neon_hud) {
+        // Cyan and magenta bars sit on a compact HUD grid.
+        const int bar_width = std::max(2, size / 14);
+        const int gap = std::max(2, size / 18);
+        const int count = 5;
+        const int group_width = count * bar_width + (count - 1) * gap;
+        const int base_y = center_y + size * 22 / 100;
+        const int heights[] = {size * 24 / 100, size * 42 / 100,
+                               size * 31 / 100, size * 50 / 100,
+                               size * 34 / 100};
+        const int grid_y = center_y - size * 28 / 100;
+        make_placeholder_shape(art, inset, grid_y, size - inset * 2,
+                               std::max(1, scale), kDivider, 0);
+        make_placeholder_shape(art, inset, base_y, size - inset * 2,
+                               std::max(1, scale), kDivider, 0);
+        for (int i = 0; i < count; ++i) {
+            const int x = center_x - group_width / 2 + i * (bar_width + gap);
+            const lv_color_t color = (i % 2) ? kAccent : kTextSecondary;
+            make_placeholder_shape(art, x, base_y - heights[i], bar_width,
+                                   heights[i], color, scale);
+        }
+        return;
+    }
+
+    if (is_cute_theme()) {
+        // Draw a paired-note mark with a continuous beam. Keep the joins
+        // overlapping so the small library thumbnails do not show broken bars.
+        const int group_width = size * 44 / 100;
+        const int dot = std::max(5, size * 15 / 100);
+        const int stem = std::max(2, size * 6 / 100);
+        const int left_x = center_x - group_width / 2;
+        const int right_x = left_x + group_width * 58 / 100;
+        const int left_stem_x = left_x + dot - stem;
+        const int right_stem_x = right_x + dot - stem;
+        const int left_dot_y = center_y + size * 10 / 100;
+        const int right_dot_y = left_dot_y - std::max(1, size * 6 / 100);
+        const int beam_y = center_y - size * 27 / 100;
+        const int beam_height = std::max(2, size * 6 / 100);
+        const int stem_y = beam_y + beam_height - std::max(1, scale / 2);
+        const int beam_width = right_stem_x + stem - left_stem_x;
+        const int left_stem_height = left_dot_y + dot / 3 - stem_y;
+        const int right_stem_height = right_dot_y + dot / 3 - stem_y;
+
+        make_placeholder_shape(art, left_stem_x, beam_y, beam_width,
+                               beam_height, kAccentDark, scale);
+        make_placeholder_shape(art, left_stem_x, stem_y, stem,
+                               std::max(stem, left_stem_height), kAccent, scale);
+        make_placeholder_shape(art, right_stem_x, stem_y, stem,
+                               std::max(stem, right_stem_height), kAccentDark, scale);
+        make_placeholder_shape(art, left_x, left_dot_y, dot, dot,
+                               kAccent, LV_RADIUS_CIRCLE);
+        make_placeholder_shape(art, right_x, right_dot_y, dot, dot,
+                               kAccentDark, LV_RADIUS_CIRCLE);
+        return;
+    }
+
+    if (is_zeno_theme()) {
+        // Pixel blocks form a compact waveform for the list-first theme.
+        const int bar_width = std::max(2, size / 14);
+        const int gap = std::max(1, size / 30);
+        const int levels[] = {2, 4, 3, 5, 4, 2, 3};
+        const int count = static_cast<int>(sizeof(levels) / sizeof(levels[0]));
+        const int pitch = bar_width + gap;
+        const int group_width = count * bar_width + (count - 1) * gap;
+        const int base_y = center_y + size * 24 / 100;
+        for (int column = 0; column < count; ++column) {
+            const int x = center_x - group_width / 2 + column * pitch;
+            const int bar_height = levels[column] * std::max(2, size / 12);
+            make_placeholder_shape(art, x, base_y - bar_height, bar_width,
+                                   bar_height, (column % 2) ? kTextPrimary : kAccent,
+                                   0);
+        }
+        return;
+    }
+
+    // Aura uses concentric, precisely centered rings and a small orbiting point.
+    const int orbit = size * 70 / 100;
+    make_placeholder_shape(art, center_x - orbit / 2, center_y - orbit / 2,
+                           orbit, orbit, background, LV_RADIUS_CIRCLE,
+                           lv_color_hex(0x72BCEB), scale * 2);
+    const int orb = size * 48 / 100;
+    make_placeholder_shape(art, center_x - orb / 2, center_y - orb / 2,
+                           orb, orb, kAccentSurface, LV_RADIUS_CIRCLE,
+                           lv_color_hex(0x1286D2), scale);
+    const int highlight = std::max(4, orb * 20 / 100);
+    make_placeholder_shape(art, center_x - orb / 5, center_y - orb / 5,
+                           highlight, highlight, lv_color_hex(0xF5FCFF),
+                           LV_RADIUS_CIRCLE);
+    const int satellite = std::max(3, size * 7 / 100);
+    make_placeholder_shape(art, center_x + orbit * 30 / 100 - satellite / 2,
+                           center_y - orbit * 30 / 100 - satellite / 2,
+                           satellite, satellite, kAccent, LV_RADIUS_CIRCLE);
+}
+
 void make_status_bar()
 {
     lv_obj_t *bar = make_box(s_screen, 0, 0, kScreenWidth, kStatusHeight, kBackground);
@@ -267,11 +419,7 @@ void make_artwork_contents(lv_obj_t *art, int width, int height,
                            bool preserve_aspect)
 {
     if (!art) return;
-    lv_obj_t *fallback = make_label(art, LV_SYMBOL_AUDIO, kAccent);
-    lv_obj_set_style_text_font(fallback, &lv_font_montserrat_18, 0);
-    lv_obj_set_style_transform_scale_x(fallback, width > 80 ? 512 : 320, 0);
-    lv_obj_set_style_transform_scale_y(fallback, width > 80 ? 512 : 320, 0);
-    lv_obj_center(fallback);
+    make_artwork_placeholder(art, width, height);
     lv_obj_t *image = lv_image_create(art);
     lv_obj_set_pos(image, 0, 0);
     lv_obj_set_size(image, width, height);
@@ -279,7 +427,6 @@ void make_artwork_contents(lv_obj_t *art, int width, int height,
     lv_obj_set_style_radius(image, s_neon_hud ? 0 : radius, 0);
     if (load_player_art(track)) {
         lv_image_set_src(image, &s_player_art_descriptor);
-        lv_obj_add_flag(fallback, LV_OBJ_FLAG_HIDDEN);
     } else {
         lyra::media::request_artwork(track, lyra::media::ArtworkSize::Player);
     }
