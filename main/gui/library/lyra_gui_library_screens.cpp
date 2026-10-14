@@ -264,11 +264,59 @@ void make_artist_detail_tab(lv_obj_t *parent, int x, const char *label,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(tab)));
 }
 
+// group_tracks() sorts and reads the entire group even for an eight-row slice.
+// Retain only its compact index array while this lazy list exists; all row
+// creation, ordering and scroll thresholds stay the same.
+struct DetailTrackOrder {
+    size_t *indices;
+    uint32_t catalog_generation;
+    uint32_t sorting_generation;
+    bool attempted;
+};
+
+size_t detail_group_tracks(DetailTrackOrder *order, lyra::media::GroupKind kind,
+                           size_t group, size_t total, size_t offset,
+                           size_t *output, size_t capacity)
+{
+    if (offset >= total) return 0;
+    const lyra::media::Status before = lyra::media::status();
+    if (order->attempted &&
+        (order->catalog_generation != before.catalog_generation ||
+         order->sorting_generation != before.sorting_generation)) {
+        heap_caps_free(order->indices);
+        *order = {};
+    }
+    if (!order->attempted) {
+        order->attempted = true;
+        order->catalog_generation = before.catalog_generation;
+        order->sorting_generation = before.sorting_generation;
+        // Optional PSRAM cache: allocation failure keeps the original batch path.
+        if (total <= lyra::media::kMaxTracks) {
+            order->indices = static_cast<size_t *>(heap_caps_malloc(
+                total * sizeof(size_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        }
+        if (order->indices) {
+            const size_t found = lyra::media::group_tracks(kind, group, 0, order->indices, total);
+            const lyra::media::Status after = lyra::media::status();
+            if (found != total || before.catalog_generation != after.catalog_generation ||
+                before.sorting_generation != after.sorting_generation) {
+                heap_caps_free(order->indices);
+                order->indices = nullptr;
+            }
+        }
+    }
+    if (!order->indices) return lyra::media::group_tracks(kind, group, offset, output, capacity);
+    const size_t count = std::min(capacity, total - offset);
+    std::copy_n(order->indices + offset, count, output);
+    return count;
+}
+
 struct ArtistDetailListContext {
     size_t artist_group;
     size_t entry_count;
     size_t loaded;
     ArtistDetailTab tab;
+    DetailTrackOrder order;
 };
 
 void append_artist_detail_rows(lv_obj_t *body, ArtistDetailListContext *context)
@@ -279,12 +327,16 @@ void append_artist_detail_rows(lv_obj_t *body, ArtistDetailListContext *context)
     const size_t batch = std::min(kArtistDetailBatchSize, context->entry_count - start);
     if (context->tab == ArtistDetailTab::Songs) {
         size_t indices[kArtistDetailBatchSize];
-        const size_t found = lyra::media::group_tracks(lyra::media::GroupKind::Artist,
-            context->artist_group, start, indices, batch);
+        const size_t found = detail_group_tracks(&context->order, lyra::media::GroupKind::Artist,
+            context->artist_group, context->entry_count, start, indices, batch);
         for (size_t i = 0; i < found; ++i) {
             make_song_row(body, 48 + static_cast<int>(start + i) * 58, indices[i], 54);
         }
         context->loaded += found;
+        if (context->loaded >= context->entry_count) {
+            heap_caps_free(context->order.indices);
+            context->order.indices = nullptr;
+        }
         return;
     }
 
@@ -302,9 +354,12 @@ void artist_detail_list_event_cb(lv_event_t *event)
     auto *context = static_cast<ArtistDetailListContext *>(lv_event_get_user_data(event));
     if (!context) return;
     if (lv_event_get_code(event) == LV_EVENT_DELETE) {
+        heap_caps_free(context->order.indices);
         lv_free(context);
         return;
     }
+    // No need to walk every child for scroll_bottom once all rows are present.
+    if (context->loaded >= context->entry_count) return;
     lv_obj_t *body = lv_event_get_current_target_obj(event);
     if (lv_obj_get_scroll_bottom(body) < 140) append_artist_detail_rows(body, context);
 }
@@ -355,6 +410,7 @@ struct AlbumListContext {
     size_t group_index;
     size_t track_count;
     size_t loaded;
+    DetailTrackOrder order;
 };
 
 void append_album_song_rows(lv_obj_t *body, AlbumListContext *context)
@@ -362,8 +418,8 @@ void append_album_song_rows(lv_obj_t *body, AlbumListContext *context)
     if (!body || !context || context->loaded >= context->track_count) return;
     constexpr size_t kAlbumBatchSize = 8;
     size_t indices[kAlbumBatchSize];
-    const size_t found = lyra::media::group_tracks(lyra::media::GroupKind::Album,
-        context->group_index, context->loaded, indices, kAlbumBatchSize);
+    const size_t found = detail_group_tracks(&context->order, lyra::media::GroupKind::Album,
+        context->group_index, context->track_count, context->loaded, indices, kAlbumBatchSize);
     for (size_t i = 0; i < found; ++i) {
         if (is_zeno_theme() && !s_queue_add_mode && !s_playlist_add_mode) {
             make_zeno_album_song_row(body, 130 + static_cast<int>(context->loaded + i) * 44,
@@ -373,6 +429,10 @@ void append_album_song_rows(lv_obj_t *body, AlbumListContext *context)
         }
     }
     context->loaded += found;
+    if (context->loaded >= context->track_count) {
+        heap_caps_free(context->order.indices);
+        context->order.indices = nullptr;
+    }
 }
 
 void album_list_event_cb(lv_event_t *event)
@@ -380,9 +440,12 @@ void album_list_event_cb(lv_event_t *event)
     auto *context = static_cast<AlbumListContext *>(lv_event_get_user_data(event));
     if (!context) return;
     if (lv_event_get_code(event) == LV_EVENT_DELETE) {
+        heap_caps_free(context->order.indices);
         lv_free(context);
         return;
     }
+    // No need to walk every child for scroll_bottom once all rows are present.
+    if (context->loaded >= context->track_count) return;
     lv_obj_t *body = lv_event_get_current_target_obj(event);
     if (lv_obj_get_scroll_bottom(body) < 140) append_album_song_rows(body, context);
 }

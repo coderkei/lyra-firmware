@@ -4,6 +4,7 @@
  */
 
 #include "../lyra_gui_internal.h"
+#include "lyra_gui_draw.h"
 
 namespace lyra::gui::internal {
 namespace {
@@ -34,10 +35,10 @@ void aura_light_cb(lv_event_t *event)
             line.color = lv_color_hex(trail == 1 ? 0xF3FFD0 : 0xFFFFFF);
             line.width = 9;
             line.opa = LV_OPA_10;
-            lv_draw_line(layer, &line);
+            gui_draw_line(layer, &line);
             line.width = 2;
             line.opa = LV_OPA_50;
-            lv_draw_line(layer, &line);
+            gui_draw_line(layer, &line);
         }
     }
 }
@@ -55,13 +56,13 @@ void aura_grid_cb(lv_event_t *event)
         const int y = area.y1 + 14 + row * 39;
         line.p1 = {static_cast<lv_value_precise_t>(area.x1 + 36), static_cast<lv_value_precise_t>(y)};
         line.p2 = {static_cast<lv_value_precise_t>(area.x1 + 284), static_cast<lv_value_precise_t>(y)};
-        lv_draw_line(lv_event_get_layer(event), &line);
+        gui_draw_line(lv_event_get_layer(event), &line);
     }
     for (int band = 0; band < 5; ++band) {
         const int x = area.x1 + 49 + band * 52;
         line.p1 = {static_cast<lv_value_precise_t>(x), static_cast<lv_value_precise_t>(area.y1 + 14)};
         line.p2 = {static_cast<lv_value_precise_t>(x), static_cast<lv_value_precise_t>(area.y1 + 248)};
-        lv_draw_line(lv_event_get_layer(event), &line);
+        gui_draw_line(lv_event_get_layer(event), &line);
     }
 }
 
@@ -83,7 +84,7 @@ void aura_rim_cb(lv_event_t *event)
     rim.color = lv_color_hex(0xFFFFFF);
     rim.opa = LV_OPA_70;
     rim.side = static_cast<lv_border_side_t>(LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT);
-    lv_draw_border(lv_event_get_layer(event), &rim, &area);
+    gui_draw_border(lv_event_get_layer(event), &rim, &area);
 }
 
 void gradient(lv_obj_t *object, uint32_t top, uint32_t bottom, lv_style_selector_t part)

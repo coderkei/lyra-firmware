@@ -4,6 +4,7 @@
  */
 
 #include "../lyra_gui_internal.h"
+#include "lyra_gui_draw.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include "src/draw/lv_draw_triangle.h"
 
@@ -38,13 +39,13 @@ void cute_plastic_cb(lv_event_t *event)
     rim.color = lv_color_hex(0xFFFFFF);
     rim.side = LV_BORDER_SIDE_FULL;
     lv_layer_t *layer = lv_event_get_layer(event);
-    lv_draw_border(layer, &rim, &area);
+    gui_draw_border(layer, &rim, &area);
     const bool pressed = lv_obj_has_state(object, LV_STATE_PRESSED);
     rim.color = lv_color_hex(pressed ? 0xE2A7D0 : 0xDCCBED);
     rim.side = static_cast<lv_border_side_t>(pressed ?
         LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT :
         LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT);
-    lv_draw_border(layer, &rim, &area);
+    gui_draw_border(layer, &rim, &area);
 }
 
 // Coordinates are local to a 32 px sticker. Each primitive has a solid fill
@@ -57,6 +58,8 @@ struct CuteIconPen {
     void box(int32_t dx, int32_t dy, int32_t width, int32_t height,
              int32_t radius, uint32_t fill, uint32_t edge = 0) const
     {
+        const lv_area_t area{x + dx, y + dy, x + dx + width - 1, y + dy + height - 1};
+        if (!gui_draw_area_visible(layer, area)) return;
         lv_draw_rect_dsc_t rect;
         lv_draw_rect_dsc_init(&rect);
         rect.radius = radius;
@@ -65,7 +68,6 @@ struct CuteIconPen {
         rect.border_color = lv_color_hex(edge);
         rect.border_width = edge ? 1 : 0;
         rect.border_opa = LV_OPA_COVER;
-        const lv_area_t area{x + dx, y + dy, x + dx + width - 1, y + dy + height - 1};
         lv_draw_rect(layer, &rect, &area);
     }
 
@@ -80,7 +82,7 @@ struct CuteIconPen {
         stroke.width = width;
         stroke.round_start = true;
         stroke.round_end = true;
-        lv_draw_line(layer, &stroke);
+        gui_draw_line(layer, &stroke);
     }
 
     void arc(int32_t dx, int32_t dy, uint16_t radius, uint32_t color,
@@ -95,7 +97,7 @@ struct CuteIconPen {
         curve.end_angle = static_cast<lv_value_precise_t>(end);
         curve.width = width;
         curve.rounded = true;
-        lv_draw_arc(layer, &curve);
+        gui_draw_arc(layer, &curve);
     }
 
     void face(int32_t dx, int32_t dy) const

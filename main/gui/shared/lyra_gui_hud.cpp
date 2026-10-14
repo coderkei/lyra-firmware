@@ -4,6 +4,7 @@
  */
 
 #include "../lyra_gui_internal.h"
+#include "lyra_gui_draw.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 
 namespace lyra::gui::internal {
@@ -53,7 +54,7 @@ void hud_line(lv_layer_t *layer, int x1, int y1, int x2, int y2,
     line.color = color;
     line.opa = opacity;
     line.width = 1;
-    lv_draw_line(layer, &line);
+    gui_draw_line(layer, &line);
 }
 
 void hud_frame_cb(lv_event_t *event)
@@ -83,7 +84,7 @@ void hud_frame_cb(lv_event_t *event)
         border.width = 1;
         border.opa = LV_OPA_COVER;
         border.side = LV_BORDER_SIDE_FULL;
-        lv_draw_border(layer, &border, &area);
+        gui_draw_border(layer, &border, &area);
         // Two corner accents retain the angular HUD treatment with three
         // draw tasks, instead of eight/nine line tasks on every visible row.
         hud_line(layer, left, top + cut, left + cut, top, color);
