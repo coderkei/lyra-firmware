@@ -128,6 +128,8 @@ void render_library()
                                    View::Playlists, 54);
     lv_obj_remove_event_cb(playlists, route_cb);
     lv_obj_add_event_cb(playlists, open_library_playlists_cb, LV_EVENT_CLICKED, nullptr);
+    make_row(body, 348, LV_SYMBOL_WIFI, tr(lyra::i18n::StringId::InternetRadio),
+             tr(lyra::i18n::StringId::RadioStreamsDescription), View::InternetRadio, 54);
 }
 
 void make_album_row(lv_obj_t *parent, int y, size_t group_index)

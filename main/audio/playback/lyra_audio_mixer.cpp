@@ -25,7 +25,12 @@ enum class FrameResult { kReady, kWaiting, kEnd };
 void decoder_worker(void *argument)
 {
     auto *track = static_cast<DecoderStream *>(argument);
+    ESP_LOGI(kTag, "starting decoder for %s", track->path);
     track->result = decode_file(track);
+    if (track->result != ESP_OK && decoder_is_current(track)) {
+        ESP_LOGE(kTag, "decoder failed for %s: %s", track->path,
+                 esp_err_to_name(track->result));
+    }
     ESP_LOGI(kTag, "decoder stack spare=%u bytes for %s",
              static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)), track->path);
     track->done.store(true, std::memory_order_release);
@@ -833,6 +838,9 @@ void audio_task(void *)
             s_status.position_ms = s_status.duration_ms;
         }
         xSemaphoreGive(s_state_mutex);
+        if (result != ESP_OK) {
+            ESP_LOGE(kTag, "playback failed for %s: %s", path, esp_err_to_name(result));
+        }
     }
 }
 

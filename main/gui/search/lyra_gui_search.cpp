@@ -22,12 +22,14 @@ size_t s_ime_candidate_page = 0;
 char *keyboard_input_text()
 {
     if (s_view == View::WifiPassword) return wifi_password_input_text();
+    if (s_view == View::RadioAdd) return s_radio_url;
     return s_view == View::PlaylistCreate ? s_playlist_name : s_search_query;
 }
 
 size_t keyboard_input_capacity()
 {
     if (s_view == View::WifiPassword) return wifi_password_input_capacity();
+    if (s_view == View::RadioAdd) return sizeof(s_radio_url);
     return s_view == View::PlaylistCreate ? sizeof(s_playlist_name) : sizeof(s_search_query);
 }
 
@@ -70,7 +72,7 @@ void update_keyboard_display()
         update_search_label();
         return;
     }
-    char display[lyra::media::kMaxName + 24];
+    char display[lyra::media::kMaxPath];
     if (s_view == View::WifiPassword && !wifi_password_is_visible()) {
         const char *preedit = lyra::gui::ime::preedit();
         const size_t capacity = sizeof(display);
@@ -115,14 +117,16 @@ void update_search_label()
     if (s_search_label == nullptr) return;
     const bool creating = s_view == View::PlaylistCreate;
     const bool wifi_password = s_view == View::WifiPassword;
+    const bool radio_address = s_view == View::RadioAdd;
     const char *text = wifi_password ? wifi_password_input_text() :
-                       creating ? s_playlist_name : s_search_query;
+                       radio_address ? s_radio_url : creating ? s_playlist_name : s_search_query;
     const char *preedit = lyra::gui::ime::preedit();
     if (text[0] || preedit[0]) {
         update_keyboard_display();
         return;
     }
     const char *placeholder = wifi_password ? tr(lyra::i18n::StringId::EnterWifiPassword) :
+        radio_address ? tr(lyra::i18n::StringId::StreamAddressHint) :
         creating ? tr(lyra::i18n::StringId::PlaylistNamePlaceholder) :
                    tr(lyra::i18n::StringId::SearchMusicPlaceholder);
     lv_label_set_text(s_search_label, text[0] == '\0' ? placeholder : text);
@@ -593,7 +597,7 @@ void make_keyboard_picker(lv_obj_t *keyboard)
             s_ime_candidate_page = 0;
             lyra::gui::ime::reset();
             s_keyboard_picker_visible = false;
-            save_user_settings();
+            if (s_view != View::RadioAdd) save_user_settings();
             render(s_view);
         }, LV_EVENT_CLICKED,
         reinterpret_cast<void *>(static_cast<uintptr_t>(layouts[index]) + 1));
@@ -678,8 +682,8 @@ void make_library_keyboard_impl(lv_obj_t *keyboard, const char *action)
     const char *letters_row2[] = {"a", "s", "d", "f", "g", "h", "j", "k", "l"};
     const char *letters_row3[] = {"z", "x", "c", "v", "b", "n", "m", "<"};
     const char *symbols_row1[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"};
-    const char *symbols_row2[] = {"@", "#", "$", "_", "&", "-", "+", "(", ")"};
-    const char *symbols_row3[] = {".", ",", "?", "!", "'", "\"", "=", "<"};
+    const char *symbols_row2[] = {"@", "#", "$", "_", "&", "-", "+", ":", "/"};
+    const char *symbols_row3[] = {".", ",", "?", "=", "'", "\"", "%", "<"};
     const char *accent_row1[] = {"à", "á", "â", "ä", "æ", "ç", "è", "é", "ê", "ë"};
     const char *accent_row2[] = {"ì", "í", "î", "ï", "ñ", "ò", "ó", "ô", "ö", "œ"};
     const char *accent_row3[] = {"ù", "ú", "û", "ü", "ý", "ÿ", "ß", "ø", "å", "<"};
@@ -765,7 +769,10 @@ void make_library_keyboard_impl(lv_obj_t *keyboard, const char *action)
     const char *action_labels[3]{};
     KeyboardCommand action_commands[3]{};
     if (s_library_keyboard_layout == KeyboardLayout::English) {
-        action_labels[0] = s_library_keyboard_accents ? tr(lyra::i18n::StringId::NumbersKey) :
+        action_labels[0] = s_view == View::RadioAdd ?
+            (s_library_keyboard_symbols ? tr(lyra::i18n::StringId::LettersKey) :
+                                          tr(lyra::i18n::StringId::NumbersKey)) :
+            s_library_keyboard_accents ? tr(lyra::i18n::StringId::NumbersKey) :
             (s_library_keyboard_symbols ? tr(lyra::i18n::StringId::LettersKey) : "é");
         action_commands[0] = KeyboardCommand::ToggleSymbols;
         action_labels[1] = tr(lyra::i18n::StringId::SpaceKey);
@@ -895,7 +902,10 @@ void keyboard_action_cb(lv_event_t *event)
             return;
         case KeyboardCommand::ToggleSymbols:
             reset_keyboard_shift();
-            if (s_library_keyboard_layout == KeyboardLayout::English) {
+            if (s_view == View::RadioAdd) {
+                s_library_keyboard_symbols = !s_library_keyboard_symbols;
+                s_library_keyboard_accents = false;
+            } else if (s_library_keyboard_layout == KeyboardLayout::English) {
                 if (s_library_keyboard_accents) {
                     s_library_keyboard_accents = false;
                     s_library_keyboard_symbols = true;
@@ -955,6 +965,10 @@ void keyboard_action_cb(lv_event_t *event)
                     show_notice(tr(lyra::i18n::StringId::Queue),
                                 tr(lyra::i18n::StringId::QueueSaveFailed));
                 }
+                return;
+            }
+            if (s_view == View::RadioAdd) {
+                save_radio_address();
                 return;
             }
             s_list_page = 0;
@@ -1071,7 +1085,8 @@ void kana_modifier_cb(lv_event_t *event)
 void commit_keyboard_preedit()
 {
     reset_keyboard_shift();
-    if (s_view != View::Search && s_view != View::PlaylistCreate) return;
+    if (s_view != View::Search && s_view != View::PlaylistCreate &&
+        s_view != View::RadioAdd) return;
     lyra::gui::ime::commit(ime_layout(), keyboard_input_text(), keyboard_input_capacity());
     update_search_label();
 }

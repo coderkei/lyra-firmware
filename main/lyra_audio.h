@@ -95,6 +95,8 @@ esp_err_t init();
 // directly. Native esp_audio_codec handles MP3, FLAC, AAC, M4A/ALAC, WAV, OGG,
 // and Opus-in-Ogg; uncompressed AIFF/AIFC PCM is handled by Lyra.
 esp_err_t play(const char *path);
+// Plays an HTTP(S) radio stream. Live streams have no seek position or duration.
+esp_err_t play_stream(const char *url);
 // Plays a short timer alarm through the active output stream, or starts a
 // temporary tone stream when music is stopped.
 esp_err_t play_timer_alarm();

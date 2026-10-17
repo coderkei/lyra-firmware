@@ -94,7 +94,8 @@ enum class View : uintptr_t {
     Menu, Player, TrackInfo, FullscreenInfoArt, Queue, Apps, Calculator, Calendar,
     Stopwatch, Timer, Photos, Ebook,
     Library, LibrarySongs, LibraryArtists, LibraryAlbums, LibraryGenres,
-    LibraryYears, AlbumDetail, ArtistDetail, Folders, FolderDetail, FileViewer, FolderPlaylist,
+    LibraryYears, InternetRadio, RadioAdd, RadioFiles, RadioPlaying,
+    AlbumDetail, ArtistDetail, Folders, FolderDetail, FileViewer, FolderPlaylist,
     Playlists, PlaylistDetail, PlaylistCreate, PlaylistAdd, Equalizer,
     EqualizerPresets, Search, Settings, SortingSettings, SortingOptions,
     PlaybackSettings, CrossfadeOptions, SleepTimerOptions, SoundSettings,
@@ -270,6 +271,7 @@ extern lyra::media::SearchCategory s_search_category;
 extern lyra::media::SearchCategory s_submitted_search_category;
 extern char s_search_error[48];
 extern char s_playlist_name[lyra::media::kMaxName];
+extern char s_radio_url[lyra::media::kMaxPath];
 extern char s_track_list_title[lyra::media::kMaxName];
 extern char s_folder_path[lyra::media::kMaxPath];
 extern char s_playback_folder_path[lyra::media::kMaxPath];
@@ -507,6 +509,13 @@ void open_library_playlists_cb(lv_event_t *);
 void render_library();
 void make_album_row(lv_obj_t *parent, int y, size_t group_index);
 void render_library_section(LibraryTab section);
+void render_radio_stations();
+void render_radio_add();
+void render_radio_files();
+void render_radio_playing();
+void save_radio_address();
+void leave_radio_add();
+void stop_radio_status_timer();
 void render_track_list();
 void artist_detail_tab_cb(lv_event_t *event);
 void make_artist_detail_tab(lv_obj_t *parent, int x, const char *label, ArtistDetailTab tab);

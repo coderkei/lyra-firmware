@@ -20,6 +20,7 @@ idf_component_register(
         "gui/library/lyra_gui_file_viewer.cpp"
         "gui/library/lyra_gui_folder_playlist.cpp"
         "gui/library/lyra_gui_library_screens.cpp"
+        "gui/library/lyra_gui_radio.cpp"
         "gui/library/lyra_gui_page_jump.cpp"
         "gui/track_details/lyra_gui_track_details.cpp"
         "gui/track_details/lyra_gui_track_details_player_art.cpp"
@@ -36,6 +37,7 @@ idf_component_register(
         "lyra_gui_settings.cpp"
         "lyra_wifi.cpp"
         "lyra_audio.cpp"
+        "lyra_radio.cpp"
         "audio/lyra_audio_state.cpp"
         "audio/core/lyra_audio_io.cpp"
         "audio/formats/lyra_audio_formats.cpp"
@@ -88,6 +90,8 @@ idf_component_register(
         bootloader_support
         nvs_flash
         esp_wifi
+        esp_http_client
+        mbedtls
         esp_netif
         esp_event
         lwip

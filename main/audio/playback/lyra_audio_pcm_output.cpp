@@ -124,6 +124,14 @@ bool start_pcm_output(PcmOutput *output)
     output->staging_buffer = static_cast<uint8_t *>(alloc_audio_dma_buffer(
         kPcmOutputChunkBytes));
     if (!output->ring_buffer || !output->staging_buffer) {
+        ESP_LOGE(kTag, "PCM output allocation failed: ring=%s staging=%s "
+                 "internal free=%u largest=%u",
+                 output->ring_buffer ? "ready" : "unavailable",
+                 output->staging_buffer ? "ready" : "unavailable",
+                 static_cast<unsigned>(heap_caps_get_free_size(
+                     MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(
+                     MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
         heap_caps_free(output->ring_buffer);
         heap_caps_free(output->staging_buffer);
         output->ring_buffer = nullptr;
@@ -138,6 +146,11 @@ bool start_pcm_output(PcmOutput *output)
     if (!output->stream || !output->done ||
         xTaskCreatePinnedToCore(pcm_output_task, "lyra_i2s", kAudioOutputTaskStack,
                                 output, kAudioOutputTaskPriority, &output->task, 0) != pdPASS) {
+        ESP_LOGE(kTag, "PCM output task/stream creation failed: internal free=%u largest=%u",
+                 static_cast<unsigned>(heap_caps_get_free_size(
+                     MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(
+                     MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
         if (output->stream) vStreamBufferDelete(output->stream);
         if (output->done) vSemaphoreDelete(output->done);
         heap_caps_free(output->ring_buffer);

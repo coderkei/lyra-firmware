@@ -15,6 +15,8 @@
 #include <cstring>
 
 #include "driver/i2s_std.h"
+#include "esp_crt_bundle.h"
+#include "esp_http_client.h"
 #include "esp_audio_dec_default.h"
 #include "esp_audio_simple_dec.h"
 #include "esp_audio_simple_dec_default.h"
@@ -41,6 +43,8 @@ using namespace lyra::board::jc3248w535en;
 constexpr const char *kTag = "lyra.audio";
 constexpr size_t kReadAheadBufferBytes = 256 * 1024;
 constexpr size_t kReadAheadChunkBytes = 32 * 1024;
+constexpr size_t kRadioReadAheadBytes = 32 * 1024;
+constexpr size_t kRadioPrebufferBytes = 12 * 1024;
 constexpr size_t kM4aReadAheadChunkBytes = kReadAheadBufferBytes - 1;
 constexpr size_t kFlacReadAheadChunkBytes = 16 * 1024;
 constexpr size_t kInitialPcmBufferBytes = 8192;
@@ -865,15 +869,17 @@ struct M4aAacReader {
 };
 
 struct AudioReadAhead {
-    FILE *file;
-    uint8_t *buffer;
-    size_t capacity;
-    size_t read_index;
-    size_t write_index;
-    size_t available;
-    size_t chunk_bytes;
-    bool eof;
-    bool error;
+    FILE *file = nullptr;
+    esp_http_client_handle_t http_client = nullptr;
+    uint8_t *buffer = nullptr;
+    size_t capacity = 0;
+    size_t read_index = 0;
+    size_t write_index = 0;
+    size_t available = 0;
+    size_t chunk_bytes = 0;
+    bool eof = false;
+    bool error = false;
+    bool streaming = false;
     OggOpusReader *ogg_opus = nullptr;
     M4aAacReader *m4a_aac = nullptr;
     // AIFF/AIFC is a big-endian PCM container rather than an esp_audio_codec
@@ -902,7 +908,9 @@ struct AudioReadAhead {
 
     bool fill()
     {
-        if (!file || !buffer || eof || error || available == capacity) return true;
+        if ((!file && !http_client) || !buffer || eof || error || available == capacity) {
+            return true;
+        }
 
         if (ogg_opus) {
             // Raw Opus decoding requires exactly one complete packet. The
@@ -969,6 +977,27 @@ struct AudioReadAhead {
             if (frame_bytes > 0) wanted -= wanted % frame_bytes;
         }
         if (wanted == 0) return true;
+
+        if (http_client) {
+            const int count = esp_http_client_read(http_client,
+                reinterpret_cast<char *>(buffer + write_index), static_cast<int>(wanted));
+            if (count == -ESP_ERR_HTTP_EAGAIN) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                return true;
+            }
+            if (count < 0) {
+                error = true;
+                return false;
+            }
+            if (count == 0) {
+                eof = true;
+                return true;
+            }
+            write_index = (write_index + static_cast<size_t>(count)) % capacity;
+            available += static_cast<size_t>(count);
+            update_low_watermark();
+            return true;
+        }
 
         const int64_t transaction_started = esp_timer_get_time();
         if (!lyra::sd::acquire(lyra::sd::Client::Audio)) {

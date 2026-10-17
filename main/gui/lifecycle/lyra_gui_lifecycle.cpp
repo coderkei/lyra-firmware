@@ -5,10 +5,19 @@
 
 #include "../lyra_gui_internal.h"
 
+#include <strings.h>
+
 namespace lyra::gui::internal {
 
 void render(View view)
 {
+    if (view == View::Player) {
+        const lyra::audio::Status audio_status = lyra::audio::status();
+        if (::strncasecmp(audio_status.path, "http://", 7) == 0 ||
+            ::strncasecmp(audio_status.path, "https://", 8) == 0) {
+            view = View::RadioPlaying;
+        }
+    }
     if (view == View::WifiSettings && s_view != View::WifiSettings) {
         const lyra::wifi::Status wifi = lyra::wifi::status();
         if (wifi.enabled && !wifi.connecting && !wifi.scanning &&
@@ -20,11 +29,16 @@ void render(View view)
     if (s_view == View::SetupWelcome && view != View::SetupWelcome) {
         stop_setup_welcome_cycle();
     }
+    if (s_view == View::RadioPlaying && view != View::RadioPlaying) {
+        stop_radio_status_timer();
+    }
     if ((s_view == View::Search || s_view == View::PlaylistCreate ||
-         s_view == View::WifiPassword) && s_view != view) {
+         s_view == View::WifiPassword || s_view == View::RadioAdd) && s_view != view) {
         commit_keyboard_preedit();
     }
-    if (view != View::Search && view != View::PlaylistCreate) close_keyboard_picker();
+    if (s_view == View::RadioAdd && s_view != view) leave_radio_add();
+    if (view != View::Search && view != View::PlaylistCreate &&
+        view != View::RadioAdd) close_keyboard_picker();
     lyra::font::init();
     s_view = view;
     s_search_label = nullptr;
@@ -63,6 +77,10 @@ void render(View view)
         case View::LibraryAlbums: render_library_section(LibraryTab::Albums); break;
         case View::LibraryGenres: render_library_section(LibraryTab::Genres); break;
         case View::LibraryYears: render_library_section(LibraryTab::Years); break;
+        case View::InternetRadio: render_radio_stations(); break;
+        case View::RadioAdd: render_radio_add(); break;
+        case View::RadioFiles: render_radio_files(); break;
+        case View::RadioPlaying: render_radio_playing(); break;
         case View::AlbumDetail: render_album_detail(); break;
         case View::ArtistDetail: render_artist_detail(); break;
         case View::TrackList: render_track_list(); break;
@@ -210,13 +228,22 @@ void player_progress_poll_cb(lv_timer_t *)
     update_status_time_label();
     lyra::audio::Status audio_status = lyra::audio::status();
     const int64_t now_us = esp_timer_get_time();
+    const bool radio_stream = ::strncasecmp(audio_status.path, "http://", 7) == 0 ||
+                              ::strncasecmp(audio_status.path, "https://", 8) == 0;
+    static uint32_t reported_error_serial = 0;
+    if (!radio_stream && audio_status.last_error != ESP_OK &&
+        audio_status.playback_serial != reported_error_serial) {
+        reported_error_serial = audio_status.playback_serial;
+        show_notice(tr(lyra::i18n::StringId::NowPlaying),
+                    tr(lyra::i18n::StringId::PlaybackFailed));
+    }
     static uint32_t observed_serial = 0;
-    if (audio_status.playback_serial != observed_serial) {
+    if (!radio_stream && audio_status.playback_serial != observed_serial) {
         observed_serial = audio_status.playback_serial;
         sync_audio_handoff(audio_status);
         audio_status = lyra::audio::status();
     }
-    prepare_automatic_successor(audio_status);
+    if (!radio_stream) prepare_automatic_successor(audio_status);
     if (s_sleep_timer_deadline_us != 0 && now_us >= s_sleep_timer_deadline_us) {
         s_sleep_timer_deadline_us = 0;
         s_sleep_timer_minutes = 0;
@@ -232,6 +259,10 @@ void player_progress_poll_cb(lv_timer_t *)
         lyra::audio::stop();
         show_notice(tr(lyra::i18n::StringId::SleepTimer),
                     tr(lyra::i18n::StringId::PlaybackStopped));
+    } else if (radio_stream) {
+        s_audio_eof_seen = false;
+        s_pending_track_advance = false;
+        s_pending_track_advance_us = 0;
     } else if (!audio_status.eof) {
         s_audio_eof_seen = false;
         s_pending_track_advance = false;

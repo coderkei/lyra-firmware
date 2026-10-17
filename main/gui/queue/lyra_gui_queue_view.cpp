@@ -5,6 +5,8 @@
 
 #include "../lyra_gui_internal.h"
 
+#include <strings.h>
+
 namespace lyra::gui::internal {
 
 namespace {
@@ -152,6 +154,12 @@ void open_queue_cb(lv_event_t *)
 
 bool show_now_playing()
 {
+    const lyra::audio::Status audio_status = lyra::audio::status();
+    if (::strncasecmp(audio_status.path, "http://", 7) == 0 ||
+        ::strncasecmp(audio_status.path, "https://", 8) == 0) {
+        navigate_to(View::RadioPlaying);
+        return true;
+    }
     if (!s_has_active_queue && !restore_saved_queue_if_pending()) {
         show_notice(tr(lyra::i18n::StringId::QueueEmpty),
                     tr(lyra::i18n::StringId::QueueEmptyNowPlaying));

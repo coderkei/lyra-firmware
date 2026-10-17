@@ -661,13 +661,23 @@ esp_err_t start_track_audio(const lyra::media::Track &track,
     s_crossfade_fade_out_ends_us = 0;
     s_crossfade_transition_direction = 0;
     s_crossfade_pause_pending = false;
-    const esp_err_t transition_result = lyra::audio::set_transition_gain(100);
-    if (transition_result != ESP_OK) return transition_result;
-    const esp_err_t replay_gain_result = lyra::audio::set_replay_gain_adjustment(
-        s_replay_gain ? track.replay_gain_tenths_db : 0);
-    if (replay_gain_result != ESP_OK) return replay_gain_result;
-    const esp_err_t play_result = lyra::audio::play_from_position(
-        track.path, start_position_ms, start_paused);
+    esp_err_t play_result = lyra::audio::set_transition_gain(100);
+    if (play_result == ESP_OK) {
+        play_result = lyra::audio::set_replay_gain_adjustment(
+            s_replay_gain ? track.replay_gain_tenths_db : 0);
+    }
+    if (play_result == ESP_OK) {
+        play_result = lyra::audio::play_from_position(
+            track.path, start_position_ms, start_paused);
+    }
+    if (play_result != ESP_OK) {
+        // Callers may navigate to Now Playing after this returns. Defer the
+        // notice until that render finishes so it is not immediately deleted.
+        lv_async_call([](void *) {
+            show_notice(tr(lyra::i18n::StringId::NowPlaying),
+                        tr(lyra::i18n::StringId::PlaybackFailed));
+        }, nullptr);
+    }
     if (play_result == ESP_OK && record_play) {
         const esp_err_t stats_result = lyra::media::record_track_play(s_current_track);
         if (stats_result != ESP_OK) {

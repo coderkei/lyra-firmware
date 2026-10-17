@@ -420,7 +420,17 @@ extern "C" esp_err_t lyra_board_display_start(void)
     if (s_lvgl_task_started) {
         return ESP_OK;
     }
-    if (xTaskCreatePinnedToCore(lvgl_task, "lyra_gui", kLvglTaskStack, nullptr, 5, nullptr, 1) != pdPASS) {
+    // GUI callbacks read/write NVS and other flash-backed settings. Flash
+    // operations disable the cache, so this stack must remain in internal RAM.
+    const BaseType_t task_created = xTaskCreatePinnedToCoreWithCaps(
+        lvgl_task, "lyra_gui", kLvglTaskStack, nullptr, 5, nullptr, 1,
+        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (task_created != pdPASS) {
+        ESP_LOGE(kTag, "LVGL task allocation failed: internal free=%u largest=%u",
+                 static_cast<unsigned>(heap_caps_get_free_size(
+                     MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(
+                     MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
         return ESP_ERR_NO_MEM;
     }
     s_lvgl_task_started = true;

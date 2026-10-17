@@ -6,6 +6,9 @@
 #include "lyra_audio.h"
 #include "audio/lyra_audio_internal.h"
 
+#include <cctype>
+#include <strings.h>
+
 namespace lyra::audio {
 using namespace internal;
 
@@ -153,8 +156,14 @@ esp_err_t init()
     s_requested_seek_ms = 0;
     s_requested_pause_after_seek = false;
     s_initialized = true;
-    if (xTaskCreatePinnedToCore(audio_task, "lyra_audio", kAudioTaskStack, nullptr,
-                                kAudioTaskPriority, &s_audio_task, 0) != pdPASS) {
+    // The mixer owns sizeable per-track/resampler state on its stack and
+    // never performs flash operations. Keep its full stack in PSRAM, like
+    // the decoder workers, so Wi-Fi/TLS cannot crowd out the internal stack
+    // and DMA staging buffer needed by the I2S output task. GUI callbacks
+    // that persist settings must keep their separate internal stack.
+    if (xTaskCreatePinnedToCoreWithCaps(audio_task, "lyra_audio", kAudioTaskStack, nullptr,
+                                        kAudioTaskPriority, &s_audio_task, 0,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         s_initialized = false;
         esp_audio_simple_dec_unregister_default();
         esp_audio_dec_unregister_default();
@@ -167,6 +176,12 @@ esp_err_t init()
         return ESP_ERR_NO_MEM;
     }
 
+    ESP_LOGI(kTag, "mixer stack in PSRAM: %u bytes; internal free=%u largest=%u",
+             static_cast<unsigned>(kAudioTaskStack),
+             static_cast<unsigned>(heap_caps_get_free_size(
+                 MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+             static_cast<unsigned>(heap_caps_get_largest_free_block(
+                 MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
     ESP_LOGI(kTag, "audio playback ready (MP3/FLAC/AAC/M4A/WAV/OGG/Opus/AIFF): "
              "DAC BCLK=%d WS=%d DOUT=%d; speaker=%s",
              kAudioBclkGpio, kAudioLrclkGpio, kAudioDataOutGpio,
@@ -177,6 +192,46 @@ esp_err_t init()
 esp_err_t play(const char *path)
 {
     return play_from_position(path, 0, false);
+}
+
+esp_err_t play_stream(const char *url)
+{
+    if (!s_initialized || s_state_mutex == nullptr) return ESP_ERR_INVALID_STATE;
+    if (!url || std::strlen(url) >= kMaxPath ||
+        !(::strncasecmp(url, "http://", 7) == 0 ||
+          ::strncasecmp(url, "https://", 8) == 0)) return ESP_ERR_INVALID_ARG;
+    for (const char *cursor = url; *cursor; ++cursor) {
+        if (std::isspace(static_cast<unsigned char>(*cursor))) return ESP_ERR_INVALID_ARG;
+    }
+
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    std::strncpy(s_requested_path, url, sizeof(s_requested_path) - 1);
+    s_requested_path[sizeof(s_requested_path) - 1] = '\0';
+    s_requested_seek_ms = 0;
+    s_requested_pause_after_seek = false;
+    ++s_request_generation;
+    ++s_status.playback_serial;
+    s_status.transitioned = false;
+    s_status.transitioning = false;
+    s_next_track.path[0] = '\0';
+    ++s_next_track.version;
+    s_status.last_error = ESP_OK;
+    s_status.playing = true;
+    s_status.eof = false;
+    s_status.paused = false;
+    s_status.sample_rate = 0;
+    s_status.channels = 0;
+    s_status.bits_per_sample = 0;
+    s_status.decoded_bytes = 0;
+    s_status.position_ms = 0;
+    s_status.duration_ms = 0;
+    s_replay_gain_tenths_db = 0;
+    s_transition_gain_percent = 100;
+    std::strncpy(s_status.path, url, sizeof(s_status.path) - 1);
+    s_status.path[sizeof(s_status.path) - 1] = '\0';
+    xSemaphoreGive(s_state_mutex);
+    xTaskNotifyGive(s_audio_task);
+    return ESP_OK;
 }
 
 esp_err_t play_timer_alarm()

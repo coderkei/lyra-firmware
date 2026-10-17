@@ -5,7 +5,71 @@
 
 #include "../lyra_audio_internal.h"
 
+#include <strings.h>
+
 namespace lyra::audio::internal {
+
+namespace {
+
+struct HttpStreamCleanup {
+    esp_http_client_handle_t client = nullptr;
+
+    ~HttpStreamCleanup()
+    {
+        if (!client) return;
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+    }
+};
+
+struct HttpStreamHeaders {
+    char content_type[64]{};
+};
+
+esp_err_t capture_http_stream_headers(esp_http_client_event_t *event)
+{
+    if (!event || !event->user_data) return ESP_OK;
+    auto *headers = static_cast<HttpStreamHeaders *>(event->user_data);
+    if (event->event_id == HTTP_EVENT_ON_CONNECTED) {
+        headers->content_type[0] = '\0';
+        return ESP_OK;
+    }
+    if (event->event_id != HTTP_EVENT_ON_HEADER || !event->header_key ||
+        !event->header_value || ::strcasecmp(event->header_key, "Content-Type") != 0) {
+        return ESP_OK;
+    }
+    const size_t length = std::min(std::strlen(event->header_value),
+                                   sizeof(headers->content_type) - 1);
+    std::memcpy(headers->content_type, event->header_value, length);
+    headers->content_type[length] = '\0';
+    return ESP_OK;
+}
+
+bool is_http_stream(const char *path)
+{
+    return path && (::strncasecmp(path, "http://", 7) == 0 ||
+                    ::strncasecmp(path, "https://", 8) == 0);
+}
+
+bool content_type_is_aac(const char *content_type)
+{
+    if (!content_type) return false;
+    for (const char *cursor = content_type; *cursor; ++cursor) {
+        if (::strncasecmp(cursor, "aac", 3) == 0) return true;
+    }
+    return false;
+}
+
+bool url_is_aac(const char *url)
+{
+    if (!url) return false;
+    for (const char *cursor = url; *cursor; ++cursor) {
+        if (::strncasecmp(cursor, ".aac", 4) == 0) return true;
+    }
+    return false;
+}
+
+} // namespace
 
 esp_err_t decode_file(DecoderStream *track)
 {
@@ -13,14 +77,50 @@ esp_err_t decode_file(DecoderStream *track)
     const uint32_t generation = track->generation;
     uint32_t start_position_ms = track->start_position_ms;
     const bool pause_after_seek = track->pause_after_seek;
+    const bool streaming = is_http_stream(path);
     AudioFormat format{};
-    if (!get_audio_format(path, &format)) return ESP_ERR_NOT_SUPPORTED;
-
-    FILE *file = lyra::sd::open(path, "rb", lyra::sd::Client::Audio);
-    if (file == nullptr) {
-        ESP_LOGE(kTag, "failed to open %s: %s", audio_format_name(format), path);
-        decoder_set_error(track, ESP_ERR_NOT_FOUND);
-        return ESP_ERR_NOT_FOUND;
+    FILE *file = nullptr;
+    HttpStreamCleanup http_cleanup{};
+    HttpStreamHeaders http_headers{};
+    const char *content_type = nullptr;
+    if (streaming) {
+        esp_http_client_config_t config{};
+        config.url = path;
+        config.timeout_ms = 3000;
+        config.buffer_size = 4096;
+        config.max_redirection_count = 5;
+        config.event_handler = capture_http_stream_headers;
+        config.user_data = &http_headers;
+        config.crt_bundle_attach = esp_crt_bundle_attach;
+        config.user_agent = "Lyra Internet Radio";
+        http_cleanup.client = esp_http_client_init(&config);
+        if (!http_cleanup.client ||
+            esp_http_client_open(http_cleanup.client, 0) != ESP_OK) {
+            ESP_LOGE(kTag, "failed to connect to radio stream: %s", path);
+            decoder_set_error(track, ESP_FAIL);
+            return ESP_FAIL;
+        }
+        esp_http_client_fetch_headers(http_cleanup.client);
+        const int status_code = esp_http_client_get_status_code(http_cleanup.client);
+        if (status_code < 200 || status_code >= 300) {
+            ESP_LOGE(kTag, "radio stream returned HTTP %d: %s", status_code, path);
+            decoder_set_error(track, ESP_FAIL);
+            return ESP_FAIL;
+        }
+        if (http_headers.content_type[0]) content_type = http_headers.content_type;
+        format = AudioFormat::kMp3;
+        if (content_type_is_aac(content_type) || url_is_aac(path)) {
+            format = AudioFormat::kAac;
+        }
+        start_position_ms = 0;
+    } else {
+        if (!get_audio_format(path, &format)) return ESP_ERR_NOT_SUPPORTED;
+        file = lyra::sd::open(path, "rb", lyra::sd::Client::Audio);
+        if (file == nullptr) {
+            ESP_LOGE(kTag, "failed to open %s: %s", audio_format_name(format), path);
+            decoder_set_error(track, ESP_ERR_NOT_FOUND);
+            return ESP_ERR_NOT_FOUND;
+        }
     }
 
     OggOpusReader ogg_opus_reader(file);
@@ -41,8 +141,8 @@ esp_err_t decode_file(DecoderStream *track)
     }
 
     long file_end = -1;
-    if (audio_seek(file, 0, SEEK_END) == 0) file_end = std::ftell(file);
-    audio_seek(file, 0, SEEK_SET);
+    if (file && audio_seek(file, 0, SEEK_END) == 0) file_end = std::ftell(file);
+    if (file) audio_seek(file, 0, SEEK_SET);
 
     AiffStreamInfo aiff_info{};
     if (format == AudioFormat::kAiff && !read_aiff_stream_info(file, &aiff_info)) {
@@ -53,18 +153,20 @@ esp_err_t decode_file(DecoderStream *track)
     }
 
     uint32_t duration_ms = 0;
-    switch (format) {
-    case AudioFormat::kMp3: duration_ms = read_mp3_duration_ms(file); break;
-    case AudioFormat::kFlac: duration_ms = read_flac_duration_ms(file); break;
-    case AudioFormat::kAac: duration_ms = read_aac_duration_ms(file); break;
-    case AudioFormat::kM4a: duration_ms = read_m4a_duration_ms(file); break;
-    case AudioFormat::kWav: duration_ms = read_wav_duration_ms(file); break;
-    case AudioFormat::kOgg: duration_ms = read_ogg_duration_ms(file); break;
-    case AudioFormat::kOpus: duration_ms = read_ogg_tail_duration_ms(
-        file, ogg_opus_reader.sample_rate, ogg_opus_reader.pre_skip); break;
-    case AudioFormat::kAiff: duration_ms = read_aiff_duration_ms(aiff_info); break;
+    if (!streaming) {
+        switch (format) {
+        case AudioFormat::kMp3: duration_ms = read_mp3_duration_ms(file); break;
+        case AudioFormat::kFlac: duration_ms = read_flac_duration_ms(file); break;
+        case AudioFormat::kAac: duration_ms = read_aac_duration_ms(file); break;
+        case AudioFormat::kM4a: duration_ms = read_m4a_duration_ms(file); break;
+        case AudioFormat::kWav: duration_ms = read_wav_duration_ms(file); break;
+        case AudioFormat::kOgg: duration_ms = read_ogg_duration_ms(file); break;
+        case AudioFormat::kOpus: duration_ms = read_ogg_tail_duration_ms(
+            file, ogg_opus_reader.sample_rate, ogg_opus_reader.pre_skip); break;
+        case AudioFormat::kAiff: duration_ms = read_aiff_duration_ms(aiff_info); break;
+        }
     }
-    audio_seek(file, 0, SEEK_SET);
+    if (file) audio_seek(file, 0, SEEK_SET);
 
     if (duration_ms > 0 && start_position_ms > duration_ms) start_position_ms = duration_ms;
     M4aAacReader m4a_aac_reader(file);
@@ -139,11 +241,13 @@ esp_err_t decode_file(DecoderStream *track)
 
     // The read-ahead ring is CPU-only; keep the smaller internal/DMA heap
     // available for the I2S staging buffer and the LCD transport allocator.
+    const size_t read_ahead_capacity = streaming ? kRadioReadAheadBytes :
+                                                  kReadAheadBufferBytes;
     auto *read_ahead_buffer = static_cast<uint8_t *>(heap_caps_malloc(
-        kReadAheadBufferBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        read_ahead_capacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (read_ahead_buffer == nullptr) {
         read_ahead_buffer = static_cast<uint8_t *>(heap_caps_malloc(
-            kReadAheadBufferBytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+            read_ahead_capacity, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     }
     auto *pcm = format == AudioFormat::kAiff ? nullptr :
         static_cast<uint8_t *>(alloc_decoder_buffer(kInitialPcmBufferBytes));
@@ -168,9 +272,11 @@ esp_err_t decode_file(DecoderStream *track)
         format == AudioFormat::kFlac ? kFlacReadAheadChunkBytes : kReadAheadChunkBytes;
     AudioReadAhead input{};
     input.file = file;
+    input.http_client = http_cleanup.client;
+    input.streaming = streaming;
     input.buffer = read_ahead_buffer;
-    input.capacity = kReadAheadBufferBytes;
-    input.chunk_bytes = read_ahead_chunk_bytes;
+    input.capacity = read_ahead_capacity;
+    input.chunk_bytes = streaming ? 8192 : read_ahead_chunk_bytes;
     if (format == AudioFormat::kOpus) input.ogg_opus = &ogg_opus_reader;
     if (m4a_frame_decoder) input.m4a_aac = &m4a_aac_reader;
     if (format == AudioFormat::kFlac) {
@@ -438,8 +544,9 @@ esp_err_t decode_file(DecoderStream *track)
         // Keep the ring mostly full while the decoder/I2S path is active.
         // Every iteration is still one bounded SD transaction, so artwork
         // gets opportunities between audio refills but cannot run ahead of it.
-        while (!input.eof &&
-               input.available < input.capacity - input.chunk_bytes) {
+        const size_t refill_target = input.streaming ? kRadioPrebufferBytes :
+            input.capacity - input.chunk_bytes;
+        while (!input.eof && input.available < refill_target) {
             const size_t before = input.available;
             if (!input.fill()) {
                 if (input.error) {

@@ -329,6 +329,8 @@ void render_zeno_library()
     lv_obj_remove_event_cb(favorites, route_cb);
     lv_obj_add_event_cb(favorites, favorites_cb, LV_EVENT_CLICKED, nullptr);
     choice(body, 336, LV_SYMBOL_REFRESH, tr(lyra::i18n::StringId::Year), View::LibraryYears);
+    choice(body, 392, LV_SYMBOL_WIFI, tr(lyra::i18n::StringId::InternetRadio),
+           View::InternetRadio);
 }
 
 void make_zeno_album_song_row(lv_obj_t *parent, int y, size_t track_index, size_t ordinal)

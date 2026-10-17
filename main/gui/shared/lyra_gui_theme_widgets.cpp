@@ -625,6 +625,10 @@ View back_view(View view)
         case View::LibraryAlbums:
         case View::LibraryGenres:
         case View::LibraryYears: return View::Library;
+        case View::InternetRadio: return View::Library;
+        case View::RadioAdd: return View::InternetRadio;
+        case View::RadioFiles: return View::RadioAdd;
+        case View::RadioPlaying: return View::InternetRadio;
         case View::AlbumDetail: return View::LibraryAlbums;
         case View::ArtistDetail: return View::LibraryArtists;
         case View::TrackList:
