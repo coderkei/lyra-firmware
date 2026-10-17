@@ -38,6 +38,7 @@
 #include "lyra_gui.h"
 #include "lyra_gui_settings.h"
 #include "lyra_media.h"
+#include "lyra_wifi.h"
 #include "lyra_png.h"
 #include "lyra_sd.h"
 #include "nvs.h"
@@ -98,7 +99,7 @@ enum class View : uintptr_t {
     EqualizerPresets, Search, Settings, SortingSettings, SortingOptions,
     PlaybackSettings, CrossfadeOptions, SleepTimerOptions, SoundSettings,
     DisplaySettings, SystemSettings, ClockSettings, ClockTimeSettings, ClockDateSettings,
-    LanguageOptions, DatabaseStorage,
+    LanguageOptions, DatabaseStorage, WifiSettings, WifiPassword, NetworkTests,
     About, DebugMenu, PageJump,
     Licenses, TrackList, ThemeOptions,
     SetupWelcome, SetupLanguage, SetupClock, SetupTheme, SetupScan, SetupComplete,
@@ -304,6 +305,9 @@ extern lyra::media::SortSection s_sort_section;
 extern char s_database_status[64];
 extern DebugTab s_debug_tab;
 extern char s_debug_status[96];
+extern char s_wifi_password[64];
+extern char s_wifi_selected_ssid[33];
+extern bool s_wifi_password_visible;
 extern PlaylistManageAction s_pending_playlist_manage_action;
 extern size_t s_pending_playlist;
 extern size_t s_pending_playlist_track;
@@ -424,6 +428,11 @@ void volume_popup_slider_cb(lv_event_t *event);
 void volume_popup_slider_released_cb(lv_event_t *);
 void show_volume_popup_cb(lv_event_t *);
 void make_status_bar();
+constexpr size_t kWifiSignalBarCount = 4;
+int wifi_signal_bar_count(int8_t rssi);
+void make_wifi_signal_bars(lv_obj_t *parent, int x, int y, int signal_bars,
+                           lv_color_t active_color, lv_color_t inactive_color,
+                           lv_obj_t **bars_out = nullptr);
 lv_obj_t *make_header(const char *title, View back, bool show_back = false, const char *right = nullptr, lv_event_cb_t custom_back = nullptr);
 void make_queue_add_mode_toggle(lv_obj_t *parent, int x, int y, int width = 40, int height = 36);
 void dismiss_overlay_cb(lv_event_t *event);
@@ -575,6 +584,13 @@ void show_force_boot_confirmation(uint8_t ota_slot);
 void force_boot_test_cb(lv_event_t *event);
 void dump_debug_info_cb(lv_event_t *);
 void render_debug_menu();
+void render_wifi_settings();
+void render_wifi_password();
+void render_network_tests();
+char *wifi_password_input_text();
+size_t wifi_password_input_capacity();
+bool wifi_password_is_visible();
+void submit_wifi_password();
 void format_file_date(uint64_t modified_time, char *output, size_t capacity);
 void format_track_format(const lyra::media::Track &track, char *output, size_t capacity);
 const char *track_encoding(const lyra::media::Track &track);

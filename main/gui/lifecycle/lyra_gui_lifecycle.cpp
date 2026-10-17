@@ -9,11 +9,19 @@ namespace lyra::gui::internal {
 
 void render(View view)
 {
+    if (view == View::WifiSettings && s_view != View::WifiSettings) {
+        const lyra::wifi::Status wifi = lyra::wifi::status();
+        if (wifi.enabled && !wifi.connecting && !wifi.scanning &&
+            wifi.access_point_count == 0) {
+            lyra::wifi::scan();
+        }
+    }
     if (s_view != view) stop_apps_runtime_timers(view);
     if (s_view == View::SetupWelcome && view != View::SetupWelcome) {
         stop_setup_welcome_cycle();
     }
-    if ((s_view == View::Search || s_view == View::PlaylistCreate) && s_view != view) {
+    if ((s_view == View::Search || s_view == View::PlaylistCreate ||
+         s_view == View::WifiPassword) && s_view != view) {
         commit_keyboard_preedit();
     }
     if (view != View::Search && view != View::PlaylistCreate) close_keyboard_picker();
@@ -84,6 +92,9 @@ void render(View view)
         case View::SoundSettings:
         case View::DisplaySettings:
         case View::SystemSettings: render_settings_page(view); break;
+        case View::WifiSettings: render_wifi_settings(); break;
+        case View::WifiPassword: render_wifi_password(); break;
+        case View::NetworkTests: render_network_tests(); break;
         case View::ClockSettings: render_clock_settings(); break;
         case View::ClockTimeSettings: render_clock_time_settings(); break;
         case View::ClockDateSettings: render_clock_date_settings(); break;

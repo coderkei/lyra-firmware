@@ -953,10 +953,13 @@ void render_debug_menu()
     lv_obj_remove_event_cb(clear, route_cb);
     lv_obj_add_event_cb(clear, [](lv_event_t *) { show_clear_nvs_confirmation(); },
                         LV_EVENT_CLICKED, nullptr);
-    make_maximum_volume_control(body, 378);
+    make_row(body, 378, LV_SYMBOL_REFRESH,
+             tr(lyra::i18n::StringId::NetworkTests),
+             tr(lyra::i18n::StringId::PingReady), View::NetworkTests, 62);
+    make_maximum_volume_control(body, 444);
     if (s_debug_status[0]) {
         lv_obj_t *status = make_label(body, s_debug_status, kTextMuted);
-        lv_obj_set_pos(status, 14, 470);
+        lv_obj_set_pos(status, 14, 536);
         lv_obj_set_width(status, 292);
         lv_label_set_long_mode(status, LV_LABEL_LONG_MODE_WRAP);
     }

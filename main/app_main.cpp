@@ -8,6 +8,7 @@
 #include "lyra_audio.h"
 #include "lyra_boot_test.h"
 #include "lyra_media.h"
+#include "lyra_wifi.h"
 
 #include "esp_log.h"
 #include "esp_system.h"
@@ -37,6 +38,15 @@ bool render_splash_with_safe_stack(lv_display_t *display)
         render_splash_task, "lyra_splash", 12288, display, 5, nullptr, 1);
     if (created != pdPASS) return false;
     return ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000)) != 0;
+}
+
+void initialize_wifi_task(void *)
+{
+    const esp_err_t result = lyra::wifi::init();
+    if (result != ESP_OK) {
+        ESP_LOGW("lyra.app", "Wi-Fi unavailable: %s", esp_err_to_name(result));
+    }
+    vTaskDelete(nullptr);
 }
 
 } // namespace
@@ -101,6 +111,13 @@ extern "C" void app_main(void)
     const esp_err_t audio_ret = lyra::audio::init();
     if (audio_ret != ESP_OK) {
         ESP_LOGW(kTag, "audio decoder unavailable: %s", esp_err_to_name(audio_ret));
+    }
+    // Driver and netif setup is stack intensive; keep it off the constrained
+    // main task. The one-shot worker releases its larger stack after init.
+    const BaseType_t wifi_task = xTaskCreate(initialize_wifi_task, "lyra_wifi_init",
+                                              8192, nullptr, 3, nullptr);
+    if (wifi_task != pdPASS) {
+        ESP_LOGW(kTag, "Wi-Fi unavailable: could not start initialization task");
     }
     const esp_err_t gui_ret = lyra_gui_start(board.display);
     if (gui_ret != ESP_OK) {

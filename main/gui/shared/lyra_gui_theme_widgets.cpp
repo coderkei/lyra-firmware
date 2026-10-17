@@ -648,6 +648,9 @@ View back_view(View view)
         case View::DisplaySettings:
         case View::SystemSettings:
         case View::SortingSettings: return View::Settings;
+        case View::WifiSettings: return View::SystemSettings;
+        case View::WifiPassword: return View::WifiSettings;
+        case View::NetworkTests: return View::DebugMenu;
         case View::ClockSettings: return View::SystemSettings;
         case View::ThemeOptions: return View::DisplaySettings;
         case View::ClockTimeSettings:

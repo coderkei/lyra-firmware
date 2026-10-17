@@ -1367,7 +1367,23 @@ void render_settings_page(View view)
                                    View::ClockSettings, 62);
         lv_obj_remove_event_cb(clock, route_cb);
         lv_obj_add_event_cb(clock, clock_settings_cb, LV_EVENT_CLICKED, nullptr);
-        make_row(body, 132, LV_SYMBOL_SD_CARD, tr(lyra::i18n::StringId::MicroSdCard),
+        const lyra::wifi::Status wifi = lyra::wifi::status();
+        char wifi_summary[80];
+        if (wifi.connected) {
+            format_text(lyra::i18n::StringId::ConnectedTo, wifi.connected_ssid,
+                        wifi_summary, sizeof(wifi_summary));
+        } else if (wifi.connecting && wifi.saved_ssid[0]) {
+            format_text(lyra::i18n::StringId::ConnectingTo, wifi.saved_ssid,
+                        wifi_summary, sizeof(wifi_summary));
+        } else {
+            copy_ui_text(wifi_summary, sizeof(wifi_summary), wifi.enabled ?
+                tr(wifi.connection_failed ? lyra::i18n::StringId::WifiConnectionFailed :
+                                            lyra::i18n::StringId::NotConnected) :
+                tr(lyra::i18n::StringId::Off));
+        }
+        make_row(body, 132, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::WifiSettings),
+                 wifi_summary, View::WifiSettings, 62);
+        make_row(body, 198, LV_SYMBOL_SD_CARD, tr(lyra::i18n::StringId::MicroSdCard),
                  sd_status, View::SystemSettings, 62);
         char scan_status[48];
         if (status.scanning) {
@@ -1378,34 +1394,34 @@ void render_settings_page(View view)
             format_count(lyra::i18n::StringId::IndexedTracks,
                          static_cast<uint32_t>(status.track_count), scan_status, sizeof(scan_status));
         }
-        lv_obj_t *scan = make_row(body, 198, LV_SYMBOL_REFRESH,
+        lv_obj_t *scan = make_row(body, 264, LV_SYMBOL_REFRESH,
                                   tr(lyra::i18n::StringId::ScanMusicLibrary), scan_status,
                                   View::SystemSettings, 62);
         lv_obj_remove_event_cb(scan, route_cb);
         lv_obj_add_event_cb(scan, scan_library_cb, LV_EVENT_CLICKED, nullptr);
-        make_row(body, 264, LV_SYMBOL_DRIVE, tr(lyra::i18n::StringId::DatabaseStorage),
+        make_row(body, 330, LV_SYMBOL_DRIVE, tr(lyra::i18n::StringId::DatabaseStorage),
                  tr(lyra::i18n::StringId::ManagePlaylistsLibrary),
                  View::DatabaseStorage, 62);
-        make_artwork_setting_toggle(body, 330, tr(lyra::i18n::StringId::SdAlbumArtCache),
+        make_artwork_setting_toggle(body, 396, tr(lyra::i18n::StringId::SdAlbumArtCache),
                                     tr(lyra::i18n::StringId::AllowOversizedJpeg),
                                     status.artwork_sd_cache_enabled, ArtworkSetting::SdCache);
-        make_artwork_setting_toggle(body, 396, tr(lyra::i18n::StringId::AlbumArt320),
+        make_artwork_setting_toggle(body, 462, tr(lyra::i18n::StringId::AlbumArt320),
                                     tr(lyra::i18n::StringId::AlbumArt240WhenDisabled),
                                     status.artwork_size == lyra::media::kLargeArtworkSize,
                                     ArtworkSetting::Size320);
-        lv_obj_t *reboot = make_row(body, 462, LV_SYMBOL_REFRESH,
+        lv_obj_t *reboot = make_row(body, 528, LV_SYMBOL_REFRESH,
                                     tr(lyra::i18n::StringId::Reboot),
                                     tr(lyra::i18n::StringId::SafelyRestartLyra),
                                     View::SystemSettings, 62);
         lv_obj_remove_event_cb(reboot, route_cb);
         lv_obj_add_event_cb(reboot, reboot_cb, LV_EVENT_CLICKED, nullptr);
-        lv_obj_t *power_off = make_row(body, 528, LV_SYMBOL_POWER,
+        lv_obj_t *power_off = make_row(body, 594, LV_SYMBOL_POWER,
                                        tr(lyra::i18n::StringId::PowerOff),
                                        tr(lyra::i18n::StringId::SafelyUnmountAndSleep),
                                        View::SystemSettings, 62);
         lv_obj_remove_event_cb(power_off, route_cb);
         lv_obj_add_event_cb(power_off, power_off_cb, LV_EVENT_CLICKED, nullptr);
-        lv_obj_t *factory_reset = make_row(body, 594, LV_SYMBOL_WARNING,
+        lv_obj_t *factory_reset = make_row(body, 660, LV_SYMBOL_WARNING,
                                            tr(lyra::i18n::StringId::FactoryReset),
                                            tr(lyra::i18n::StringId::FactoryResetDescription),
                                            View::SystemSettings, 62);

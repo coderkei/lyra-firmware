@@ -21,11 +21,13 @@ size_t s_ime_candidate_page = 0;
 
 char *keyboard_input_text()
 {
+    if (s_view == View::WifiPassword) return wifi_password_input_text();
     return s_view == View::PlaylistCreate ? s_playlist_name : s_search_query;
 }
 
 size_t keyboard_input_capacity()
 {
+    if (s_view == View::WifiPassword) return wifi_password_input_capacity();
     return s_view == View::PlaylistCreate ? sizeof(s_playlist_name) : sizeof(s_search_query);
 }
 
@@ -69,6 +71,28 @@ void update_keyboard_display()
         return;
     }
     char display[lyra::media::kMaxName + 24];
+    if (s_view == View::WifiPassword && !wifi_password_is_visible()) {
+        const char *preedit = lyra::gui::ime::preedit();
+        const size_t capacity = sizeof(display);
+        size_t position = 0;
+        const auto append_mask = [&display, capacity, &position](const char *value) {
+            if (!value) return;
+            for (const unsigned char *cursor =
+                     reinterpret_cast<const unsigned char *>(value); *cursor; ++cursor) {
+                if ((*cursor & 0xC0U) == 0x80U) continue;
+                if (position + 3 >= capacity) break;
+                display[position++] = '\xE2';
+                display[position++] = '\x80';
+                display[position++] = '\xA2';
+            }
+        };
+        append_mask(text);
+        append_mask(preedit);
+        display[position] = '\0';
+        lv_label_set_text(s_search_label, display);
+        lv_obj_set_style_text_color(s_search_label, kTextPrimary, 0);
+        return;
+    }
     const size_t capacity = sizeof(display);
     const size_t length = std::min(std::strlen(text), capacity - 1);
     std::memcpy(display, text, length);
@@ -90,15 +114,18 @@ void update_search_label()
 {
     if (s_search_label == nullptr) return;
     const bool creating = s_view == View::PlaylistCreate;
-    const char *text = creating ? s_playlist_name : s_search_query;
+    const bool wifi_password = s_view == View::WifiPassword;
+    const char *text = wifi_password ? wifi_password_input_text() :
+                       creating ? s_playlist_name : s_search_query;
     const char *preedit = lyra::gui::ime::preedit();
     if (text[0] || preedit[0]) {
         update_keyboard_display();
         return;
     }
-    lv_label_set_text(s_search_label, text[0] == '\0' ?
-                      (creating ? tr(lyra::i18n::StringId::PlaylistNamePlaceholder) :
-                                   tr(lyra::i18n::StringId::SearchMusicPlaceholder)) : text);
+    const char *placeholder = wifi_password ? tr(lyra::i18n::StringId::EnterWifiPassword) :
+        creating ? tr(lyra::i18n::StringId::PlaylistNamePlaceholder) :
+                   tr(lyra::i18n::StringId::SearchMusicPlaceholder);
+    lv_label_set_text(s_search_label, text[0] == '\0' ? placeholder : text);
     lv_obj_set_style_text_color(s_search_label, text[0] == '\0' ? kTextMuted : kTextPrimary, 0);
 }
 
@@ -242,7 +269,48 @@ enum class KeyboardCommand : uintptr_t {
     Backspace,
     Space,
     Submit,
+    Shift,
 };
+
+enum class KeyboardShift : uint8_t {
+    Off,
+    OneShot,
+    CapsLock,
+};
+
+struct KeyboardTextKey {
+    const char *lower = nullptr;
+    char upper[8]{};
+    lv_obj_t *label = nullptr;
+    bool shiftable = false;
+    bool pressed_shifted = false;
+};
+
+struct KeyboardCaseMapping {
+    const char *lower;
+    const char *upper;
+};
+
+constexpr KeyboardCaseMapping kKeyboardCaseMappings[] = {
+    {"à", "À"}, {"á", "Á"}, {"â", "Â"}, {"ä", "Ä"}, {"æ", "Æ"},
+    {"ç", "Ç"}, {"è", "È"}, {"é", "É"}, {"ê", "Ê"}, {"ë", "Ë"},
+    {"ì", "Ì"}, {"í", "Í"}, {"î", "Î"}, {"ï", "Ï"}, {"ñ", "Ñ"},
+    {"ò", "Ò"}, {"ó", "Ó"}, {"ô", "Ô"}, {"ö", "Ö"}, {"œ", "Œ"},
+    {"ù", "Ù"}, {"ú", "Ú"}, {"û", "Û"}, {"ü", "Ü"}, {"ý", "Ý"},
+    {"ÿ", "Y"}, {"ß", "SS"}, {"ø", "Ø"}, {"å", "Å"}, {"ё", "Ё"},
+};
+
+constexpr size_t kMaxKeyboardTextKeys = 40;
+constexpr uint32_t kKeyboardDoubleTapMs = 450;
+KeyboardTextKey s_keyboard_text_keys[kMaxKeyboardTextKeys]{};
+size_t s_keyboard_text_key_count = 0;
+KeyboardShift s_keyboard_shift = KeyboardShift::Off;
+uint32_t s_last_keyboard_shift_tap = 0;
+bool s_keyboard_shift_tap_pending = false;
+lv_obj_t *s_keyboard_shift_key = nullptr;
+lv_obj_t *s_keyboard_shift_label = nullptr;
+View s_keyboard_shift_view = View::Search;
+bool s_keyboard_shift_view_valid = false;
 
 struct KanaFlickKey {
     const char *variants[5]; // centre, up, right, down, left
@@ -259,6 +327,102 @@ void kana_flick_cb(lv_event_t *event);
 void ime_candidate_cb(lv_event_t *event);
 void ime_candidate_page_cb(lv_event_t *event);
 void kana_modifier_cb(lv_event_t *event);
+void update_keyboard_shift_display();
+
+bool uppercase_keyboard_text(const char *lower, char *upper, size_t capacity)
+{
+    if (!lower || !upper || capacity == 0) return false;
+    for (const KeyboardCaseMapping &mapping : kKeyboardCaseMappings) {
+        if (std::strcmp(lower, mapping.lower) != 0) continue;
+        const size_t length = std::strlen(mapping.upper);
+        if (length >= capacity) return false;
+        std::memcpy(upper, mapping.upper, length + 1);
+        return true;
+    }
+
+    const size_t length = std::strlen(lower);
+    if (length == 1 && lower[0] >= 'a' && lower[0] <= 'z') {
+        if (capacity < 2) return false;
+        upper[0] = static_cast<char>(lower[0] - ('a' - 'A'));
+        upper[1] = '\0';
+        return true;
+    }
+    if (length == 2 && static_cast<uint8_t>(lower[0]) == 0xD0 &&
+        static_cast<uint8_t>(lower[1]) >= 0xB0 &&
+        static_cast<uint8_t>(lower[1]) <= 0xBF) {
+        if (capacity < 3) return false;
+        upper[0] = static_cast<char>(0xD0);
+        upper[1] = static_cast<char>(static_cast<uint8_t>(lower[1]) - 0x20);
+        upper[2] = '\0';
+        return true;
+    }
+    if (length == 2 && static_cast<uint8_t>(lower[0]) == 0xD1 &&
+        static_cast<uint8_t>(lower[1]) >= 0x80 &&
+        static_cast<uint8_t>(lower[1]) <= 0x8F) {
+        if (capacity < 3) return false;
+        upper[0] = static_cast<char>(0xD0);
+        upper[1] = static_cast<char>(static_cast<uint8_t>(lower[1]) - 0x20);
+        upper[2] = '\0';
+        return true;
+    }
+    return false;
+}
+
+void update_keyboard_shift_display()
+{
+    const bool shifted = s_keyboard_shift != KeyboardShift::Off;
+    for (size_t index = 0; index < s_keyboard_text_key_count; ++index) {
+        KeyboardTextKey &context = s_keyboard_text_keys[index];
+        if (!context.shiftable || !context.label) continue;
+        lv_label_set_text(context.label,
+            (shifted || context.pressed_shifted) ? context.upper : context.lower);
+    }
+    if (!s_keyboard_shift_key || !s_keyboard_shift_label) return;
+    const lv_color_t background = s_keyboard_shift == KeyboardShift::CapsLock ? kAccent :
+                                  s_keyboard_shift == KeyboardShift::OneShot ? kAccentDark :
+                                  kSurfaceRaised;
+    const lv_color_t foreground = s_keyboard_shift == KeyboardShift::Off ? kTextPrimary :
+                                                                             kTextOnAccent;
+    lv_obj_set_style_bg_color(s_keyboard_shift_key, background, LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(s_keyboard_shift_key, background, LV_STATE_PRESSED);
+    lv_obj_set_style_text_color(s_keyboard_shift_label, foreground, LV_STATE_DEFAULT);
+}
+
+void reset_keyboard_shift()
+{
+    s_keyboard_shift = KeyboardShift::Off;
+    s_keyboard_shift_tap_pending = false;
+    update_keyboard_shift_display();
+}
+
+void toggle_keyboard_shift()
+{
+    const uint32_t now = lv_tick_get();
+    if (s_keyboard_shift == KeyboardShift::CapsLock) {
+        s_keyboard_shift = KeyboardShift::Off;
+        s_keyboard_shift_tap_pending = false;
+    } else if (s_keyboard_shift == KeyboardShift::OneShot) {
+        const bool double_tap = s_keyboard_shift_tap_pending &&
+            static_cast<uint32_t>(now - s_last_keyboard_shift_tap) <= kKeyboardDoubleTapMs;
+        s_keyboard_shift = double_tap ? KeyboardShift::CapsLock : KeyboardShift::Off;
+        s_keyboard_shift_tap_pending = false;
+    } else {
+        s_keyboard_shift = KeyboardShift::OneShot;
+        s_last_keyboard_shift_tap = now;
+        s_keyboard_shift_tap_pending = true;
+    }
+    update_keyboard_shift_display();
+}
+
+void make_keyboard_shift_key(lv_obj_t *parent, int x, int y, int width, int height)
+{
+    s_keyboard_shift_key = make_button(parent, x, y, width, height, kSurfaceRaised, 5);
+    s_keyboard_shift_label = make_label(s_keyboard_shift_key, LV_SYMBOL_UP, kTextPrimary);
+    lv_obj_center(s_keyboard_shift_label);
+    lv_obj_add_event_cb(s_keyboard_shift_key, keyboard_action_cb, LV_EVENT_CLICKED,
+        reinterpret_cast<void *>(static_cast<uintptr_t>(KeyboardCommand::Shift)));
+    update_keyboard_shift_display();
+}
 
 void make_keyboard_command_key(lv_obj_t *parent, int x, int y, int width, int height,
                                const char *label_text, KeyboardCommand command)
@@ -288,12 +452,18 @@ void make_keyboard_text_key(lv_obj_t *parent, int x, int y, int width, int heigh
                                  KeyboardCommand::Backspace);
         return;
     }
+    if (s_keyboard_text_key_count >= kMaxKeyboardTextKeys) return;
     lv_obj_t *key = make_button(parent, x, y, width, height, kSurfaceRaised, 5);
-    lv_obj_t *label = make_label(key, text, kTextPrimary);
-    lv_obj_center(label);
-    char *key_value = const_cast<char *>(text);
-    lv_obj_add_event_cb(key, keyboard_text_cb, LV_EVENT_PRESSED, key_value);
-    lv_obj_add_event_cb(key, keyboard_text_cb, LV_EVENT_LONG_PRESSED_REPEAT, key_value);
+    KeyboardTextKey &context = s_keyboard_text_keys[s_keyboard_text_key_count++];
+    context = {};
+    context.lower = text;
+    context.shiftable = uppercase_keyboard_text(text, context.upper, sizeof(context.upper));
+    context.label = make_label(key, text, kTextPrimary);
+    lv_obj_center(context.label);
+    lv_obj_add_event_cb(key, keyboard_text_cb, LV_EVENT_PRESSED, &context);
+    lv_obj_add_event_cb(key, keyboard_text_cb, LV_EVENT_LONG_PRESSED_REPEAT, &context);
+    lv_obj_add_event_cb(key, keyboard_text_cb, LV_EVENT_RELEASED, &context);
+    lv_obj_add_event_cb(key, keyboard_text_cb, LV_EVENT_PRESS_LOST, &context);
 }
 
 void make_keyboard_text_row(lv_obj_t *parent, int y, const char *keys[], size_t count,
@@ -304,6 +474,20 @@ void make_keyboard_text_row(lv_obj_t *parent, int y, const char *keys[], size_t 
                       static_cast<int>(count);
     for (size_t index = 0; index < count; ++index) {
         make_keyboard_text_key(parent, inset + static_cast<int>(index) * (width + gap), y,
+                               width, height, keys[index]);
+    }
+}
+
+void make_keyboard_shift_text_row(lv_obj_t *parent, int y, const char *keys[], size_t count,
+                                  int height)
+{
+    const int gap = 3;
+    const size_t columns = count + 1;
+    const int width = (320 - 6 - gap * static_cast<int>(columns - 1)) /
+                      static_cast<int>(columns);
+    make_keyboard_shift_key(parent, 3, y, width, height);
+    for (size_t index = 0; index < count; ++index) {
+        make_keyboard_text_key(parent, 3 + static_cast<int>(index + 1) * (width + gap), y,
                                width, height, keys[index]);
     }
 }
@@ -476,6 +660,15 @@ void make_kana_keyboard(lv_obj_t *keyboard, const char *action)
 
 void make_library_keyboard_impl(lv_obj_t *keyboard, const char *action)
 {
+    if (!s_keyboard_shift_view_valid || s_keyboard_shift_view != s_view) {
+        s_keyboard_shift = KeyboardShift::Off;
+        s_keyboard_shift_tap_pending = false;
+        s_keyboard_shift_view = s_view;
+        s_keyboard_shift_view_valid = true;
+    }
+    s_keyboard_text_key_count = 0;
+    s_keyboard_shift_key = nullptr;
+    s_keyboard_shift_label = nullptr;
     s_ime_candidates = nullptr;
     if (s_keyboard_picker_visible) {
         make_keyboard_picker(keyboard);
@@ -556,8 +749,18 @@ void make_library_keyboard_impl(lv_obj_t *keyboard, const char *action)
 
     make_keyboard_text_row(keyboard, first_y, row1, count1, count1 == 12 ? 2 : 3, key_height);
     make_keyboard_text_row(keyboard, first_y + key_height + row_gap, row2, count2, 16, key_height);
-    make_keyboard_text_row(keyboard, first_y + (key_height + row_gap) * 2, row3, count3,
-                           count3 >= 10 ? 3 : 24, key_height);
+    const int third_row_y = first_y + (key_height + row_gap) * 2;
+    const bool has_shift = !s_library_keyboard_symbols &&
+        (s_library_keyboard_layout == KeyboardLayout::English ||
+         s_library_keyboard_layout == KeyboardLayout::Russian ||
+         s_library_keyboard_layout == KeyboardLayout::ChinesePinyin);
+    if (has_shift) {
+        make_keyboard_shift_text_row(keyboard, third_row_y, row3, count3, key_height);
+    } else {
+        make_keyboard_text_row(keyboard, third_row_y, row3, count3,
+                               count3 >= 10 ? 3 : 24, key_height);
+    }
+    update_keyboard_shift_display();
 
     const char *action_labels[3]{};
     KeyboardCommand action_commands[3]{};
@@ -584,11 +787,29 @@ void make_library_keyboard_impl(lv_obj_t *keyboard, const char *action)
 
 void keyboard_text_cb(lv_event_t *event)
 {
-    const char *key = static_cast<const char *>(lv_event_get_user_data(event));
+    auto *context = static_cast<KeyboardTextKey *>(lv_event_get_user_data(event));
+    if (!context) return;
+    const lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        context->pressed_shifted = false;
+        update_keyboard_shift_display();
+        return;
+    }
+    if (code == LV_EVENT_PRESSED) {
+        context->pressed_shifted = context->shiftable &&
+                                   s_keyboard_shift != KeyboardShift::Off;
+    }
+    const char *key = context->pressed_shifted ? context->upper : context->lower;
     lyra::gui::ime::process_key(ime_layout(), key, keyboard_input_text(), keyboard_input_capacity());
+    if (code == LV_EVENT_PRESSED && context->pressed_shifted &&
+        s_keyboard_shift == KeyboardShift::OneShot) {
+        s_keyboard_shift = KeyboardShift::Off;
+        s_keyboard_shift_tap_pending = false;
+    }
     update_keyboard_display();
     s_ime_candidate_page = 0;
     refresh_ime_candidates();
+    update_keyboard_shift_display();
 }
 
 void hide_kana_flick_picker(KanaFlickKey *context)
@@ -669,7 +890,11 @@ void keyboard_action_cb(lv_event_t *event)
     char *text = keyboard_input_text();
     const size_t capacity = keyboard_input_capacity();
     switch (command) {
+        case KeyboardCommand::Shift:
+            toggle_keyboard_shift();
+            return;
         case KeyboardCommand::ToggleSymbols:
+            reset_keyboard_shift();
             if (s_library_keyboard_layout == KeyboardLayout::English) {
                 if (s_library_keyboard_accents) {
                     s_library_keyboard_accents = false;
@@ -695,6 +920,10 @@ void keyboard_action_cb(lv_event_t *event)
             break;
         case KeyboardCommand::Submit:
             commit_keyboard_preedit();
+            if (s_view == View::WifiPassword) {
+                submit_wifi_password();
+                return;
+            }
             if (s_view == View::PlaylistCreate) {
                 const bool from_queue = s_playlist_create_from_queue;
                 size_t created = 0;
@@ -841,6 +1070,7 @@ void kana_modifier_cb(lv_event_t *event)
 
 void commit_keyboard_preedit()
 {
+    reset_keyboard_shift();
     if (s_view != View::Search && s_view != View::PlaylistCreate) return;
     lyra::gui::ime::commit(ime_layout(), keyboard_input_text(), keyboard_input_capacity());
     update_search_label();

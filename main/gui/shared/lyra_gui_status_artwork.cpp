@@ -7,6 +7,81 @@
 
 namespace lyra::gui::internal {
 
+namespace {
+
+lv_obj_t *s_status_wifi_signal_bars[kWifiSignalBarCount]{};
+lv_timer_t *s_status_wifi_signal_timer;
+
+lv_color_t status_wifi_signal_color()
+{
+    if (is_aura_theme()) return kTextOnAccent;
+    return s_neon_hud ? kAccent : kTextSecondary;
+}
+
+lv_color_t status_wifi_signal_inactive_color()
+{
+    return is_aura_theme() ? lv_color_hex(0x5C96BC) : kDivider;
+}
+
+void refresh_status_wifi_signal()
+{
+    if (!s_status_wifi_signal_bars[0]) return;
+    const lyra::wifi::Status wifi = lyra::wifi::status();
+    const int active_bars = wifi.connected && wifi.has_connected_rssi ?
+        wifi_signal_bar_count(wifi.connected_rssi) : 0;
+    const lv_color_t active_color = status_wifi_signal_color();
+    const lv_color_t inactive_color = status_wifi_signal_inactive_color();
+    for (size_t index = 0; index < kWifiSignalBarCount; ++index) {
+        const bool active = static_cast<int>(index) < active_bars;
+        lv_obj_set_style_bg_color(s_status_wifi_signal_bars[index],
+                                  active ? active_color : inactive_color, 0);
+        lv_obj_set_style_bg_opa(s_status_wifi_signal_bars[index],
+                                 active ? LV_OPA_COVER : LV_OPA_50, 0);
+    }
+}
+
+void status_wifi_signal_timer_cb(lv_timer_t *)
+{
+    refresh_status_wifi_signal();
+}
+
+void status_bar_delete_cb(lv_event_t *)
+{
+    for (lv_obj_t *&signal_bar : s_status_wifi_signal_bars) signal_bar = nullptr;
+    if (s_status_wifi_signal_timer) {
+        lv_timer_delete(s_status_wifi_signal_timer);
+        s_status_wifi_signal_timer = nullptr;
+    }
+}
+
+} // namespace
+
+int wifi_signal_bar_count(int8_t rssi)
+{
+    if (rssi >= -55) return 4;
+    if (rssi >= -67) return 3;
+    if (rssi >= -75) return 2;
+    if (rssi >= -85) return 1;
+    return 0;
+}
+
+void make_wifi_signal_bars(lv_obj_t *parent, int x, int y, int signal_bars,
+                           lv_color_t active_color, lv_color_t inactive_color,
+                           lv_obj_t **bars_out)
+{
+    static constexpr int kBarHeights[kWifiSignalBarCount] = {4, 7, 10, 13};
+    const int clamped_signal_bars = std::clamp(signal_bars, 0,
+                                                static_cast<int>(kWifiSignalBarCount));
+    for (size_t index = 0; index < kWifiSignalBarCount; ++index) {
+        const bool active = static_cast<int>(index) < clamped_signal_bars;
+        lv_obj_t *signal_bar = make_box(parent, x + static_cast<int>(index) * 4,
+            y + 13 - kBarHeights[index], 2, kBarHeights[index],
+            active ? active_color : inactive_color, 1);
+        lv_obj_set_style_bg_opa(signal_bar, active ? LV_OPA_COVER : LV_OPA_50, 0);
+        if (bars_out) bars_out[index] = signal_bar;
+    }
+}
+
 void update_status_time_label()
 {
     if (!s_status_time_label) return;
@@ -191,6 +266,16 @@ void make_status_bar()
     // this status-bar value is a UI placeholder rather than a voltage reading.
     lv_obj_t *battery = make_label(bar, "100%  " LV_SYMBOL_BATTERY_FULL, kTextSecondary);
     lv_obj_align(battery, LV_ALIGN_RIGHT_MID, -9, 0);
+    const lyra::wifi::Status wifi = lyra::wifi::status();
+    const int active_wifi_bars = wifi.connected && wifi.has_connected_rssi ?
+        wifi_signal_bar_count(wifi.connected_rssi) : 0;
+    make_wifi_signal_bars(bar, 224, 7, active_wifi_bars,
+                          status_wifi_signal_color(), status_wifi_signal_inactive_color(),
+                          s_status_wifi_signal_bars);
+    lv_obj_add_event_cb(bar, status_bar_delete_cb, LV_EVENT_DELETE, nullptr);
+    if (!s_status_wifi_signal_timer) {
+        s_status_wifi_signal_timer = lv_timer_create(status_wifi_signal_timer_cb, 1000, nullptr);
+    }
     if (is_aura_theme()) {
         lv_obj_set_style_text_color(s_status_volume_label, kTextOnAccent, 0);
         lv_obj_set_style_text_color(s_status_time_label, kTextOnAccent, 0);
@@ -198,6 +283,7 @@ void make_status_bar()
         make_box(bar, 0, kStatusHeight - 1, kScreenWidth, 1, lv_color_hex(0xE6FAFF));
     }
     if (s_neon_hud) make_box(bar, 8, kStatusHeight - 1, 304, 1, kAccent);
+    refresh_status_wifi_signal();
 }
 
 lv_obj_t *make_header(const char *title, View back, bool show_back, const char *right,

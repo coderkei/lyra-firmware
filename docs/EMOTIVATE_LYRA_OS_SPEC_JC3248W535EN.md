@@ -41,6 +41,7 @@ hardware references.
 | User interface | `main/lyra_gui.cpp` | LVGL screens, touch routing, settings, and navigation |
 | Media service | `main/lyra_media.cpp` | MicroSD mount, catalog, metadata, playlists, search, sorting, and artwork |
 | Audio service | `main/lyra_audio.cpp` | Decode, PCM conversion, equalizer, volume, seeking, and mirrored I2S output |
+| Wi-Fi service | `main/lyra_wifi.cpp` | Station startup, network scans, saved-network connection, reconnect, and ping diagnostics |
 
 The display is initialised with its backlight off. Lyra renders the boot
 screen before enabling the panel, then starts its regular LVGL worker after
@@ -77,6 +78,12 @@ while keeping its settings and recovery interface available.
 - The active queue is stored separately at `/sdcard/.lyra/queue-v1.m3u8`.
 - Settings, volume, equalizer preferences, sort choices, and artwork-cache
   choices use the `lyra` NVS namespace.
+- Wi-Fi is disabled by default. Settings > System > Wi-Fi can enable the
+  station, scan nearby networks, connect to open or password-protected
+  networks, disconnect, and forget the saved network. The enabled state and
+  one saved SSID/passphrase persist in NVS; an enabled station reconnects to
+  that network after startup. Settings > About > Service Menu > Debug >
+  Network tests pings `1.1.1.1` and resolves then pings `example.com`.
 - Album art is loaded on demand. Embedded artwork takes priority, and folder
   artwork can come from `cover.jpg`, `folder.jpg`, or `cover.png`. Lyra keeps
   the display image in memory and can retain selected decoded artwork in
