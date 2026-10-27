@@ -99,6 +99,7 @@ bool s_use_24_hour = true;
 bool s_dst_enabled = false;
 bool s_speaker_output_enabled = lyra::audio::kDefaultSpeakerOutputEnabled;
 bool s_timer_alarm_enabled = true;
+bool s_t9_input = false;
 EqualizerPreset s_equalizer_preset = EqualizerPreset::Custom;
 int16_t s_equalizer_custom_bands[lyra::audio::kEqualizerBandCount]{};
 uint16_t s_sleep_timer_minutes = 0;

@@ -327,6 +327,7 @@ KanaFlickKey s_kana_flick_keys[10]{};
 
 void keyboard_action_cb(lv_event_t *event);
 void keyboard_text_cb(lv_event_t *event);
+void t9_key_cb(lv_event_t *event);
 void kana_flick_cb(lv_event_t *event);
 void ime_candidate_cb(lv_event_t *event);
 void ime_candidate_page_cb(lv_event_t *event);
@@ -662,8 +663,105 @@ void make_kana_keyboard(lv_obj_t *keyboard, const char *action)
                               key_height);
 }
 
+const char *keyboard_toggle_label()
+{
+    if (s_library_keyboard_layout == KeyboardLayout::English && s_view != View::RadioAdd) {
+        return s_library_keyboard_accents ? tr(lyra::i18n::StringId::NumbersKey) :
+            (s_library_keyboard_symbols ? tr(lyra::i18n::StringId::LettersKey) : "é");
+    }
+    return s_library_keyboard_symbols ? tr(lyra::i18n::StringId::LettersKey) :
+                                        tr(lyra::i18n::StringId::NumbersKey);
+}
+
+struct T9KeyLabel {
+    char key;
+    const char *digit;
+    const char *letters;
+};
+
+// Keypad order is 1-9, *, 0; the twelfth key is always backspace.
+constexpr size_t kT9LabelCount = 11;
+constexpr T9KeyLabel kLatinT9Labels[kT9LabelCount] = {
+    {'1', "1", ".,?!"}, {'2', "2", "abc"}, {'3', "3", "def"},
+    {'4', "4", "ghi"}, {'5', "5", "jkl"}, {'6', "6", "mno"},
+    {'7', "7", "pqrs"}, {'8', "8", "tuv"}, {'9', "9", "wxyz"},
+    {'*', nullptr, nullptr}, {'0', "0", nullptr},
+};
+constexpr T9KeyLabel kRussianT9Labels[kT9LabelCount] = {
+    {'1', "1", ".,?!"}, {'2', "2", "абвг"}, {'3', "3", "деёжз"},
+    {'4', "4", "ийкл"}, {'5', "5", "мноп"}, {'6', "6", "рсту"},
+    {'7', "7", "фхцч"}, {'8', "8", "шщъы"}, {'9', "9", "ьэюя"},
+    {'*', nullptr, nullptr}, {'0', "0", nullptr},
+};
+constexpr T9KeyLabel kKoreanT9Labels[kT9LabelCount] = {
+    {'1', nullptr, "ㅣ"}, {'2', nullptr, "ㆍ"}, {'3', nullptr, "ㅡ"},
+    {'4', nullptr, "ㄱㅋ"}, {'5', nullptr, "ㄴㄹ"}, {'6', nullptr, "ㄷㅌ"},
+    {'7', nullptr, "ㅂㅍ"}, {'8', nullptr, "ㅅㅎ"}, {'9', nullptr, "ㅈㅊ"},
+    {'*', nullptr, ".,?!"}, {'0', nullptr, "ㅇㅁ"},
+};
+
+void make_t9_key(lv_obj_t *parent, int x, int y, int width, int height,
+                 const T9KeyLabel &label)
+{
+    lv_obj_t *key = make_button(parent, x, y, width, height, kSurfaceRaised, 5);
+    if (label.letters) {
+        lv_obj_t *letters = make_label(key, label.letters, kTextPrimary);
+        lv_obj_center(letters);
+        if (label.digit) {
+            lv_obj_t *digit = make_label(key, label.digit, kTextMuted);
+            lv_obj_align(digit, LV_ALIGN_LEFT_MID, 8, 0);
+        }
+    } else {
+        lv_obj_t *digit = make_label(key, label.digit, kTextPrimary);
+        lv_obj_center(digit);
+    }
+    lv_obj_add_event_cb(key, t9_key_cb, LV_EVENT_PRESSED,
+                        reinterpret_cast<void *>(static_cast<uintptr_t>(label.key)));
+}
+
+void make_t9_keyboard(lv_obj_t *keyboard, const char *action)
+{
+    const KeyboardLayout layout = s_library_keyboard_layout;
+    const T9KeyLabel *labels = layout == KeyboardLayout::Russian ? kRussianT9Labels :
+                               layout == KeyboardLayout::Korean ? kKoreanT9Labels :
+                                                                  kLatinT9Labels;
+    // Korean puts punctuation on *, so only the alphabets get a shift key.
+    const bool has_shift = layout != KeyboardLayout::Korean;
+    const int gap = 2;
+    int first_y = 4;
+    if (layout == KeyboardLayout::ChinesePinyin) {
+        s_ime_candidates = make_box(keyboard, 0, 2, 320, 30, kKeyboardSurface);
+        refresh_ime_candidates();
+        first_y = 34;
+    }
+    const int key_height = (library_keyboard_height() - first_y -
+                            kKeyboardBottomPadding - gap * 4) / 5;
+    const int key_width = (320 - 6 - gap * 2) / 3;
+    for (size_t index = 0; index <= kT9LabelCount; ++index) {
+        const int x = 3 + static_cast<int>(index % 3) * (key_width + gap);
+        const int y = first_y + static_cast<int>(index / 3) * (key_height + gap);
+        if (index == kT9LabelCount) {
+            make_keyboard_command_key(keyboard, x, y, key_width, key_height,
+                                      LV_SYMBOL_BACKSPACE, KeyboardCommand::Backspace);
+        } else if (labels[index].key == '*' && has_shift) {
+            make_keyboard_shift_key(keyboard, x, y, key_width, key_height);
+        } else {
+            make_t9_key(keyboard, x, y, key_width, key_height, labels[index]);
+        }
+    }
+    const char *command_labels[] = {
+        keyboard_toggle_label(), tr(lyra::i18n::StringId::SpaceKey), action,
+    };
+    const KeyboardCommand commands[] = {
+        KeyboardCommand::ToggleSymbols, KeyboardCommand::Space, KeyboardCommand::Submit,
+    };
+    make_keyboard_command_row(keyboard, first_y + 4 * (key_height + gap), command_labels,
+                              commands, 3, key_height);
+}
+
 void make_library_keyboard_impl(lv_obj_t *keyboard, const char *action)
 {
+    lyra::gui::ime::set_t9_mode(s_t9_input);
     if (!s_keyboard_shift_view_valid || s_keyboard_shift_view != s_view) {
         s_keyboard_shift = KeyboardShift::Off;
         s_keyboard_shift_tap_pending = false;
@@ -727,6 +825,11 @@ void make_library_keyboard_impl(lv_obj_t *keyboard, const char *action)
         return;
     }
 
+    if (s_t9_input && !s_library_keyboard_symbols && !s_library_keyboard_accents) {
+        make_t9_keyboard(keyboard, action);
+        return;
+    }
+
     if (s_library_keyboard_layout == KeyboardLayout::Russian && !s_library_keyboard_symbols) {
         row1 = russian_row1; row2 = russian_row2; row3 = russian_row3;
         count1 = 12; count2 = 11; count3 = 11;
@@ -766,28 +869,12 @@ void make_library_keyboard_impl(lv_obj_t *keyboard, const char *action)
     }
     update_keyboard_shift_display();
 
-    const char *action_labels[3]{};
-    KeyboardCommand action_commands[3]{};
-    if (s_library_keyboard_layout == KeyboardLayout::English) {
-        action_labels[0] = s_view == View::RadioAdd ?
-            (s_library_keyboard_symbols ? tr(lyra::i18n::StringId::LettersKey) :
-                                          tr(lyra::i18n::StringId::NumbersKey)) :
-            s_library_keyboard_accents ? tr(lyra::i18n::StringId::NumbersKey) :
-            (s_library_keyboard_symbols ? tr(lyra::i18n::StringId::LettersKey) : "é");
-        action_commands[0] = KeyboardCommand::ToggleSymbols;
-        action_labels[1] = tr(lyra::i18n::StringId::SpaceKey);
-        action_commands[1] = KeyboardCommand::Space;
-        action_labels[2] = action;
-        action_commands[2] = KeyboardCommand::Submit;
-    } else {
-        action_labels[0] = s_library_keyboard_symbols ? tr(lyra::i18n::StringId::LettersKey) :
-                                                        tr(lyra::i18n::StringId::NumbersKey);
-        action_commands[0] = KeyboardCommand::ToggleSymbols;
-        action_labels[1] = tr(lyra::i18n::StringId::SpaceKey);
-        action_commands[1] = KeyboardCommand::Space;
-        action_labels[2] = action;
-        action_commands[2] = KeyboardCommand::Submit;
-    }
+    const char *action_labels[] = {
+        keyboard_toggle_label(), tr(lyra::i18n::StringId::SpaceKey), action,
+    };
+    const KeyboardCommand action_commands[] = {
+        KeyboardCommand::ToggleSymbols, KeyboardCommand::Space, KeyboardCommand::Submit,
+    };
     make_keyboard_command_row(keyboard, first_y + (key_height + row_gap) * 3,
                               action_labels, action_commands, 3, key_height);
 }
@@ -810,6 +897,24 @@ void keyboard_text_cb(lv_event_t *event)
     lyra::gui::ime::process_key(ime_layout(), key, keyboard_input_text(), keyboard_input_capacity());
     if (code == LV_EVENT_PRESSED && context->pressed_shifted &&
         s_keyboard_shift == KeyboardShift::OneShot) {
+        s_keyboard_shift = KeyboardShift::Off;
+        s_keyboard_shift_tap_pending = false;
+    }
+    update_keyboard_display();
+    s_ime_candidate_page = 0;
+    refresh_ime_candidates();
+    update_keyboard_shift_display();
+}
+
+void t9_key_cb(lv_event_t *event)
+{
+    const char key = static_cast<char>(
+        reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    const bool upper = s_keyboard_shift != KeyboardShift::Off;
+    lyra::gui::ime::process_t9_key(ime_layout(), key, upper, keyboard_input_text(),
+                                   keyboard_input_capacity());
+    // Only the letter keys consume a one-shot shift.
+    if (key >= '2' && key <= '9' && s_keyboard_shift == KeyboardShift::OneShot) {
         s_keyboard_shift = KeyboardShift::Off;
         s_keyboard_shift_tap_pending = false;
     }
@@ -1019,8 +1124,16 @@ void kana_flick_cb(lv_event_t *event)
     const char *kana = context->variants[variant];
     hide_kana_flick_picker(context);
     if (kana && *kana) {
-        lyra::gui::ime::process_kana_flick(
-            ime_layout(), kana, keyboard_input_text(), keyboard_input_capacity());
+        // In T9 mode a plain tap toggles through the row; flicks still work.
+        const size_t key_index = static_cast<size_t>(context - s_kana_flick_keys);
+        if (s_t9_input && variant == 0) {
+            lyra::gui::ime::process_t9_key(ime_layout(),
+                key_index == 9 ? '0' : static_cast<char>('1' + key_index), false,
+                keyboard_input_text(), keyboard_input_capacity());
+        } else {
+            lyra::gui::ime::process_kana_flick(
+                ime_layout(), kana, keyboard_input_text(), keyboard_input_capacity());
+        }
         update_keyboard_display();
         s_ime_candidate_page = 0;
         refresh_ime_candidates();

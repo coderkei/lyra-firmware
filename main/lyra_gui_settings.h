@@ -48,6 +48,8 @@ struct Values {
     // True selects the listening hub; false restores the classic seven-row menu.
     bool listening_hub = true;
     bool timer_alarm_enabled = true;
+    // Replaces the QWERTY-style keyboards with a 12-key T9 keypad where one exists.
+    bool t9_input = false;
 };
 
 // Loads only valid persisted values, leaving caller-provided defaults intact.

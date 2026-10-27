@@ -240,6 +240,7 @@ extern bool s_use_24_hour;
 extern bool s_dst_enabled;
 extern bool s_speaker_output_enabled;
 extern bool s_timer_alarm_enabled;
+extern bool s_t9_input;
 extern EqualizerPreset s_equalizer_preset;
 extern int16_t s_equalizer_custom_bands[lyra::audio::kEqualizerBandCount];
 extern uint16_t s_sleep_timer_minutes;

@@ -11,6 +11,7 @@
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "zlib.h"
 
 namespace lyra::gui::ime {
@@ -74,6 +75,32 @@ struct CandidateState {
 
 DictionaryState s_dictionary{};
 CandidateState s_candidates{};
+
+constexpr int64_t kT9CycleUs = 900 * 1000;
+constexpr size_t kT9StrokeCapacity = 8;
+
+// A multi-tap cycle replays from a snapshot taken before its first tap, so each
+// repeat tap restores the snapshot and applies the next character of the key.
+struct T9Cycle {
+    bool active = false;
+    Layout layout = Layout::Count;
+    char key = 0;
+    size_t index = 0;
+    int64_t last_us = 0;
+    bool upper = false;
+    char *text = nullptr;
+    size_t text_length = 0;
+    char preedit[kPreeditCapacity] = "";
+    int hangul_initial = -1;
+    int hangul_vowel = -1;
+    int hangul_final = 0;
+    // Cheonjiin vowel strokes: I (ㅣ), D (ㆍ), E (ㅡ).
+    char strokes[kT9StrokeCapacity] = "";
+};
+
+bool s_t9_mode = false;
+bool s_t9_applying = false;
+T9Cycle s_t9{};
 
 uint32_t read_u32(const uint8_t *bytes)
 {
@@ -783,6 +810,208 @@ uint32_t voiced_kana(uint32_t codepoint, bool handakuten)
     return katakana ? replacement + 0x60 : replacement;
 }
 
+struct T9Keys {
+    char key;
+    const char *lower;
+    const char *upper;
+};
+
+// ITU E.161 letter groups; the digit closes each alphabet cycle like a phone.
+constexpr T9Keys kEnglishT9[] = {
+    {'1', ".,?!'-1", ".,?!'-1"}, {'2', "abc2", "ABC2"}, {'3', "def3", "DEF3"},
+    {'4', "ghi4", "GHI4"}, {'5', "jkl5", "JKL5"}, {'6', "mno6", "MNO6"},
+    {'7', "pqrs7", "PQRS7"}, {'8', "tuv8", "TUV8"}, {'9', "wxyz9", "WXYZ9"},
+    {'0', "0", "0"},
+};
+
+constexpr T9Keys kRussianT9[] = {
+    {'1', ".,?!'-1", ".,?!'-1"}, {'2', "абвг2", "АБВГ2"}, {'3', "деёжз3", "ДЕЁЖЗ3"},
+    {'4', "ийкл4", "ИЙКЛ4"}, {'5', "мноп5", "МНОП5"}, {'6', "рсту6", "РСТУ6"},
+    {'7', "фхцч7", "ФХЦЧ7"}, {'8', "шщъы8", "ШЩЪЫ8"}, {'9', "ьэюя9", "ЬЭЮЯ9"},
+    {'0', "0", "0"},
+};
+
+// Pinyin letters stay out of the digit so a cycle never commits the preedit.
+constexpr T9Keys kPinyinT9[] = {
+    {'1', ".,?!", ".,?!"}, {'2', "abc", "ABC"}, {'3', "def", "DEF"},
+    {'4', "ghi", "GHI"}, {'5', "jkl", "JKL"}, {'6', "mno", "MNO"},
+    {'7', "pqrs", "PQRS"}, {'8', "tuv", "TUV"}, {'9', "wxyz", "WXYZ"},
+    {'0', "0", "0"},
+};
+
+// Cheonjiin consonants; keys 1-3 are the vowel strokes handled separately.
+constexpr T9Keys kKoreanT9[] = {
+    {'4', "ㄱㅋㄲ", nullptr}, {'5', "ㄴㄹ", nullptr}, {'6', "ㄷㅌㄸ", nullptr},
+    {'7', "ㅂㅍㅃ", nullptr}, {'8', "ㅅㅎㅆ", nullptr}, {'9', "ㅈㅊㅉ", nullptr},
+    {'0', "ㅇㅁ", nullptr}, {'*', ".,?!", nullptr},
+};
+
+// Keitai toggle input over the same rows as the flick keypad.
+constexpr T9Keys kKanaT9[] = {
+    {'1', "あいうえお", nullptr}, {'2', "かきくけこ", nullptr}, {'3', "さしすせそ", nullptr},
+    {'4', "たちつてと", nullptr}, {'5', "なにぬねの", nullptr}, {'6', "はひふへほ", nullptr},
+    {'7', "まみむめも", nullptr}, {'8', "やゆよ", nullptr}, {'9', "らりるれろ", nullptr},
+    {'0', "わをんー", nullptr},
+};
+
+struct CheonjiinVowel {
+    const char *strokes;
+    const char *jamo;
+};
+
+// Every prefix of a listed stroke sequence is itself listed, so a sequence can
+// grow one stroke at a time. Dot-only entries are shown but are not vowels.
+constexpr CheonjiinVowel kCheonjiinVowels[] = {
+    {"I", "ㅣ"}, {"E", "ㅡ"}, {"D", "ㆍ"}, {"DD", "‥"},
+    {"ID", "ㅏ"}, {"IDD", "ㅑ"}, {"IDI", "ㅐ"}, {"IDDI", "ㅒ"},
+    {"DI", "ㅓ"}, {"DDI", "ㅕ"}, {"DII", "ㅔ"}, {"DDII", "ㅖ"},
+    {"DE", "ㅗ"}, {"DDE", "ㅛ"}, {"DEI", "ㅚ"}, {"DEID", "ㅘ"}, {"DEIDI", "ㅙ"},
+    {"ED", "ㅜ"}, {"EDD", "ㅠ"}, {"EDI", "ㅟ"}, {"EDDI", "ㅝ"}, {"EDDII", "ㅞ"},
+    {"EI", "ㅢ"},
+};
+
+template <size_t Count>
+const char *find_t9_characters(const T9Keys (&keys)[Count], char key, bool upper)
+{
+    for (const T9Keys &entry : keys) {
+        if (entry.key == key) return upper && entry.upper ? entry.upper : entry.lower;
+    }
+    return nullptr;
+}
+
+const char *t9_characters(Layout layout, char key, bool upper)
+{
+    switch (layout) {
+        case Layout::English: return find_t9_characters(kEnglishT9, key, upper);
+        case Layout::Russian: return find_t9_characters(kRussianT9, key, upper);
+        case Layout::Korean: return find_t9_characters(kKoreanT9, key, upper);
+        case Layout::ChinesePinyin: return find_t9_characters(kPinyinT9, key, upper);
+        case Layout::JapaneseKana: return find_t9_characters(kKanaT9, key, upper);
+        case Layout::Count: break;
+    }
+    return nullptr;
+}
+
+size_t codepoint_count(const char *text)
+{
+    size_t count = 0;
+    for (const char *cursor = text; *cursor; ++count) decode_utf8(&cursor);
+    return count;
+}
+
+bool codepoint_at(const char *text, size_t index, char output[5])
+{
+    const char *cursor = text;
+    for (size_t current = 0; *cursor; ++current) {
+        const uint32_t codepoint = decode_utf8(&cursor);
+        if (current == index) {
+            encode_utf8(codepoint, output);
+            return true;
+        }
+    }
+    return false;
+}
+
+const char *cheonjiin_vowel(const char *strokes)
+{
+    for (const CheonjiinVowel &vowel : kCheonjiinVowels) {
+        if (std::strcmp(vowel.strokes, strokes) == 0) return vowel.jamo;
+    }
+    return nullptr;
+}
+
+bool cheonjiin_dots_pending()
+{
+    return s_t9.strokes[0] && std::strspn(s_t9.strokes, "D") == std::strlen(s_t9.strokes);
+}
+
+void snapshot_t9(Layout layout, char key, bool upper, char *text)
+{
+    s_t9 = {};
+    s_t9.active = true;
+    s_t9.layout = layout;
+    s_t9.key = key;
+    s_t9.upper = upper;
+    s_t9.text = text;
+    s_t9.text_length = std::strlen(text);
+    std::memcpy(s_t9.preedit, s_preedit, sizeof(s_preedit));
+    s_t9.hangul_initial = s_hangul_initial;
+    s_t9.hangul_vowel = s_hangul_vowel;
+    s_t9.hangul_final = s_hangul_final;
+}
+
+void restore_t9()
+{
+    if (!s_t9.active || !s_t9.text) return;
+    if (std::strlen(s_t9.text) > s_t9.text_length) s_t9.text[s_t9.text_length] = '\0';
+    std::memcpy(s_preedit, s_t9.preedit, sizeof(s_preedit));
+    s_hangul_initial = s_t9.hangul_initial;
+    s_hangul_vowel = s_t9.hangul_vowel;
+    s_hangul_final = s_t9.hangul_final;
+    invalidate_candidates();
+}
+
+// Any non-T9 input ends the cycle; a lone Cheonjiin dot is not a vowel, so it
+// is dropped rather than committed.
+void end_t9_cycle()
+{
+    if (s_t9_applying) return;
+    if (s_t9.active && cheonjiin_dots_pending()) restore_t9();
+    s_t9 = {};
+}
+
+void apply_t9_character(Layout layout, const char *character, char *text, size_t capacity)
+{
+    s_t9_applying = true;
+    if (layout == Layout::ChinesePinyin) {
+        process_pinyin_key(character, text, capacity);
+    } else if (layout == Layout::Korean) {
+        const char *cursor = character;
+        process_hangul(decode_utf8(&cursor), text, capacity);
+    } else if (layout == Layout::JapaneseKana) {
+        append(s_preedit, sizeof(s_preedit), character);
+        invalidate_candidates();
+    } else {
+        append(text, capacity, character);
+    }
+    s_t9_applying = false;
+}
+
+void apply_cheonjiin(char *text, size_t capacity)
+{
+    const char *jamo = cheonjiin_vowel(s_t9.strokes);
+    if (!jamo) return;
+    if (cheonjiin_dots_pending()) {
+        append(s_preedit, sizeof(s_preedit), jamo);
+        invalidate_candidates();
+        return;
+    }
+    apply_t9_character(Layout::Korean, jamo, text, capacity);
+}
+
+void process_cheonjiin_stroke(char stroke, char *text, size_t capacity)
+{
+    char strokes[kT9StrokeCapacity] = "";
+    const size_t length = std::strlen(s_t9.strokes);
+    const bool extend = s_t9.active && s_t9.layout == Layout::Korean && s_t9.text == text &&
+                        length && length + 1 < sizeof(strokes);
+    if (extend) {
+        std::memcpy(strokes, s_t9.strokes, length);
+        strokes[length] = stroke;
+        strokes[length + 1] = '\0';
+    }
+    if (extend && cheonjiin_vowel(strokes)) {
+        restore_t9();
+    } else {
+        end_t9_cycle();
+        snapshot_t9(Layout::Korean, stroke, false, text);
+        strokes[0] = stroke;
+        strokes[1] = '\0';
+    }
+    std::memcpy(s_t9.strokes, strokes, sizeof(strokes));
+    apply_cheonjiin(text, capacity);
+}
+
 } // namespace
 
 void reset()
@@ -791,7 +1020,51 @@ void reset()
     s_hangul_initial = -1;
     s_hangul_vowel = -1;
     s_hangul_final = 0;
+    s_t9 = {};
     invalidate_candidates();
+}
+
+void set_t9_mode(bool enabled)
+{
+    if (s_t9_mode == enabled) return;
+    s_t9_mode = enabled;
+    reset();
+}
+
+bool t9_mode()
+{
+    return s_t9_mode;
+}
+
+void process_t9_key(Layout layout, char key, bool upper, char *text, size_t capacity)
+{
+    if (!text || capacity == 0) return;
+    if (layout == Layout::Korean && key >= '1' && key <= '3') {
+        process_cheonjiin_stroke(key == '1' ? 'I' : key == '2' ? 'D' : 'E', text, capacity);
+        return;
+    }
+    const int64_t now = esp_timer_get_time();
+    const bool repeat = s_t9.active && s_t9.layout == layout && s_t9.key == key &&
+                        s_t9.text == text && !s_t9.strokes[0] &&
+                        now - s_t9.last_us <= kT9CycleUs;
+    if (repeat) {
+        restore_t9();
+    } else {
+        end_t9_cycle();
+        snapshot_t9(layout, key, upper, text);
+    }
+    const char *characters = t9_characters(layout, key, s_t9.upper);
+    const size_t count = characters ? codepoint_count(characters) : 0;
+    if (count == 0) {
+        s_t9 = {};
+        return;
+    }
+    s_t9.index = repeat ? (s_t9.index + 1) % count : 0;
+    s_t9.last_us = now;
+    char character[5];
+    if (codepoint_at(characters, s_t9.index, character)) {
+        apply_t9_character(layout, character, text, capacity);
+    }
 }
 
 const char *preedit()
@@ -818,6 +1091,7 @@ const char *candidate(Layout layout, size_t index)
 
 bool select_candidate(Layout layout, size_t index, char *text, size_t capacity)
 {
+    end_t9_cycle();
     prepare_candidates(layout);
     if (index >= candidate_total(layout)) return false;
     char selected[kMaxWordBytes + 1]{};
@@ -833,6 +1107,7 @@ bool select_candidate(Layout layout, size_t index, char *text, size_t capacity)
 void process_key(Layout layout, const char *key, char *text, size_t capacity)
 {
     if (!key || !*key || !text || capacity == 0) return;
+    end_t9_cycle();
     if (layout == Layout::ChinesePinyin) {
         process_pinyin_key(key, text, capacity);
         return;
@@ -857,12 +1132,14 @@ void process_key(Layout layout, const char *key, char *text, size_t capacity)
 void process_kana_flick(Layout layout, const char *kana, char *, size_t)
 {
     if (layout != Layout::JapaneseKana || !kana) return;
+    end_t9_cycle();
     append(s_preedit, sizeof(s_preedit), kana);
     invalidate_candidates();
 }
 
 void apply_kana_modifier(KanaModifier modifier, char *, size_t)
 {
+    end_t9_cycle();
     if (!s_preedit[0]) return;
     const char *cursor = s_preedit;
     uint32_t previous = 0;
@@ -878,6 +1155,7 @@ void apply_kana_modifier(KanaModifier modifier, char *, size_t)
 
 void commit(Layout layout, char *text, size_t capacity)
 {
+    end_t9_cycle();
     if (layout == Layout::Korean) {
         commit_hangul_to(text, capacity);
         return;
@@ -901,7 +1179,18 @@ void commit(Layout layout, char *text, size_t capacity)
 
 bool backspace(Layout layout, char *text, size_t capacity)
 {
-    (void)capacity;
+    const size_t strokes = std::strlen(s_t9.strokes);
+    if (s_t9.active && strokes && s_t9.text == text) {
+        restore_t9();
+        if (strokes > 1) {
+            s_t9.strokes[strokes - 1] = '\0';
+            apply_cheonjiin(text, capacity);
+        } else {
+            s_t9 = {};
+        }
+        return true;
+    }
+    end_t9_cycle();
     if (layout == Layout::Korean && s_hangul_initial >= 0) {
         if (s_hangul_final != 0) {
             if (s_hangul_final == 2) s_hangul_final = 1;
@@ -954,6 +1243,7 @@ bool backspace(Layout layout, char *text, size_t capacity)
 
 void space(Layout layout, char *text, size_t capacity)
 {
+    end_t9_cycle();
     const size_t count = candidate_total(layout);
     if (layout == Layout::ChinesePinyin && count > 0) {
         select_candidate(layout, 0, text, capacity);

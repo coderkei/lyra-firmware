@@ -27,6 +27,7 @@ constexpr const char *kSetupCompleteKey = "setup_done";
 constexpr const char *kKeyboardLayoutKey = "keyboard";
 constexpr const char *kListeningHubKey = "menu_hub";
 constexpr const char *kTimerAlarmKey = "timer_alarm";
+constexpr const char *kT9InputKey = "t9_input";
 constexpr const char *kSpeakerOutputKey = "speaker_output";
 constexpr const char *kEqualizerPresetKey = "eq_preset";
 constexpr const char *kDateFormatKey = "date_format";
@@ -115,6 +116,9 @@ void load(Values *values, size_t accent_palette_count, uint8_t equalizer_preset_
     if (nvs_get_u8(handle, kTimerAlarmKey, &value) == ESP_OK && value <= 1) {
         values->timer_alarm_enabled = value != 0;
     }
+    if (nvs_get_u8(handle, kT9InputKey, &value) == ESP_OK && value <= 1) {
+        values->t9_input = value != 0;
+    }
     if (nvs_get_u8(handle, kSpeakerOutputKey, &value) == ESP_OK && value <= 1) {
         values->speaker_output_enabled = value != 0;
     }
@@ -191,6 +195,7 @@ esp_err_t save(const Values &values)
                                                values.listening_hub ? 1 : 0);
     if (result == ESP_OK) result = nvs_set_u8(handle, kTimerAlarmKey,
                                                values.timer_alarm_enabled ? 1 : 0);
+    if (result == ESP_OK) result = nvs_set_u8(handle, kT9InputKey, values.t9_input ? 1 : 0);
     if (result == ESP_OK) result = nvs_commit(handle);
     nvs_close(handle);
     if (result != ESP_OK) {

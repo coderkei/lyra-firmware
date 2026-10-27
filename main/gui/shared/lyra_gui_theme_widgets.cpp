@@ -219,6 +219,7 @@ esp_err_t save_user_settings()
     };
     values.listening_hub = s_listening_hub;
     values.timer_alarm_enabled = s_timer_alarm_enabled;
+    values.t9_input = s_t9_input;
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
     return lyra::gui_settings::save(values);
@@ -252,6 +253,7 @@ void load_user_settings()
                              static_cast<uint8_t>(EqualizerPreset::Count));
     s_setup_pending = !values.setup_complete;
     s_timer_alarm_enabled = values.timer_alarm_enabled;
+    s_t9_input = values.t9_input;
     const bool clear_fallback_dst = lyra::clock::is_using_default_time() && values.dst_enabled;
     if (clear_fallback_dst) values.dst_enabled = false;
     s_gapless = values.gapless;
