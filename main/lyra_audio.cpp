@@ -209,6 +209,7 @@ esp_err_t play_stream(const char *url)
     s_requested_path[sizeof(s_requested_path) - 1] = '\0';
     s_requested_seek_ms = 0;
     s_requested_pause_after_seek = false;
+    s_stream_title[0] = '\0';
     ++s_request_generation;
     ++s_status.playback_serial;
     s_status.transitioned = false;
@@ -258,6 +259,7 @@ esp_err_t play_from_position(const char *path, uint32_t position_ms, bool paused
     s_requested_path[sizeof(s_requested_path) - 1] = '\0';
     s_requested_seek_ms = position_ms;
     s_requested_pause_after_seek = false;
+    s_stream_title[0] = '\0';
     ++s_request_generation;
     ++s_status.playback_serial;
     s_status.transitioned = false;
@@ -557,6 +559,17 @@ Status status()
     copy = s_status;
     xSemaphoreGive(s_state_mutex);
     return copy;
+}
+
+void stream_title(char *title, size_t capacity)
+{
+    if (!title || capacity == 0) return;
+    title[0] = '\0';
+    if (s_state_mutex == nullptr) return;
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    std::strncpy(title, s_stream_title, capacity - 1);
+    title[capacity - 1] = '\0';
+    xSemaphoreGive(s_state_mutex);
 }
 
 Diagnostics diagnostics()

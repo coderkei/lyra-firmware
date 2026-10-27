@@ -102,6 +102,9 @@ extern bool s_audio_session_active;
 extern uint8_t s_duration_scan_buffer[kDurationScanBufferBytes];
 extern lyra::audio::Status s_status;
 extern lyra::audio::Diagnostics s_diagnostics;
+// Protected by s_state_mutex.
+extern char s_stream_title[lyra::audio::kMaxStreamTitle];
+void set_stream_title(const char *title);
 
 using lyra::audio::pcm::PcmOutput;
 
@@ -880,6 +883,11 @@ struct AudioReadAhead {
     bool eof = false;
     bool error = false;
     bool streaming = false;
+    // ICY (SHOUTcast/Icecast) in-band metadata. When icy_metaint is non-zero
+    // the server inserts a metadata block after every icy_metaint audio bytes;
+    // it is removed here so the decoder only ever sees audio.
+    size_t icy_metaint = 0;
+    size_t icy_remaining = 0;
     OggOpusReader *ogg_opus = nullptr;
     M4aAacReader *m4a_aac = nullptr;
     // AIFF/AIFC is a big-endian PCM container rather than an esp_audio_codec
@@ -904,6 +912,71 @@ struct AudioReadAhead {
             s_diagnostics.audio_buffer_low_watermark = available;
         }
         xSemaphoreGive(s_state_mutex);
+    }
+
+    bool read_http_exact(uint8_t *output, size_t length)
+    {
+        size_t received = 0;
+        int stalls = 0;
+        while (received < length) {
+            const int count = esp_http_client_read(http_client,
+                reinterpret_cast<char *>(output + received),
+                static_cast<int>(length - received));
+            if (count == -ESP_ERR_HTTP_EAGAIN) {
+                if (++stalls > 3) return false;
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
+            }
+            if (count <= 0) return false;
+            received += static_cast<size_t>(count);
+            stalls = 0;
+        }
+        return true;
+    }
+
+    // Reads one ICY metadata block (a length byte in 16-byte units followed by
+    // that many bytes) and publishes the StreamTitle it carries, if any.
+    bool read_icy_metadata()
+    {
+        uint8_t blocks = 0;
+        if (!read_http_exact(&blocks, 1)) return false;
+        size_t remaining = static_cast<size_t>(blocks) * 16u;
+        if (remaining == 0) return true;
+
+        char metadata[512];
+        size_t stored = 0;
+        while (remaining > 0) {
+            const size_t room = sizeof(metadata) - 1 - stored;
+            if (room > 0) {
+                const size_t chunk = std::min(remaining, room);
+                if (!read_http_exact(reinterpret_cast<uint8_t *>(metadata) + stored,
+                                     chunk)) {
+                    return false;
+                }
+                stored += chunk;
+                remaining -= chunk;
+            } else {
+                // Oversized block: discard the tail rather than the stream.
+                uint8_t discard[64];
+                const size_t chunk = std::min(remaining, sizeof(discard));
+                if (!read_http_exact(discard, chunk)) return false;
+                remaining -= chunk;
+            }
+        }
+        metadata[stored] = '\0';
+
+        constexpr char kKey[] = "StreamTitle='";
+        char *start = std::strstr(metadata, kKey);
+        if (!start) return true;
+        start += sizeof(kKey) - 1;
+        char *end = std::strstr(start, "';");
+        if (!end) end = std::strrchr(start, '\'');
+        if (end) *end = '\0';
+        for (char *cursor = start; *cursor; ++cursor) {
+            if (static_cast<unsigned char>(*cursor) < 0x20) *cursor = ' ';
+        }
+        set_stream_title(start);
+        return true;
     }
 
     bool fill()
@@ -979,6 +1052,17 @@ struct AudioReadAhead {
         if (wanted == 0) return true;
 
         if (http_client) {
+            if (icy_metaint > 0) {
+                if (icy_remaining == 0) {
+                    if (!read_icy_metadata()) {
+                        error = true;
+                        return false;
+                    }
+                    icy_remaining = icy_metaint;
+                    return true;
+                }
+                wanted = std::min(wanted, icy_remaining);
+            }
             const int count = esp_http_client_read(http_client,
                 reinterpret_cast<char *>(buffer + write_index), static_cast<int>(wanted));
             if (count == -ESP_ERR_HTTP_EAGAIN) {
@@ -995,6 +1079,7 @@ struct AudioReadAhead {
             }
             write_index = (write_index + static_cast<size_t>(count)) % capacity;
             available += static_cast<size_t>(count);
+            if (icy_metaint > 0) icy_remaining -= static_cast<size_t>(count);
             update_low_watermark();
             return true;
         }

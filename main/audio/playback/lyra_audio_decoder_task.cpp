@@ -24,6 +24,7 @@ struct HttpStreamCleanup {
 
 struct HttpStreamHeaders {
     char content_type[64]{};
+    size_t icy_metaint = 0;
 };
 
 esp_err_t capture_http_stream_headers(esp_http_client_event_t *event)
@@ -32,12 +33,20 @@ esp_err_t capture_http_stream_headers(esp_http_client_event_t *event)
     auto *headers = static_cast<HttpStreamHeaders *>(event->user_data);
     if (event->event_id == HTTP_EVENT_ON_CONNECTED) {
         headers->content_type[0] = '\0';
+        headers->icy_metaint = 0;
         return ESP_OK;
     }
     if (event->event_id != HTTP_EVENT_ON_HEADER || !event->header_key ||
-        !event->header_value || ::strcasecmp(event->header_key, "Content-Type") != 0) {
+        !event->header_value) {
         return ESP_OK;
     }
+    if (::strcasecmp(event->header_key, "icy-metaint") == 0) {
+        const long interval = std::strtol(event->header_value, nullptr, 10);
+        headers->icy_metaint = interval > 0 && interval <= 1024 * 1024 ?
+            static_cast<size_t>(interval) : 0;
+        return ESP_OK;
+    }
+    if (::strcasecmp(event->header_key, "Content-Type") != 0) return ESP_OK;
     const size_t length = std::min(std::strlen(event->header_value),
                                    sizeof(headers->content_type) - 1);
     std::memcpy(headers->content_type, event->header_value, length);
@@ -94,6 +103,10 @@ esp_err_t decode_file(DecoderStream *track)
         config.crt_bundle_attach = esp_crt_bundle_attach;
         config.user_agent = "Lyra Internet Radio";
         http_cleanup.client = esp_http_client_init(&config);
+        if (http_cleanup.client) {
+            esp_http_client_set_header(http_cleanup.client, "Icy-MetaData", "1");
+        }
+        set_stream_title("");
         if (!http_cleanup.client ||
             esp_http_client_open(http_cleanup.client, 0) != ESP_OK) {
             ESP_LOGE(kTag, "failed to connect to radio stream: %s", path);
@@ -274,6 +287,8 @@ esp_err_t decode_file(DecoderStream *track)
     input.file = file;
     input.http_client = http_cleanup.client;
     input.streaming = streaming;
+    input.icy_metaint = http_headers.icy_metaint;
+    input.icy_remaining = http_headers.icy_metaint;
     input.buffer = read_ahead_buffer;
     input.capacity = read_ahead_capacity;
     input.chunk_bytes = streaming ? 8192 : read_ahead_chunk_bytes;

@@ -13,6 +13,7 @@
 namespace lyra::audio {
 
 constexpr size_t kMaxPath = 256;
+constexpr size_t kMaxStreamTitle = 128;
 constexpr size_t kEqualizerBandCount = 5;
 constexpr int16_t kEqualizerMinimumTenthsDb = -60;
 constexpr int16_t kEqualizerMaximumTenthsDb = 60;
@@ -97,6 +98,10 @@ esp_err_t init();
 esp_err_t play(const char *path);
 // Plays an HTTP(S) radio stream. Live streams have no seek position or duration.
 esp_err_t play_stream(const char *url);
+// Copies the "now playing" title most recently announced by the radio stream
+// (ICY/SHOUTcast metadata) into title as UTF-8. The result is empty when the
+// stream has not announced a title or the station does not provide metadata.
+void stream_title(char *title, size_t capacity);
 // Plays a short timer alarm through the active output stream, or starts a
 // temporary tone stream when music is stopped.
 esp_err_t play_timer_alarm();

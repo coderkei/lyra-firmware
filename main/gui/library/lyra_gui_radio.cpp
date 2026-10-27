@@ -114,6 +114,21 @@ void radio_browser_entry_cb(lv_event_t *event)
                 tr(lyra::i18n::StringId::RadioImportFailed));
 }
 
+// Shows the track announced by the station while playing, falling back to the
+// generic playback state for stations that do not send metadata.
+void set_radio_playing_text(const lyra::audio::Status &status)
+{
+    char track[lyra::audio::kMaxStreamTitle];
+    lyra::audio::stream_title(track, sizeof(track));
+    if (!status.paused && track[0]) {
+        set_label_text_if_changed(s_radio_status_label, track);
+        return;
+    }
+    set_label_text_if_changed(s_radio_status_label,
+        tr(status.paused ? lyra::i18n::StringId::PlaybackPaused :
+                           lyra::i18n::StringId::PlaybackPlaying));
+}
+
 void radio_status_poll_cb(lv_timer_t *timer)
 {
     if (s_view != View::RadioPlaying || !s_radio_status_label) {
@@ -130,9 +145,7 @@ void radio_status_poll_cb(lv_timer_t *timer)
         set_label_text_if_changed(s_radio_status_label,
             tr(lyra::i18n::StringId::PlaybackIdle));
     } else if (status.sample_rate != 0) {
-        set_label_text_if_changed(s_radio_status_label,
-            tr(status.paused ? lyra::i18n::StringId::PlaybackPaused :
-                               lyra::i18n::StringId::PlaybackPlaying));
+        set_radio_playing_text(status);
     } else {
         char connecting[lyra::media::kMaxName + 32];
         format_text(lyra::i18n::StringId::ConnectingTo, s_current_station_name,
@@ -350,6 +363,7 @@ void render_radio_playing()
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 202);
     s_radio_status_label = make_label(body, "", kTextSecondary);
     lv_obj_set_width(s_radio_status_label, 292);
+    lv_label_set_long_mode(s_radio_status_label, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_style_text_align(s_radio_status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_radio_status_label, LV_ALIGN_TOP_MID, 0, 231);
 
@@ -357,9 +371,7 @@ void render_radio_playing()
         set_label_text_if_changed(s_radio_status_label,
             tr(lyra::i18n::StringId::RadioStreamFailed));
     } else if (status.sample_rate != 0) {
-        set_label_text_if_changed(s_radio_status_label,
-            tr(status.paused ? lyra::i18n::StringId::PlaybackPaused :
-                               lyra::i18n::StringId::PlaybackPlaying));
+        set_radio_playing_text(status);
     } else {
         char connecting[lyra::media::kMaxName + 32];
         format_text(lyra::i18n::StringId::ConnectingTo, s_current_station_name,
