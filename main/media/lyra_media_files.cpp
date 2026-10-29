@@ -233,6 +233,19 @@ esp_err_t load_playlist_file(const char *path, size_t *indices, size_t capacity,
     return result;
 }
 
+bool classify_file(const char *name, FileKind *kind)
+{
+    if (!name || !kind) return false;
+    const char *ext = extension_of(name);
+    if (compatible_audio(name)) *kind = FileKind::Audio;
+    else if (!strcasecmp(ext, "png") || !strcasecmp(ext, "bmp") ||
+             !strcasecmp(ext, "jpg") || !strcasecmp(ext, "jpeg")) *kind = FileKind::Image;
+    else if (!strcasecmp(ext, "txt") || !strcasecmp(ext, "lrc")) *kind = FileKind::Text;
+    else if (!strcasecmp(ext, "m3u") || !strcasecmp(ext, "m3u8")) *kind = FileKind::Playlist;
+    else return false;
+    return true;
+}
+
 size_t folder_files(const char *path, size_t offset, FolderFile *files,
                     size_t capacity, size_t *total)
 {
@@ -244,13 +257,7 @@ size_t folder_files(const char *path, size_t offset, FolderFile *files,
     while (dirent *entry = readdir(directory)) {
         if (entry->d_name[0] == '.') continue;
         FileKind kind;
-        const char *ext = extension_of(entry->d_name);
-        if (compatible_audio(entry->d_name)) kind = FileKind::Audio;
-        else if (!strcasecmp(ext, "png") || !strcasecmp(ext, "bmp") ||
-                 !strcasecmp(ext, "jpg") || !strcasecmp(ext, "jpeg")) kind = FileKind::Image;
-        else if (!strcasecmp(ext, "txt") || !strcasecmp(ext, "lrc")) kind = FileKind::Text;
-        else if (!strcasecmp(ext, "m3u") || !strcasecmp(ext, "m3u8")) kind = FileKind::Playlist;
-        else continue;
+        if (!classify_file(entry->d_name, &kind)) continue;
         char child[kMaxPath];
         struct stat info{};
         if (!join_path(child, sizeof(child), path, entry->d_name) ||

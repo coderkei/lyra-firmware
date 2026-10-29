@@ -30,6 +30,10 @@ CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=255
 CONFIG_FATFS_API_ENCODING_UTF_8=y
 CONFIG_LV_OBJ_STYLE_CACHE=y
+# Themes mix about a dozen corner radii (rows, rims, pills, artwork). Each
+# cached circle costs radius * 4 bytes, so keep them all resident instead of
+# recomputing anti-aliased corner masks while lists scroll.
+CONFIG_LV_DRAW_SW_CIRCLE_CACHE_SIZE=16
 CONFIG_LV_USE_OBSERVER=y
 CONFIG_LV_USE_SYSMON=n
 CONFIG_LV_USE_PERF_MONITOR=n

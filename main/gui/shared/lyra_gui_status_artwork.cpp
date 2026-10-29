@@ -11,6 +11,7 @@ namespace {
 
 lv_obj_t *s_status_wifi_signal_bars[kWifiSignalBarCount]{};
 lv_timer_t *s_status_wifi_signal_timer;
+int s_status_wifi_signal_shown = -1;
 
 lv_color_t status_wifi_signal_color()
 {
@@ -29,6 +30,10 @@ void refresh_status_wifi_signal()
     const lyra::wifi::Status wifi = lyra::wifi::status();
     const int active_bars = wifi.connected && wifi.has_connected_rssi ?
         wifi_signal_bar_count(wifi.connected_rssi) : 0;
+    // Setting a style invalidates the bar even when the value is unchanged;
+    // skip the once-a-second status-bar redraw unless the signal moved.
+    if (active_bars == s_status_wifi_signal_shown) return;
+    s_status_wifi_signal_shown = active_bars;
     const lv_color_t active_color = status_wifi_signal_color();
     const lv_color_t inactive_color = status_wifi_signal_inactive_color();
     for (size_t index = 0; index < kWifiSignalBarCount; ++index) {
@@ -45,9 +50,39 @@ void status_wifi_signal_timer_cb(lv_timer_t *)
     refresh_status_wifi_signal();
 }
 
+lv_obj_t *s_toast;
+lv_timer_t *s_toast_timer;
+constexpr uint32_t kToastDurationMs = 1800;
+
+void toast_timer_cb(lv_timer_t *)
+{
+    s_toast_timer = nullptr; // A repeat count of one deletes the timer itself.
+    if (s_toast) lv_obj_delete(s_toast);
+}
+
+void toast_delete_cb(lv_event_t *)
+{
+    s_toast = nullptr;
+    if (s_toast_timer) {
+        lv_timer_delete(s_toast_timer);
+        s_toast_timer = nullptr;
+    }
+}
+
+void status_time_cb(lv_event_t *)
+{
+    if (s_view != View::Player && s_view != View::RadioPlaying) show_now_playing();
+}
+
+void header_title_cb(lv_event_t *)
+{
+    if (s_scroll_body) lv_obj_scroll_to_y(s_scroll_body, 0, LV_ANIM_ON);
+}
+
 void status_bar_delete_cb(lv_event_t *)
 {
     for (lv_obj_t *&signal_bar : s_status_wifi_signal_bars) signal_bar = nullptr;
+    s_status_wifi_signal_shown = -1;
     if (s_status_wifi_signal_timer) {
         lv_timer_delete(s_status_wifi_signal_timer);
         s_status_wifi_signal_timer = nullptr;
@@ -262,6 +297,10 @@ void make_status_bar()
     s_status_time_label = make_label(bar, "", s_neon_hud ? kTextSecondary : kTextPrimary);
     lv_obj_align(s_status_time_label, LV_ALIGN_CENTER, 0, 0);
     update_status_time_label();
+    // The clock doubles as a shortcut back to whatever is playing.
+    lv_obj_add_flag(s_status_time_label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(s_status_time_label, 10);
+    lv_obj_add_event_cb(s_status_time_label, status_time_cb, LV_EVENT_CLICKED, nullptr);
     // Battery ADC calibration is not yet available on the reference board, so
     // this status-bar value is a UI placeholder rather than a voltage reading.
     lv_obj_t *battery = make_label(bar, "100%  " LV_SYMBOL_BATTERY_FULL, kTextSecondary);
@@ -328,6 +367,10 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
     make_marquee(label, queue_add_toggle ? (show_right_label ? 150 : 180) :
                  (right ? 180 : 245));
     lv_obj_align(label, LV_ALIGN_LEFT_MID, show_back ? 45 : 10, 0);
+    // Tapping a page title returns a long list to its first row.
+    lv_obj_add_flag(label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(label, 6);
+    lv_obj_add_event_cb(label, header_title_cb, LV_EVENT_CLICKED, nullptr);
     if (show_right_label) {
         lv_obj_t *right_label = make_label(header, right, s_neon_hud ? kTextSecondary : kAccent);
         make_marquee(right_label, queue_add_toggle ? 64 : 84);
@@ -386,6 +429,25 @@ void show_notice(const char *title_text, const char *message_text)
     lv_obj_t *close_label = make_label(close, tr(lyra::i18n::StringId::Ok), kTextOnAccent);
     lv_obj_center(close_label);
     lv_obj_add_event_cb(close, dismiss_overlay_cb, LV_EVENT_CLICKED, overlay);
+}
+
+void show_toast(const char *text)
+{
+    if (!s_screen || !text || !text[0]) return;
+    if (s_toast) lv_obj_delete(s_toast);
+    // A brief, non-modal confirmation. It ignores touches so the page under
+    // it stays usable, and render() removes it along with the old screen.
+    s_toast = make_box(s_screen, 24, content_bottom() - 54, 272, 40, kSurfaceRaised, 20);
+    lv_obj_set_style_border_width(s_toast, 1, 0);
+    lv_obj_set_style_border_color(s_toast, kAccent, 0);
+    lv_obj_remove_flag(s_toast, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *label = make_label(s_toast, text, kTextPrimary);
+    make_marquee(label, 248);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(label);
+    lv_obj_add_event_cb(s_toast, toast_delete_cb, LV_EVENT_DELETE, nullptr);
+    s_toast_timer = lv_timer_create(toast_timer_cb, kToastDurationMs, nullptr);
+    if (s_toast_timer) lv_timer_set_repeat_count(s_toast_timer, 1);
 }
 
 lv_obj_t *make_row(lv_obj_t *parent, int y, const char *icon_text, const char *title,

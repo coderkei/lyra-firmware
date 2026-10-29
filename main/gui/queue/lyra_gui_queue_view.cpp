@@ -190,6 +190,8 @@ void open_folders_cb(lv_event_t *)
         show_notice(tr(lyra::i18n::StringId::NoMicroSdCard),
                     tr(lyra::i18n::StringId::InsertMicroSdFolders));
     } else {
+        // Re-read the card on entry; edits made elsewhere then show up.
+        invalidate_file_listing();
         navigate_to(View::Folders);
     }
 }

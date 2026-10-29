@@ -32,13 +32,15 @@ void render(View view)
     if (s_view == View::RadioPlaying && view != View::RadioPlaying) {
         stop_radio_status_timer();
     }
+    if (s_view == View::DotLink && view != View::DotLink) stop_dot_link_runtime();
     if ((s_view == View::Search || s_view == View::PlaylistCreate ||
-         s_view == View::WifiPassword || s_view == View::RadioAdd) && s_view != view) {
+         s_view == View::WifiPassword || s_view == View::RadioAdd ||
+         s_view == View::FileNameInput) && s_view != view) {
         commit_keyboard_preedit();
     }
     if (s_view == View::RadioAdd && s_view != view) leave_radio_add();
     if (view != View::Search && view != View::PlaylistCreate &&
-        view != View::RadioAdd) close_keyboard_picker();
+        view != View::RadioAdd && view != View::FileNameInput) close_keyboard_picker();
     lyra::font::init();
     s_view = view;
     s_search_label = nullptr;
@@ -71,6 +73,8 @@ void render(View view)
         case View::Timer: render_timer(); break;
         case View::Photos:
         case View::Ebook: render_app_files(); break;
+        case View::DotLink: render_dot_link(); break;
+        case View::Dice: render_dice(); break;
         case View::Library: render_library(); break;
         case View::LibrarySongs: render_library_section(LibraryTab::Songs); break;
         case View::LibraryArtists: render_library_section(LibraryTab::Artists); break;
@@ -87,6 +91,7 @@ void render(View view)
         case View::PageJump: render_page_jump(); break;
         case View::FileViewer: render_file_viewer(); break;
         case View::FolderPlaylist: render_folder_playlist(); break;
+        case View::FileNameInput: render_file_name_input(); break;
         case View::Folders: render_folders(false); break;
         case View::FolderDetail: render_folders(true); break;
         case View::Playlists: render_playlists(false); break;

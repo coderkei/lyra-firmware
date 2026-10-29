@@ -28,11 +28,18 @@ constexpr Glow kGlows[] = {
     {92, 369, 30, 136, 23, 53, 70}, {156, 407, 42, 124, 13, 58, 65},
 };
 
-void logo_cb(lv_event_t *event)
+// The logo occupies this screen-space tile, including its 5 px round caps.
+constexpr int kLogoTileX = 212;
+constexpr int kLogoTileY = 286;
+constexpr int kLogoTileWidth = kScreenWidth - kLogoTileX;
+constexpr int kLogoTileHeight = 153;
+uint16_t *s_logo_pixels = nullptr;
+lv_image_dsc_t s_logo_tile{};
+
+void draw_logo(lv_layer_t *layer, int offset_x, int offset_y)
 {
     // A native wireframe Lyra mark echoes the reference without another image
     // allocation. It is decorative and has no hit target.
-    lv_layer_t *layer = lv_event_get_layer(event);
     const lv_point_t points[] = {{270, 291}, {218, 327}, {270, 360}, {316, 328},
                                  {218, 396}, {270, 433}, {316, 398}};
     constexpr uint8_t edges[][2] = {{0,1},{0,3},{1,2},{2,3},{1,4},{4,5},{5,6},
@@ -40,16 +47,62 @@ void logo_cb(lv_event_t *event)
     for (const auto &edge : edges) {
         lv_draw_line_dsc_t line;
         lv_draw_line_dsc_init(&line);
-        line.p1 = {static_cast<lv_value_precise_t>(points[edge[0]].x),
-                   static_cast<lv_value_precise_t>(points[edge[0]].y)};
-        line.p2 = {static_cast<lv_value_precise_t>(points[edge[1]].x),
-                   static_cast<lv_value_precise_t>(points[edge[1]].y)};
+        line.p1 = {static_cast<lv_value_precise_t>(points[edge[0]].x - offset_x),
+                   static_cast<lv_value_precise_t>(points[edge[0]].y - offset_y)};
+        line.p2 = {static_cast<lv_value_precise_t>(points[edge[1]].x - offset_x),
+                   static_cast<lv_value_precise_t>(points[edge[1]].y - offset_y)};
         line.color = lv_color_hex(edge[0] < 2 ? 0xEF426F : 0xCB6239);
         line.opa = LV_OPA_50;
         line.width = 5;
         line.round_start = line.round_end = true;
         lv_draw_line(layer, &line);
     }
+}
+
+void paint_logo_tile(lv_layer_t *layer, void *)
+{
+    draw_logo(layer, kLogoTileX, kLogoTileY);
+}
+
+// Bakes the semi-transparent logo over its patch of glow once. Menu and Music
+// then blit 33 KB instead of re-rasterizing twelve wide anti-aliased lines
+// beneath every scrolled list frame.
+bool load_logo_tile()
+{
+    if (s_logo_pixels) return true;
+    if (!s_pixels) return false;
+    auto *pixels = static_cast<uint16_t *>(heap_caps_malloc(
+        kLogoTileWidth * kLogoTileHeight * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!pixels) return false;
+    for (int row = 0; row < kLogoTileHeight; ++row) {
+        std::memcpy(pixels + row * kLogoTileWidth,
+                    s_pixels + (kLogoTileY + row) * kScreenWidth + kLogoTileX,
+                    kLogoTileWidth * sizeof(uint16_t));
+    }
+    if (!rasterize_rgb565(pixels, kLogoTileWidth, kLogoTileHeight, paint_logo_tile)) {
+        heap_caps_free(pixels);
+        return false;
+    }
+    s_logo_pixels = pixels;
+    init_rgb565_image(&s_logo_tile, pixels, kLogoTileWidth, kLogoTileHeight);
+    return true;
+}
+
+void logo_cb(lv_event_t *event)
+{
+    lv_layer_t *layer = lv_event_get_layer(event);
+    if (!s_logo_pixels) {
+        draw_logo(layer, 0, 0);
+        return;
+    }
+    lv_draw_image_dsc_t image;
+    lv_draw_image_dsc_init(&image);
+    image.src = &s_logo_tile;
+    image.opa = LV_OPA_COVER;
+    image.antialias = false;
+    const lv_area_t area{kLogoTileX, kLogoTileY, kLogoTileX + kLogoTileWidth - 1,
+                         kLogoTileY + kLogoTileHeight - 1};
+    lv_draw_image(layer, &image, &area);
 }
 
 void style_menu_row(lv_obj_t *row)
@@ -219,6 +272,10 @@ void make_zeno_background()
         heap_caps_free(s_pixels);
         s_pixels = nullptr;
         s_background = {};
+        if (s_logo_pixels) lv_image_cache_drop(&s_logo_tile);
+        heap_caps_free(s_logo_pixels);
+        s_logo_pixels = nullptr;
+        s_logo_tile = {};
         return;
     }
     if (!s_pixels) {
@@ -258,6 +315,7 @@ void make_zeno_background()
     lv_obj_remove_flag(image, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(image, LV_OBJ_FLAG_SCROLLABLE);
     if (s_view == View::Menu || s_view == View::Library) {
+        load_logo_tile();
         lv_obj_add_event_cb(image, logo_cb, LV_EVENT_DRAW_POST, nullptr);
     }
 }

@@ -92,10 +92,10 @@ constexpr size_t kAccentPaletteCount = 8;
 
 enum class View : uintptr_t {
     Menu, Player, TrackInfo, FullscreenInfoArt, Queue, Apps, Calculator, Calendar,
-    Stopwatch, Timer, Photos, Ebook,
+    Stopwatch, Timer, Photos, Ebook, DotLink, Dice,
     Library, LibrarySongs, LibraryArtists, LibraryAlbums, LibraryGenres,
     LibraryYears, InternetRadio, RadioAdd, RadioFiles, RadioPlaying,
-    AlbumDetail, ArtistDetail, Folders, FolderDetail, FileViewer, FolderPlaylist,
+    AlbumDetail, ArtistDetail, Folders, FolderDetail, FileViewer, FolderPlaylist, FileNameInput,
     Playlists, PlaylistDetail, PlaylistCreate, PlaylistAdd, Equalizer,
     EqualizerPresets, Search, Settings, SortingSettings, SortingOptions,
     PlaybackSettings, CrossfadeOptions, SleepTimerOptions, SoundSettings,
@@ -276,8 +276,6 @@ extern char s_radio_url[lyra::media::kMaxPath];
 extern char s_track_list_title[lyra::media::kMaxName];
 extern char s_folder_path[lyra::media::kMaxPath];
 extern char s_playback_folder_path[lyra::media::kMaxPath];
-extern char s_folder_names[32][lyra::media::kMaxName];
-extern size_t s_folder_count;
 extern uint32_t s_seen_catalog_generation;
 extern uint32_t s_seen_artwork_generation;
 extern uint32_t s_seen_duration_generation;
@@ -330,6 +328,12 @@ extern bool s_marquee_style_ready;
 
 void apply_theme_palette();
 const char *theme_name(Theme theme);
+// Rasterizes decorative primitives once into a caller-owned RGB565 buffer so
+// themes can blit the result instead of redrawing vectors on every frame.
+using RasterPainter = void (*)(lv_layer_t *layer, void *context);
+bool rasterize_rgb565(uint16_t *pixels, int width, int height,
+                      RasterPainter paint, void *context = nullptr);
+void init_rgb565_image(lv_image_dsc_t *image, const uint16_t *pixels, int width, int height);
 void make_aura_background();
 void style_aura_surface(lv_obj_t *object, lv_color_t color, int width, int height, bool button);
 void style_aura_controls(lv_obj_t *object);
@@ -440,6 +444,8 @@ lv_obj_t *make_header(const char *title, View back, bool show_back = false, cons
 void make_queue_add_mode_toggle(lv_obj_t *parent, int x, int y, int width = 40, int height = 36);
 void dismiss_overlay_cb(lv_event_t *event);
 void show_notice(const char *title_text, const char *message_text);
+void show_toast(const char *text);
+void go_home();
 lv_obj_t *make_row(lv_obj_t *parent, int y, const char *icon_text, const char *title, const char *subtitle, View target, int height = 54);
 void release_boot_image();
 bool load_brand_logo();
@@ -497,6 +503,9 @@ void render_calendar();
 void render_stopwatch();
 void render_timer();
 void render_app_files();
+void render_dot_link();
+void render_dice();
+void stop_dot_link_runtime();
 void release_app_file_scan(View view);
 void stop_apps_runtime_timers(View next_view);
 void queue_track_cb(lv_event_t *event);
@@ -526,9 +535,14 @@ void render_artist_detail();
 void append_album_song_rows(lv_obj_t *body, AlbumListContext *context);
 void album_list_event_cb(lv_event_t *event);
 void render_album_detail();
-void folder_cb(lv_event_t *event);
 void folder_back_cb(lv_event_t *);
 void render_folders(bool detail);
+void invalidate_file_listing();
+char *file_name_input_text();
+size_t file_name_input_capacity();
+bool file_name_input_creates_folder();
+void submit_file_name_input();
+void render_file_name_input();
 void playlist_cb(lv_event_t *event);
 void open_playlist_add_cb(lv_event_t *);
 void toggle_playlist_manage_cb(lv_event_t *);

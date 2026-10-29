@@ -5,19 +5,18 @@
 
 #include "../lyra_gui_internal.h"
 #include "lyra_gui_draw.h"
+#include "src/misc/cache/instance/lv_image_cache.h"
 
 namespace lyra::gui::internal {
 namespace {
 lv_obj_t *s_aura_play_icon = nullptr;
+uint16_t *s_aura_pixels = nullptr;
+lv_image_dsc_t s_aura_image{};
+constexpr uint32_t kAuraSkyTop = 0x83CCF3;
+constexpr uint32_t kAuraSkyBottom = 0xDBF7F9;
 
-// Native draw tasks keep the wallpaper fixed behind scrolling bodies, with
-// no decoded bitmap, canvas buffer, extra widgets or animation timers.
-void aura_light_cb(lv_event_t *event)
+void draw_aura_light(lv_layer_t *layer, const lv_area_t &area)
 {
-    lv_obj_t *object = lv_event_get_current_target_obj(event);
-    lv_area_t area;
-    lv_obj_get_coords(object, &area);
-    lv_layer_t *layer = lv_event_get_layer(event);
     for (int trail = 0; trail < 3; ++trail) {
         for (int segment = 0; segment < 16; ++segment) {
             const int x1 = segment * 20;
@@ -41,6 +40,69 @@ void aura_light_cb(lv_event_t *event)
             gui_draw_line(layer, &line);
         }
     }
+}
+
+// Fallback when PSRAM cannot hold the baked wallpaper: draw the trails live.
+void aura_light_cb(lv_event_t *event)
+{
+    lv_area_t area;
+    lv_obj_get_coords(lv_event_get_current_target_obj(event), &area);
+    draw_aura_light(lv_event_get_layer(event), area);
+}
+
+void paint_aura_wallpaper(lv_layer_t *layer, void *)
+{
+    lv_draw_rect_dsc_t sky;
+    lv_draw_rect_dsc_init(&sky);
+    sky.bg_opa = LV_OPA_COVER;
+    sky.bg_color = lv_color_hex(kAuraSkyTop);
+    sky.bg_grad.dir = LV_GRAD_DIR_VER;
+    sky.bg_grad.stops_count = 2;
+    sky.bg_grad.stops[0] = {lv_color_hex(kAuraSkyTop), LV_OPA_COVER, 0};
+    sky.bg_grad.stops[1] = {lv_color_hex(kAuraSkyBottom), LV_OPA_COVER, 255};
+    const lv_area_t area{0, 0, kScreenWidth - 1, kScreenHeight - 1};
+    lv_draw_rect(layer, &sky, &area);
+    draw_aura_light(layer, area);
+}
+
+bool load_aura_wallpaper()
+{
+    if (s_aura_pixels) return true;
+    constexpr size_t bytes = kScreenWidth * kScreenHeight * sizeof(uint16_t);
+    auto *pixels = static_cast<uint16_t *>(heap_caps_malloc(
+        bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!pixels || !rasterize_rgb565(pixels, kScreenWidth, kScreenHeight, paint_aura_wallpaper)) {
+        heap_caps_free(pixels);
+        ESP_LOGW(kTag, "Aura wallpaper cache unavailable; drawing it live");
+        return false;
+    }
+    s_aura_pixels = pixels;
+    init_rgb565_image(&s_aura_image, pixels, kScreenWidth, kScreenHeight);
+    return true;
+}
+
+void release_aura_wallpaper()
+{
+    if (!s_aura_pixels) return;
+    lv_image_cache_drop(&s_aura_image);
+    heap_caps_free(s_aura_pixels);
+    s_aura_pixels = nullptr;
+    s_aura_image = {};
+}
+
+void aura_wallpaper_cb(lv_event_t *event)
+{
+    if (!s_aura_pixels) return;
+    lv_area_t area;
+    lv_obj_get_coords(s_screen, &area);
+    lv_draw_image_dsc_t image;
+    lv_draw_image_dsc_init(&image);
+    image.src = &s_aura_image;
+    image.opa = LV_OPA_COVER;
+    image.antialias = false;
+    // One opaque RGB565 copy replaces the gradient and 96 blended line tasks
+    // that used to be rasterized again under every scrolled or updated area.
+    lv_draw_image(lv_event_get_layer(event), &image, &area);
 }
 
 void aura_grid_cb(lv_event_t *event)
@@ -102,9 +164,30 @@ void make_aura_background()
     s_aura_play_icon = nullptr; // style_root() has deleted the previous labels.
     lv_obj_remove_event_cb(s_screen, aura_light_cb);
     lv_obj_set_style_bg_grad_dir(s_screen, LV_GRAD_DIR_NONE, 0);
-    if (!is_aura_theme() || s_view == View::FullscreenInfoArt || s_view == View::FileViewer) return;
-    gradient(s_screen, 0x83CCF3, 0xDBF7F9, 0);
-    lv_obj_add_event_cb(s_screen, aura_light_cb, LV_EVENT_DRAW_MAIN, nullptr);
+    // style_root has deleted every object that referenced the cached image.
+    if (!is_aura_theme() || s_view == View::FullscreenInfoArt) {
+        release_aura_wallpaper();
+        return;
+    }
+    if (s_view == View::FileViewer) return;
+    if (!load_aura_wallpaper()) {
+        gradient(s_screen, kAuraSkyTop, kAuraSkyBottom, 0);
+        lv_obj_add_event_cb(s_screen, aura_light_cb, LV_EVENT_DRAW_MAIN, nullptr);
+        return;
+    }
+    lv_obj_t *backdrop = lv_obj_create(s_screen);
+    lv_obj_set_pos(backdrop, 0, 0);
+    lv_obj_set_size(backdrop, kScreenWidth, kScreenHeight);
+    lv_obj_set_style_pad_all(backdrop, 0, 0);
+    lv_obj_set_style_radius(backdrop, 0, 0);
+    lv_obj_set_style_border_width(backdrop, 0, 0);
+    lv_obj_set_style_outline_width(backdrop, 0, 0);
+    lv_obj_set_style_shadow_width(backdrop, 0, 0);
+    lv_obj_set_style_bg_color(backdrop, lv_color_hex(kAuraSkyTop), 0);
+    lv_obj_set_style_bg_opa(backdrop, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(backdrop, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(backdrop, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(backdrop, aura_wallpaper_cb, LV_EVENT_DRAW_MAIN, nullptr);
 }
 
 void style_aura_surface(lv_obj_t *object, lv_color_t color, int width, int height, bool button)

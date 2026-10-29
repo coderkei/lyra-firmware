@@ -138,8 +138,6 @@ char s_radio_url[lyra::media::kMaxPath] = "";
 char s_track_list_title[lyra::media::kMaxName] = "";
 char s_folder_path[lyra::media::kMaxPath] = "/sdcard";
 char s_playback_folder_path[lyra::media::kMaxPath] = "/sdcard";
-char s_folder_names[32][lyra::media::kMaxName]{};
-size_t s_folder_count = 0;
 uint32_t s_seen_catalog_generation = 0;
 uint32_t s_seen_artwork_generation = 0;
 uint32_t s_seen_duration_generation = 0;

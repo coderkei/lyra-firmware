@@ -70,8 +70,15 @@ void add_queue_source_cb(lv_event_t *event, QueueInsertMode mode)
     const bool added = collected && add_tracks_to_queue(tracks, count, mode);
     heap_caps_free(tracks);
     if (s_queue_add_popup) lv_obj_delete(s_queue_add_popup);
-    if (!added) show_notice(tr(lyra::i18n::StringId::Queue),
-                            tr(lyra::i18n::StringId::QueueAddFailed));
+    if (!added) {
+        show_notice(tr(lyra::i18n::StringId::Queue), tr(lyra::i18n::StringId::QueueAddFailed));
+        return;
+    }
+    char confirmation[64];
+    format_count(mode == QueueInsertMode::PlayNext ? lyra::i18n::StringId::QueuedNextCount :
+                 lyra::i18n::StringId::QueuedEndCount,
+                 static_cast<uint32_t>(count), confirmation, sizeof(confirmation));
+    show_toast(confirmation);
 }
 
 void play_queue_source_next_cb(lv_event_t *event)

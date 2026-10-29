@@ -987,8 +987,22 @@ void make_virtual_nav()
             lv_obj_add_event_cb(button, nav_next_cb, LV_EVENT_PRESS_LOST, nullptr);
         } else {
             lv_obj_add_event_cb(button, nav_back_cb, LV_EVENT_CLICKED, nullptr);
+            // Holding Back jumps straight home from any depth.
+            lv_obj_add_event_cb(button, [](lv_event_t *) {
+                lv_indev_wait_release(lv_indev_active());
+                go_home();
+            }, LV_EVENT_LONG_PRESSED, nullptr);
         }
     }
+}
+
+void go_home()
+{
+    if (s_view == View::PlaylistCreate) s_playlist_create_from_queue = false;
+    s_playlist_add_mode = false;
+    s_navigation_depth = 0;
+    s_list_page = 0;
+    if (s_view != View::Menu) render(View::Menu);
 }
 
 uint8_t display_volume_percent(uint8_t volume_percent)

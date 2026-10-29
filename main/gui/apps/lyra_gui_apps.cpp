@@ -59,7 +59,8 @@ void app_destination_cb(lv_event_t *event)
 {
     const View target = static_cast<View>(
         reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-    navigate_to(target);
+    if (target == View::Folders) open_folders_cb(event);
+    else navigate_to(target);
 }
 
 void file_scan_progress(void *context, size_t found)
@@ -454,6 +455,37 @@ void stop_apps_runtime_timers(View next_view)
     (void)next_view;
 }
 
+// Dot Link and Dice have no matching font symbol; draw small native marks.
+static void app_icon_cb(lv_event_t *event)
+{
+    lv_area_t area;
+    lv_obj_get_coords(lv_event_get_current_target_obj(event), &area);
+    lv_layer_t *layer = lv_event_get_layer(event);
+    const View view = static_cast<View>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    const auto rect = [&](int x, int y, int width, int height, lv_color_t color, int radius) {
+        lv_draw_rect_dsc_t shape;
+        lv_draw_rect_dsc_init(&shape);
+        shape.bg_color = color;
+        shape.bg_opa = LV_OPA_COVER;
+        shape.radius = radius;
+        const lv_area_t bounds{area.x1 + x, area.y1 + y,
+                               area.x1 + x + width - 1, area.y1 + y + height - 1};
+        lv_draw_rect(layer, &shape, &bounds);
+    };
+    if (view == View::Dice) {
+        rect(2, 2, 28, 28, kAccent, 6);
+        constexpr int pips[][2] = {{7, 7}, {20, 7}, {13, 13}, {7, 20}, {20, 20}};
+        for (const auto &pip : pips) rect(pip[0], pip[1], 5, 5, kTextOnAccent, LV_RADIUS_CIRCLE);
+        return;
+    }
+    // An L-shaped link joining two endpoints of the same colour.
+    const lv_color_t link = lv_color_hex(0xF97316);
+    rect(4, 6, 6, 22, link, 3);
+    rect(4, 22, 24, 6, link, 3);
+    rect(0, 1, 14, 14, link, LV_RADIUS_CIRCLE);
+    rect(18, 18, 14, 14, link, LV_RADIUS_CIRCLE);
+}
+
 void render_apps()
 {
     make_header(tr(lyra::i18n::StringId::Apps), View::Menu, true);
@@ -466,18 +498,33 @@ void render_apps()
         {lyra::i18n::StringId::Timer, View::Timer, LV_SYMBOL_REFRESH},
         {lyra::i18n::StringId::Photos, View::Photos, LV_SYMBOL_IMAGE},
         {lyra::i18n::StringId::Ebook, View::Ebook, LV_SYMBOL_FILE},
+        {lyra::i18n::StringId::Files, View::Folders, LV_SYMBOL_SD_CARD},
+        {lyra::i18n::StringId::DotLink, View::DotLink, nullptr},
+        {lyra::i18n::StringId::Dice, View::Dice, nullptr},
     };
-    constexpr int x[] = {9, 164};
-    constexpr int y[] = {8, 116, 224};
+    constexpr int kColumns = 3;
+    constexpr int kTileWidth = 98;
+    constexpr int kTileHeight = 100;
     for (size_t i = 0; i < sizeof(apps) / sizeof(apps[0]); ++i) {
-        lv_obj_t *button = make_button(body, x[i % 2], y[i / 2], 147, 102,
+        const int x = 8 + static_cast<int>(i % kColumns) * (kTileWidth + 5);
+        const int y = 6 + static_cast<int>(i / kColumns) * (kTileHeight + 6);
+        lv_obj_t *button = make_button(body, x, y, kTileWidth, kTileHeight,
             is_cute_theme() ? lv_color_hex(0xF3EDFF) : kSurfaceRaised,
             is_cute_theme() ? 18 : 9, true);
-        lv_obj_t *icon = make_label(button, apps[i].icon, kAccent);
-        lv_obj_set_style_text_font(icon, &lv_font_montserrat_28, 0);
-        lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 17);
+        if (apps[i].icon) {
+            lv_obj_t *icon = make_label(button, apps[i].icon, kAccent);
+            lv_obj_set_style_text_font(icon, &lv_font_montserrat_28, 0);
+            lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 16);
+        } else {
+            lv_obj_t *icon = make_box(button, (kTileWidth - 32) / 2, 14, 32, 32, kSurfaceRaised);
+            lv_obj_set_style_bg_opa(icon, LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(icon, 0, 0);
+            lv_obj_remove_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(icon, app_icon_cb, LV_EVENT_DRAW_MAIN,
+                reinterpret_cast<void *>(static_cast<uintptr_t>(apps[i].view)));
+        }
         lv_obj_t *label = make_label(button, tr(apps[i].label), kTextPrimary);
-        make_marquee(label, 132);
+        make_marquee(label, kTileWidth - 10);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -12);
         lv_obj_add_event_cb(button, app_destination_cb, LV_EVENT_CLICKED,

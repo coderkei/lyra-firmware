@@ -20,6 +20,36 @@ const char *theme_name(Theme theme)
     return tr(lyra::i18n::StringId::StandardTheme);
 }
 
+bool rasterize_rgb565(uint16_t *pixels, int width, int height,
+                      RasterPainter paint, void *context)
+{
+    if (!pixels || !paint || !s_screen || width <= 0 || height <= 0) return false;
+    // A hidden canvas only borrows the buffer: the software renderer draws
+    // synchronously, then the canvas is removed and the pixels stay with us.
+    lv_obj_t *canvas = lv_canvas_create(s_screen);
+    if (!canvas) return false;
+    lv_obj_add_flag(canvas, LV_OBJ_FLAG_HIDDEN);
+    lv_canvas_set_buffer(canvas, pixels, width, height, LV_COLOR_FORMAT_RGB565);
+    lv_layer_t layer;
+    lv_canvas_init_layer(canvas, &layer);
+    paint(&layer, context);
+    lv_canvas_finish_layer(canvas, &layer);
+    lv_obj_delete(canvas);
+    return true;
+}
+
+void init_rgb565_image(lv_image_dsc_t *image, const uint16_t *pixels, int width, int height)
+{
+    *image = {};
+    image->header.magic = LV_IMAGE_HEADER_MAGIC;
+    image->header.cf = LV_COLOR_FORMAT_RGB565;
+    image->header.w = width;
+    image->header.h = height;
+    image->header.stride = width * sizeof(uint16_t);
+    image->data_size = static_cast<uint32_t>(width * height * sizeof(uint16_t));
+    image->data = reinterpret_cast<const uint8_t *>(pixels);
+}
+
 void apply_theme_palette()
 {
     s_neon_hud = s_theme == Theme::NeonSky;
@@ -552,7 +582,17 @@ void configure_cover_aware_scroll(lv_obj_t *body)
     lv_obj_add_flag(body, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(body, LV_OBJ_FLAG_SCROLL_MOMENTUM);
     lv_obj_set_scroll_dir(body, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_OFF);
+    // A slim position indicator appears only while a list is moving, so long
+    // pages show where you are without adding work to idle frames.
+    lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_ACTIVE);
+    lv_obj_set_style_width(body, 3, LV_PART_SCROLLBAR);
+    lv_obj_set_style_pad_right(body, 2, LV_PART_SCROLLBAR);
+    lv_obj_set_style_pad_ver(body, 6, LV_PART_SCROLLBAR);
+    lv_obj_set_style_radius(body, 2, LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_color(body, kAccent, LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_opa(body, LV_OPA_70, LV_PART_SCROLLBAR);
+    lv_obj_set_style_border_width(body, 0, LV_PART_SCROLLBAR);
+    lv_obj_set_style_shadow_width(body, 0, LV_PART_SCROLLBAR);
 }
 
 lv_obj_t *make_scroll_body(int top)
@@ -638,6 +678,7 @@ View back_view(View view)
                    s_library_tab == LibraryTab::Genres ? View::LibraryGenres :
                    s_library_tab == LibraryTab::Years ? View::LibraryYears : View::Library;
         case View::FolderPlaylist:
+        case View::FileNameInput:
         case View::FolderDetail: return View::Folders;
         case View::FileViewer: return file_viewer_back_view();
         case View::Calculator:
@@ -645,7 +686,9 @@ View back_view(View view)
         case View::Stopwatch:
         case View::Timer:
         case View::Photos:
-        case View::Ebook: return View::Apps;
+        case View::Ebook:
+        case View::DotLink:
+        case View::Dice: return View::Apps;
         case View::PlaylistDetail: return View::Playlists;
         case View::PlaylistCreate: return View::Playlists;
         case View::PlaylistAdd: return View::PlaylistDetail;

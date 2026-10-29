@@ -274,6 +274,8 @@ struct FolderFile {
     char path[kMaxPath];
     FileKind kind;
 };
+// Classifies a file name by extension. Returns false for unsupported types.
+bool classify_file(const char *name, FileKind *kind);
 // Direct filesystem listing; images/text never enter the music catalog.
 size_t folder_files(const char *path, size_t offset, FolderFile *files,
                     size_t capacity, size_t *total = nullptr);

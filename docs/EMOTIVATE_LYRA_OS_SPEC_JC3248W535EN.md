@@ -112,10 +112,36 @@ The five EQ bands are centred at 60 Hz, 250 Hz, 1 kHz, 4 kHz, and 16 kHz.
 Custom EQ and the included Flat, Full Bass, Full Treble, Bass & Treble, Rock,
 Pop, Jazz, and Classic presets are available in the UI.
 
-The interface includes Menu, Queue, Music Library, folder browsing,
-playlists, search, Now Playing, Equalizer, and Settings. A configurable
+The interface includes Menu, Queue, Music Library, the Files manager,
+playlists, search, Now Playing, Equalizer, Apps, and Settings. A configurable
 bottom virtual-control bar provides Menu, Previous, Play/Pause, Next, and
-Back controls for the buttonless development kit.
+Back controls for the buttonless development kit. Holding Back returns to the
+Menu from any depth, tapping a page title scrolls its list to the top, and
+tapping the status-bar clock opens Now Playing. Queue additions confirm with
+a short, non-blocking toast.
+
+**Files** (Menu > Browse Folders, or Apps > Files) lists every non-hidden
+entry of a MicroSD folder, folders first, sortable A–Z, Z–A, or by type. A
+folder is read once with `readdir()` into a PSRAM listing; sizes are read
+only for rows as they scroll into view, and rows load in batches instead of
+pages. Tapping opens folders, plays audio in the displayed order, opens
+images, text, and playlists. The row's ••• button or a long press offers
+Play, Add to queue, Rename, Move, Copy (files), Delete, and Details; the
+toolbar provides Up, sort, and New folder. Move uses a same-volume rename;
+Copy and recursive Delete run in a background task behind a progress dialog.
+Items that are currently playing cannot be renamed, moved, or deleted. Each
+filesystem step holds the SD gate only briefly, so audio reads keep priority.
+Library changes made this way appear in the catalog after the next scan.
+
+**Apps** contains Calculator, Calendar, Stopwatch, Timer, Photos, Ebook,
+Files, Dice, and Dot Link. Dot Link is a path puzzle on 5×5 to 8×8 boards:
+join each pair of matching dots and fill every cell. Boards are generated on
+the device by shuffling a Hamiltonian path with backbite moves and cutting it
+into coloured segments, so every board has a complete solution; the hint
+button reveals one route from it.
+
+Themes with decorative wallpapers rasterize them once into PSRAM (Aura's sky
+and light trails, Zeno's logo tile) and blit the cached pixels on redraw.
 
 In Now Playing, tapping album art flips to a scrollable lyrics view. Lyrics
 are loaded from embedded metadata first, then a same-stem `.lrc` file, then a

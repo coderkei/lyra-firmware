@@ -23,6 +23,7 @@ char *keyboard_input_text()
 {
     if (s_view == View::WifiPassword) return wifi_password_input_text();
     if (s_view == View::RadioAdd) return s_radio_url;
+    if (s_view == View::FileNameInput) return file_name_input_text();
     return s_view == View::PlaylistCreate ? s_playlist_name : s_search_query;
 }
 
@@ -30,6 +31,7 @@ size_t keyboard_input_capacity()
 {
     if (s_view == View::WifiPassword) return wifi_password_input_capacity();
     if (s_view == View::RadioAdd) return sizeof(s_radio_url);
+    if (s_view == View::FileNameInput) return file_name_input_capacity();
     return s_view == View::PlaylistCreate ? sizeof(s_playlist_name) : sizeof(s_search_query);
 }
 
@@ -118,7 +120,9 @@ void update_search_label()
     const bool creating = s_view == View::PlaylistCreate;
     const bool wifi_password = s_view == View::WifiPassword;
     const bool radio_address = s_view == View::RadioAdd;
+    const bool file_name = s_view == View::FileNameInput;
     const char *text = wifi_password ? wifi_password_input_text() :
+                       file_name ? file_name_input_text() :
                        radio_address ? s_radio_url : creating ? s_playlist_name : s_search_query;
     const char *preedit = lyra::gui::ime::preedit();
     if (text[0] || preedit[0]) {
@@ -127,6 +131,7 @@ void update_search_label()
     }
     const char *placeholder = wifi_password ? tr(lyra::i18n::StringId::EnterWifiPassword) :
         radio_address ? tr(lyra::i18n::StringId::StreamAddressHint) :
+        file_name ? tr(lyra::i18n::StringId::FileNamePlaceholder) :
         creating ? tr(lyra::i18n::StringId::PlaylistNamePlaceholder) :
                    tr(lyra::i18n::StringId::SearchMusicPlaceholder);
     lv_label_set_text(s_search_label, text[0] == '\0' ? placeholder : text);
@@ -1039,6 +1044,10 @@ void keyboard_action_cb(lv_event_t *event)
                 submit_wifi_password();
                 return;
             }
+            if (s_view == View::FileNameInput) {
+                submit_file_name_input();
+                return;
+            }
             if (s_view == View::PlaylistCreate) {
                 const bool from_queue = s_playlist_create_from_queue;
                 size_t created = 0;
@@ -1199,7 +1208,7 @@ void commit_keyboard_preedit()
 {
     reset_keyboard_shift();
     if (s_view != View::Search && s_view != View::PlaylistCreate &&
-        s_view != View::RadioAdd) return;
+        s_view != View::RadioAdd && s_view != View::FileNameInput) return;
     lyra::gui::ime::commit(ime_layout(), keyboard_input_text(), keyboard_input_capacity());
     update_search_label();
 }
@@ -1294,6 +1303,24 @@ void render_playlist_create()
     make_header(s_playlist_create_from_queue ?
                 tr(lyra::i18n::StringId::SaveQueueAsPlaylist) :
                 tr(lyra::i18n::StringId::NewPlaylist), View::Playlists, true);
+    lv_obj_t *body = make_box(s_screen, 0, 72, 320, content_height(72), kBackground);
+    lv_obj_t *input = make_box(body, 9, 8, 240, 43, kSurfaceRaised, 7);
+    s_search_label = make_label(input, "", kTextMuted);
+    make_marquee(s_search_label, 214);
+    lv_obj_align(s_search_label, LV_ALIGN_LEFT_MID, 12, 0);
+    update_search_label();
+    make_keyboard_selector(body, 255, 8, 56, 43);
+    const int keyboard_height = library_keyboard_height();
+    const int keyboard_y = content_height(72) - keyboard_height;
+    lv_obj_t *keyboard = make_box(body, 0, keyboard_y, 320, keyboard_height, kKeyboardSurface);
+    make_library_keyboard(keyboard, tr(lyra::i18n::StringId::SaveKey));
+}
+
+void render_file_name_input()
+{
+    make_header(tr(file_name_input_creates_folder() ? lyra::i18n::StringId::FileNewFolder :
+                                                      lyra::i18n::StringId::FileRename),
+                View::Folders, true);
     lv_obj_t *body = make_box(s_screen, 0, 72, 320, content_height(72), kBackground);
     lv_obj_t *input = make_box(body, 9, 8, 240, 43, kSurfaceRaised, 7);
     s_search_label = make_label(input, "", kTextMuted);
