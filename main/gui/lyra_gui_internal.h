@@ -186,6 +186,8 @@ constexpr const char *kHeartFilled = "\xE2\x99\xA5";
 extern lv_obj_t *s_screen;
 extern lv_obj_t *s_scroll_body;
 extern int32_t s_pending_scroll_restore_y;
+// A list row to reveal on the next render (page jump, queue); SIZE_MAX if none.
+extern size_t s_pending_list_position;
 extern lv_obj_t *s_search_label;
 extern lv_obj_t *s_search_results;
 extern lv_obj_t *s_search_keyboard;
@@ -480,6 +482,39 @@ void make_album_art(lv_obj_t *parent, int x, int y, int width, int height, const
 void page_cb(lv_event_t *event);
 void make_page_controls(lv_obj_t *parent, int y, size_t total, size_t page_size = lyra::media::kTrackPageSize);
 void open_page_jump(size_t total, size_t page_size, size_t page_count);
+// Strip marks for a sorted section: initials, years, minutes or track numbers
+// to match the sort. Each entry's initial[] holds its short strip label.
+bool sort_jump_locations(lyra::media::SortSection section, size_t item_count,
+                         lyra::media::SortLocation *locations, size_t capacity,
+                         size_t *count, bool *pending);
+// Full label for a jump point (date, duration, ...) as the page-jump screen shows it.
+void format_jump_label(const lyra::media::SortLocation &entry, char *output, size_t capacity);
+
+// Recycling list for large collections. A fixed pool of row slots is rebound
+// as the list scrolls, and row text is prefetched off the GUI thread, so the
+// object count and per-frame work match a single page regardless of length.
+struct VirtualRow {
+    size_t payload;  // Track, group or queue position, chosen by the list.
+    char title[lyra::media::kMaxName];
+    char subtitle[lyra::media::kMaxName + 32];
+};
+// Runs on the prefetch task (and once on the GUI thread for the first screen).
+using VirtualFetch = bool (*)(size_t position, VirtualRow *row);
+// Builds one row inside slot at y = 0, using only the cached text.
+using VirtualBuild = void (*)(lv_obj_t *slot, size_t position, const VirtualRow &row, int width);
+struct VirtualListSpec {
+    size_t count;
+    int top;
+    int pitch;
+    int row_height;
+    VirtualFetch fetch;
+    VirtualBuild build;
+    bool letter_strip;                       // Jump strip (A-Z, years, ...) and bubble.
+    lyra::media::SortSection letter_section;
+    bool jump_button;                        // Opens the page-jump screen.
+};
+void make_virtual_list(lv_obj_t *body, const VirtualListSpec &spec);
+int virtual_list_row_width();
 void render_page_jump();
 void open_queue_cb(lv_event_t *);
 bool show_now_playing();
@@ -516,6 +551,8 @@ lyra::media::GroupKind group_kind(LibraryTab section);
 void open_track_list_cb(lv_event_t *event);
 void open_album_detail_cb(lv_event_t *event);
 void open_library_playlists_cb(lv_event_t *);
+// user data: 0 recently played, 1 recently added, 2 favorites, 3 folders.
+void library_shortcut_cb(lv_event_t *event);
 void render_library();
 void make_album_row(lv_obj_t *parent, int y, size_t group_index);
 void render_library_section(LibraryTab section);

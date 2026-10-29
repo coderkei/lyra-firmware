@@ -389,6 +389,14 @@ void render_zeno_library()
     choice(body, 336, LV_SYMBOL_REFRESH, tr(lyra::i18n::StringId::Year), View::LibraryYears);
     choice(body, 392, LV_SYMBOL_WIFI, tr(lyra::i18n::StringId::InternetRadio),
            View::InternetRadio);
+    lv_obj_t *recent = choice(body, 448, LV_SYMBOL_LOOP, tr(lyra::i18n::StringId::RecentlyPlayed),
+                              View::PlaylistDetail);
+    lv_obj_remove_event_cb(recent, route_cb);
+    lv_obj_add_event_cb(recent, library_shortcut_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *folders = choice(body, 504, LV_SYMBOL_DIRECTORY, tr(lyra::i18n::StringId::Folders),
+                               View::Folders);
+    lv_obj_remove_event_cb(folders, route_cb);
+    lv_obj_add_event_cb(folders, library_shortcut_cb, LV_EVENT_CLICKED, reinterpret_cast<void *>(3));
 }
 
 void make_zeno_album_song_row(lv_obj_t *parent, int y, size_t track_index, size_t ordinal)

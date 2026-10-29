@@ -171,8 +171,11 @@ void format_location_duration(uint64_t milliseconds, char *output, size_t capaci
     }
 }
 
-void return_to_page(size_t target_page)
+void return_to_page(size_t target_page, size_t item_position = SIZE_MAX)
 {
+    // Scrolling lists land on the exact row; paged lists use target_page.
+    s_pending_list_position = item_position != SIZE_MAX ? item_position :
+                              target_page * s_page_jump_page_size;
     if (s_navigation_depth) {
         const NavigationState previous = s_navigation[--s_navigation_depth];
         restore_navigation_state(previous, target_page);
@@ -210,7 +213,7 @@ void sort_location_index_task(void *argument)
             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         if (!entries) {
             finish_sort_location_request(request, true, 0);
-            vTaskDelete(nullptr);
+            vTaskDeleteWithCaps(nullptr);
             return;
         }
         portENTER_CRITICAL(&s_sort_location_mux);
@@ -233,7 +236,7 @@ void sort_location_index_task(void *argument)
             setting.direction == request->identity.setting.direction;
         finish_sort_location_request(request, !success, success ? count : 0);
     }
-    vTaskDelete(nullptr);
+    vTaskDeleteWithCaps(nullptr);
 }
 
 void ensure_sort_location_request(const SortLocationIdentity &identity,
@@ -341,9 +344,10 @@ void format_sort_location_label(const lyra::media::SortLocation &entry, char *ou
 
 void location_cb(lv_event_t *event)
 {
-    const size_t target_page = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
+    const size_t item_position = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
+    const size_t target_page = item_position / s_page_jump_page_size;
     if (target_page < s_page_jump_page_count) {
-        return_to_page(target_page);
+        return_to_page(target_page, item_position);
     }
 }
 
@@ -367,7 +371,7 @@ void append_location_cells(lv_obj_t *body, SortLocationViewContext *context)
         lv_obj_t *label = make_label(button, label_text, kTextPrimary);
         lv_obj_center(label);
         lv_obj_add_event_cb(button, location_cb, LV_EVENT_CLICKED,
-            reinterpret_cast<void *>(entry.item_position / context->identity.page_size));
+            reinterpret_cast<void *>(static_cast<uintptr_t>(entry.item_position)));
         ++appended;
     }
 }
@@ -632,6 +636,99 @@ void render_sort_locations()
 }
 
 } // namespace
+
+namespace {
+
+// A label narrow enough for the 28 px strip. Neighbouring jump points that
+// share one (the same year, minute, or initial) collapse into a single mark.
+void short_location_label(const lyra::media::SortLocation &entry, char *output, size_t capacity)
+{
+    // Format into a full-width buffer, then truncate to the strip label;
+    // real values are a few digits, but 64-bit inputs are not bounded.
+    char text[24] = "";
+    switch (entry.kind) {
+    case lyra::media::SortLocationKind::Initial:
+        copy_ui_text(text, sizeof(text), entry.initial);
+        break;
+    case lyra::media::SortLocationKind::Date: {
+        int year = 0;
+        local_date_key(entry.value, &year, nullptr, nullptr);
+        if (year) std::snprintf(text, sizeof(text), "'%02d", year % 100);
+        else copy_ui_text(text, sizeof(text), "-");
+        break;
+    }
+    case lyra::media::SortLocationKind::Duration:
+        std::snprintf(text, sizeof(text), "%llu", static_cast<unsigned long long>(entry.value / 60000u));
+        break;
+    case lyra::media::SortLocationKind::TrackNumber:
+        std::snprintf(text, sizeof(text), "%llu", static_cast<unsigned long long>(entry.value));
+        break;
+    }
+    copy_ui_text(output, capacity, text);
+}
+
+} // namespace
+
+void format_jump_label(const lyra::media::SortLocation &entry, char *output, size_t capacity)
+{
+    format_sort_location_label(entry, output, capacity);
+}
+
+bool sort_jump_locations(lyra::media::SortSection section, size_t item_count,
+                         lyra::media::SortLocation *locations, size_t capacity,
+                         size_t *count, bool *pending)
+{
+    *count = 0;
+    *pending = false;
+    if (!capacity) return false;
+    const lyra::media::Status status = lyra::media::status();
+    // Same identity as the page-jump screen, so both share one index build.
+    const SortLocationIdentity identity{
+        section, lyra::media::sort_setting(section), library_page_size(),
+        std::min(item_count, lyra::media::kMaxTracks), status.catalog_generation,
+        status.sorting_generation, status.duration_generation,
+    };
+    ensure_sort_location_request(identity, status);
+    size_t available = 0;
+    bool complete = false;
+    bool failed = false;
+    if (!sort_location_request_status(identity, &available, &complete, &failed)) {
+        *pending = sort_location_worker_active() || sort_location_indexing(identity, status);
+        return false;
+    }
+    if (!complete) {
+        *pending = true;
+        return false;
+    }
+    if (failed) return false;
+    char label[sizeof(lyra::media::SortLocation::initial)];
+    char previous[sizeof(label)] = "";
+    size_t distinct = 0;
+    for (size_t index = 0; index < available; ++index) {
+        lyra::media::SortLocation entry{};
+        if (!copy_sort_location_entry(identity, index, &entry)) break;
+        short_location_label(entry, label, sizeof(label));
+        if (index == 0 || std::strcmp(label, previous) != 0) ++distinct;
+        copy_ui_text(previous, sizeof(previous), label);
+    }
+    // Many distinct marks (CJK initials, every year) are sampled evenly so
+    // the strip still spans the whole list.
+    const size_t stride = std::max<size_t>(1, (distinct + capacity - 1) / capacity);
+    size_t mark = 0;
+    previous[0] = '\0';
+    for (size_t index = 0; index < available && *count < capacity; ++index) {
+        lyra::media::SortLocation entry{};
+        if (!copy_sort_location_entry(identity, index, &entry)) break;
+        short_location_label(entry, label, sizeof(label));
+        if (index != 0 && std::strcmp(label, previous) == 0) continue;
+        copy_ui_text(previous, sizeof(previous), label);
+        if (mark++ % stride) continue;
+        // The strip shows initial[]; value and kind keep the full label.
+        copy_ui_text(entry.initial, sizeof(entry.initial), label);
+        locations[(*count)++] = entry;
+    }
+    return *count != 0;
+}
 
 void open_page_jump(size_t total, size_t page_size, size_t page_count)
 {

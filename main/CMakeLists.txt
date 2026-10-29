@@ -13,6 +13,7 @@ idf_component_register(
         "gui/shared/lyra_gui_zeno.cpp"
         "gui/shared/lyra_gui_zeno_font.cpp"
         "gui/shared/lyra_gui_status_artwork.cpp"
+        "gui/shared/lyra_gui_virtual_list.cpp"
         "gui/queue/lyra_gui_queue_core.cpp"
         "gui/queue/lyra_gui_queue_view.cpp"
         "gui/apps/lyra_gui_apps.cpp"

@@ -355,6 +355,33 @@ bool track_at(size_t index, Track *out)
     return track_at_locked(index, out);
 }
 
+bool track_summary_at(size_t index, TrackSummary *out)
+{
+    if (!out) return false;
+    Lock lock;
+    // Guarded by the media lock; kept in PSRAM so list rows cost no internal RAM.
+    static Track *scratch_buffer = static_cast<Track *>(
+        heap_caps_malloc(sizeof(Track), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!scratch_buffer) return false;
+    Track &scratch = *scratch_buffer;
+    if (index >= kMaxTracks) {
+        if (!transient_track_at_locked(index, &scratch)) return false;
+    } else {
+        if (!s_catalog || index >= s_track_count) return false;
+        const uint32_t physical = s_title_order[index];
+        const Track *cached = nullptr;
+        for (size_t i = 0; i < kTrackCacheSize && !cached; ++i) {
+            if (s_track_cache[i].generation == s_status.catalog_generation &&
+                s_track_cache[i].physical_index == physical) cached = &s_track_cache[i].track;
+        }
+        if (cached) scratch = *cached;
+        else if (!read_physical(s_catalog, s_catalog_header, physical, &scratch)) return false;
+    }
+    copy_text(out->title, sizeof(out->title), scratch.title);
+    copy_text(out->artist, sizeof(out->artist), scratch.artist);
+    return true;
+}
+
 bool sorted_track_at(size_t index, size_t *track_index)
 {
     if (!track_index) return false;

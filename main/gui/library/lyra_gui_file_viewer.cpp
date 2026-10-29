@@ -78,14 +78,21 @@ void release(Viewer *v)
     }
 }
 
+std::atomic<bool> s_image_task_caps{false};
+
 void image_task(void *argument)
 {
     auto *v = static_cast<Viewer *>(argument);
+    const bool psram_stack = s_image_task_caps.load(); // Set before this task was created.
     const lyra::media::ImageReadControl control{&v->cancelled, &v->revision, v->work_revision};
     const bool access = lyra::media::begin_file_access();
     bool ok = access && !control.cancelled();
+    if (!access) ESP_LOGW(kTag, "image viewer: MicroSD access unavailable");
     if (ok && v->work_initial) {
         ok = lyra::media::image_file_info(v->path, &v->file_info, control);
+        if (!ok && !control.cancelled()) {
+            ESP_LOGW(kTag, "image viewer: cannot read header of %s", v->path);
+        }
         if (ok) {
             v->fit_zoom = std::max<uint32_t>(1, std::min<uint64_t>(
                 uint64_t(kScreenWidth) * kNativeZoom / v->file_info.width,
@@ -99,18 +106,30 @@ void image_task(void *argument)
         }
     }
     if (ok) {
+        const size_t bytes = size_t(v->work_view.width) * v->work_view.height * 2;
         v->work_pixels = static_cast<uint16_t *>(heap_caps_malloc(
-            size_t(v->work_view.width) * v->work_view.height * 2,
-            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (!v->work_pixels) {
+            ESP_LOGW(kTag, "image viewer: no PSRAM for %u bytes (largest free %u)",
+                     static_cast<unsigned>(bytes), static_cast<unsigned>(
+                         heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
+        }
         ok = v->work_pixels && lyra::media::decode_image_file_viewport(v->path,
             v->file_info, v->work_view, v->work_pixels, control);
+        if (v->work_pixels && !ok && !control.cancelled()) {
+            ESP_LOGW(kTag, "image viewer: decode failed for %s (%ux%u view %ux%u)", v->path,
+                     static_cast<unsigned>(v->file_info.width), static_cast<unsigned>(v->file_info.height),
+                     static_cast<unsigned>(v->work_view.width), static_cast<unsigned>(v->work_view.height));
+        }
     }
     if (access) lyra::media::end_file_access();
     v->work_ok = ok;
     v->complete.store(true, std::memory_order_release);
     s_image_busy.store(false);
     release(v);
-    vTaskDelete(nullptr);
+    // A PSRAM-stack task must free its static stack through the caps API.
+    if (psram_stack) vTaskDeleteWithCaps(nullptr);
+    else vTaskDelete(nullptr);
 }
 
 struct Bookmark {
@@ -525,7 +544,19 @@ void start_image_task(Viewer *v)
         v->work_view = image_detail_view(v);
     }
     v->references.fetch_add(1);
-    if (xTaskCreatePinnedToCore(image_task, "file_image", 24 * 1024, v, 1, nullptr, 1) != pdPASS) {
+    // Prefer an internal stack for decode speed; a fragmented internal heap
+    // must not make every image fail, so fall back to a PSRAM stack.
+    s_image_task_caps.store(false);
+    bool started = xTaskCreatePinnedToCore(image_task, "file_image", 24 * 1024, v, 1, nullptr, 1) == pdPASS;
+    if (!started) {
+        s_image_task_caps.store(true);
+        ESP_LOGW(kTag, "image viewer: internal stack unavailable (largest free %u); using PSRAM",
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+        started = xTaskCreatePinnedToCoreWithCaps(image_task, "file_image", 24 * 1024, v, 1, nullptr, 1,
+                                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
+    }
+    if (!started) {
+        ESP_LOGE(kTag, "image viewer: cannot start the decode task");
         s_image_busy.store(false);
         release(v);
         v->work_ok = false;

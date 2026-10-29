@@ -198,6 +198,13 @@ esp_err_t shutdown(uint32_t timeout_ms = 30000);
 
 size_t track_count();
 bool track_at(size_t index, Track *out);
+// Display text for list rows. Unlike track_at() it never stats the audio file
+// and does not displace full records from the shared track cache.
+struct TrackSummary {
+    char title[kMaxName];
+    char artist[kMaxName];
+};
+bool track_summary_at(size_t index, TrackSummary *out);
 bool sorted_track_at(size_t index, size_t *track_index);
 esp_err_t start_search(SearchCategory category, const char *query);
 SearchStatus search_status();

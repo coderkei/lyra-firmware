@@ -140,6 +140,24 @@ the device by shuffling a Hamiltonian path with backbite moves and cutting it
 into coloured segments, so every board has a complete solution; the hint
 button reveals one route from it.
 
+**Large libraries.** Songs, Albums, Artists, Genres, Years, and the Queue
+scroll as one continuous list instead of pages. Each list keeps a fixed pool
+of about one screen of row slots and rebinds them by position, so the LVGL
+object count and per-frame work match a single page at any library size.
+Row text comes from a 128-entry cache filled by a low-priority prefetch task
+ahead of the scroll direction; the first screen is fetched synchronously so a
+list never opens blank, and list rows never read the SD card on the GUI
+thread (`track_summary_at()` skips the per-file `stat()` that `track_at()`
+performs). Songs, Albums, and Artists show a jump strip built from the sort
+jump index — initials for name sorts, two-digit years for date sorts, whole
+minutes for duration, and track numbers — with a bubble showing the full
+value while scrolling, and a jump button that
+opens the page-jump screen (whose sort tab also covers dates and durations)
+and returns to the exact row. The Queue opens at the playing song. The Music
+page starts with Recently played, Recently added, and Favorites shortcuts and
+links to folder browsing. Search runs automatically 650 ms after typing
+pauses and refreshes its results without rebuilding the keyboard.
+
 Themes with decorative wallpapers rasterize them once into PSRAM (Aura's sky
 and light trails, Zeno's logo tile) and blit the cached pixels on redraw.
 

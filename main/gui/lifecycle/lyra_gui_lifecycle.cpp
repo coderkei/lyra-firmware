@@ -141,6 +141,7 @@ void render(View view)
         lv_obj_scroll_to_y(s_scroll_body, scroll_y, LV_ANIM_OFF);
     }
     s_pending_scroll_restore_y = -1;
+    s_pending_list_position = SIZE_MAX;
     if (view != View::FileViewer) {
         if (s_neon_hud) style_hud_controls(s_screen);
         if (is_cute_theme()) style_cute_controls(s_screen);
@@ -364,7 +365,9 @@ void catalog_poll_cb(lv_timer_t *)
                 if (search.result != ESP_OK) copy_ui_text(
                     s_search_error, sizeof(s_search_error),
                     tr(lyra::i18n::StringId::SearchCouldNotComplete));
-                render(View::Search);
+                // Refresh only the results so typing on the keyboard continues.
+                if (s_search_results) populate_search_results();
+                else render(View::Search);
                 return;
             }
         }
@@ -412,12 +415,15 @@ void catalog_poll_cb(lv_timer_t *)
     if (sorting_changed &&
         (s_view == View::LibrarySongs || s_view == View::LibraryAlbums ||
          s_view == View::LibraryArtists)) {
+        // Rebuild the list in place; its rows and letter index changed.
+        if (s_scroll_body) s_pending_scroll_restore_y = lv_obj_get_scroll_y(s_scroll_body);
         render(s_view);
         return;
     }
     if (duration_changed && !status.duration_indexing &&
         (s_view == View::LibrarySongs || s_view == View::LibraryAlbums ||
          s_view == View::LibraryArtists)) {
+        if (s_scroll_body) s_pending_scroll_restore_y = lv_obj_get_scroll_y(s_scroll_body);
         render(s_view);
         return;
     }

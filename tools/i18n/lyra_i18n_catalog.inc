@@ -1134,3 +1134,7 @@ LYRA_I18N_ENTRY(Dice, "Dice", "Dés", "Würfel", "Dados", "Dadi", "サイコロ"
 LYRA_I18N_ENTRY(DiceRoll, "Roll", "Lancer", "Würfeln", "Lanzar", "Lancia", "振る", "굴리기", "Бросить", "掷骰", "擲骰")
 LYRA_I18N_ENTRY(DiceTotal, "Total %u", "Total %u", "Summe %u", "Total %u", "Totale %u", "合計 %u", "합계 %u", "Сумма %u", "合计 %u", "合計 %u")
 LYRA_I18N_ENTRY(DiceHint, "Tap Roll or a die to throw.", "Touchez Lancer ou un dé.", "Tippe auf Würfeln oder einen Würfel.", "Toca Lanzar o un dado.", "Tocca Lancia o un dado.", "「振る」かサイコロをタップ。", "굴리기 또는 주사위를 누르세요.", "Нажмите «Бросить» или на кубик.", "点按掷骰或骰子。", "點按擲骰或骰子。")
+
+/* Music library shortcuts */
+LYRA_I18N_ENTRY(Folders, "Folders", "Dossiers", "Ordner", "Carpetas", "Cartelle", "フォルダ", "폴더", "Папки", "文件夹", "資料夾")
+LYRA_I18N_ENTRY(BrowseByFolder, "Browse the card by folder", "Parcourir la carte par dossier", "Karte nach Ordnern durchsuchen", "Explora la tarjeta por carpetas", "Sfoglia la scheda per cartelle", "フォルダごとにカードを見る", "폴더별로 카드 둘러보기", "Обзор карты по папкам", "按文件夹浏览存储卡", "依資料夾瀏覽記憶卡")

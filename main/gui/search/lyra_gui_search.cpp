@@ -66,8 +66,45 @@ const char *keyboard_name(KeyboardLayout layout)
     return tr(lyra::i18n::StringId::KeyboardEnglish);
 }
 
+lv_timer_t *s_live_search_timer = nullptr;
+constexpr uint32_t kLiveSearchDelayMs = 650;
+
+// Search as you type: once typing pauses, run the background search for the
+// committed text. Results refresh in place, so the keyboard stays put.
+void live_search_cb(lv_timer_t *)
+{
+    s_live_search_timer = nullptr; // One-shot timers delete themselves.
+    if (s_view != View::Search || !s_search_query[0]) return;
+    if (std::strcmp(s_search_query, s_submitted_search_query) == 0 &&
+        s_search_category == s_submitted_search_category) return;
+    if (lyra::media::search_status().running) {
+        // Retry after the current search; start_search() rejects overlaps.
+        s_live_search_timer = lv_timer_create(live_search_cb, kLiveSearchDelayMs, nullptr);
+        if (s_live_search_timer) lv_timer_set_repeat_count(s_live_search_timer, 1);
+        return;
+    }
+    if (lyra::media::start_search(s_search_category, s_search_query) != ESP_OK) return;
+    copy_ui_text(s_submitted_search_query, sizeof(s_submitted_search_query), s_search_query);
+    s_submitted_search_category = s_search_category;
+    s_search_error[0] = '\0';
+    s_list_page = 0;
+    populate_search_results();
+}
+
+void schedule_live_search()
+{
+    if (s_view != View::Search) return;
+    if (s_live_search_timer) {
+        lv_timer_reset(s_live_search_timer);
+        return;
+    }
+    s_live_search_timer = lv_timer_create(live_search_cb, kLiveSearchDelayMs, nullptr);
+    if (s_live_search_timer) lv_timer_set_repeat_count(s_live_search_timer, 1);
+}
+
 void update_keyboard_display()
 {
+    schedule_live_search();
     if (!s_search_label) return;
     const char *text = keyboard_input_text();
     if (!text[0] && !lyra::gui::ime::preedit()[0]) {

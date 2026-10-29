@@ -44,6 +44,7 @@ extern const lv_color_t kTextOnAccent = lv_color_hex(0xFFFFFF);
 lv_obj_t *s_screen = nullptr;
 lv_obj_t *s_scroll_body = nullptr;
 int32_t s_pending_scroll_restore_y = -1;
+size_t s_pending_list_position = SIZE_MAX;
 lv_obj_t *s_search_label = nullptr;
 lv_obj_t *s_search_results = nullptr;
 lv_obj_t *s_search_keyboard = nullptr;
