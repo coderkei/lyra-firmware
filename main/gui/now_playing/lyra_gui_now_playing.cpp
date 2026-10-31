@@ -955,6 +955,7 @@ void render_player()
     make_artwork_contents(s_player_flip_content, art_size, art_size, track, 13);
     lv_obj_add_event_cb(s_player_flip_content, player_art_click_cb,
                         LV_EVENT_CLICKED, nullptr);
+    add_hud_brackets(art_face);
 
     if (s_quick_seek) {
         constexpr int kQuickSeekButtonWidth = 44;
@@ -973,6 +974,13 @@ void render_player()
         lv_obj_t *metadata = make_box(body, 8, progress_y - 84, 304, 75, kSurface, 12);
         lv_obj_set_style_radius(metadata, 12, 0);
         lv_obj_remove_flag(metadata, LV_OBJ_FLAG_CLICKABLE);
+    }
+    if (s_neon_hud) {
+        // Solid data panels keep the readout off the lit skyline behind it.
+        lv_obj_t *metadata = make_box(body, 8, progress_y - 84, 304, 75, kSurface, 4);
+        lv_obj_remove_flag(metadata, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_t *strip = make_box(body, 0, progress_y - 8, kScreenWidth, 26, kNavSurface);
+        lv_obj_remove_flag(strip, LV_OBJ_FLAG_CLICKABLE);
     }
     lv_obj_t *title = make_label(overview, track.title, !is_standard_theme() ? kAccent : kTextPrimary);
     lv_obj_set_style_text_font(title, lyra::font::ui(), 0);
@@ -993,6 +1001,10 @@ void render_player()
     lv_bar_set_value(bar, 0, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(bar, kDivider, LV_PART_MAIN);
     lv_obj_set_style_bg_color(bar, kAccent, LV_PART_INDICATOR);
+    if (s_neon_hud) {
+        lv_obj_set_height(bar, 7);
+        style_hud_progress_bar(bar);
+    }
     s_player_progress_bar = bar;
     s_player_progress_touch = make_player_progress_touch(body, zeno ? 16 : 56,
         progress_y - (zeno ? 6 : 8), zeno ? 288 : 208, zeno ? 36 : 21);

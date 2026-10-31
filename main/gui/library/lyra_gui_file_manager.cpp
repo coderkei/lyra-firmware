@@ -916,7 +916,7 @@ void make_entry_row(lv_obj_t *body, int y, size_t index)
     void *payload = reinterpret_cast<void *>(index);
     lv_obj_t *row = make_button(body, 7, y, 306, 54, kSurface, 5, true);
     lv_obj_t *icon = make_label(row, kind_icon(kind),
-        kind == EntryKind::Other ? kTextMuted : s_neon_hud ? kTextSecondary : kAccent);
+        kind == EntryKind::Other ? kTextMuted : kAccent);
     lv_obj_align(icon, LV_ALIGN_LEFT_MID, 12, 0);
     lv_obj_t *title = make_label(row, name, kTextPrimary);
     make_marquee(title, 200);

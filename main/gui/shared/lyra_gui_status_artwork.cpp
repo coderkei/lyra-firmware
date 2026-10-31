@@ -16,7 +16,7 @@ int s_status_wifi_signal_shown = -1;
 lv_color_t status_wifi_signal_color()
 {
     if (is_aura_theme()) return kTextOnAccent;
-    return s_neon_hud ? kAccent : kTextSecondary;
+    return s_neon_hud ? lv_color_hex(kHudCyanRgb) : kTextSecondary;
 }
 
 lv_color_t status_wifi_signal_inactive_color()
@@ -160,7 +160,7 @@ void make_artwork_placeholder(lv_obj_t *art, int width, int height)
     else if (is_cute_theme()) background = lv_color_hex(0xF9E7F4);
     else if (is_zeno_theme()) background = lv_color_hex(0x170F1A);
     else if (is_aura_theme()) background = lv_color_hex(0xE1F4FF);
-    else if (s_neon_hud) background = lv_color_hex(0x07131E);
+    else if (s_neon_hud) background = lv_color_hex(0x0D0A0E);
     lv_obj_set_style_bg_color(art, background, 0);
     lv_obj_set_style_bg_opa(art, LV_OPA_COVER, 0);
 
@@ -185,26 +185,24 @@ void make_artwork_placeholder(lv_obj_t *art, int width, int height)
     }
 
     if (s_neon_hud) {
-        // Cyan and magenta bars sit on a compact HUD grid.
-        const int bar_width = std::max(2, size / 14);
-        const int gap = std::max(2, size / 18);
-        const int count = 5;
-        const int group_width = count * bar_width + (count - 1) * gap;
-        const int base_y = center_y + size * 22 / 100;
-        const int heights[] = {size * 24 / 100, size * 42 / 100,
-                               size * 31 / 100, size * 50 / 100,
-                               size * 34 / 100};
-        const int grid_y = center_y - size * 28 / 100;
-        make_placeholder_shape(art, inset, grid_y, size - inset * 2,
-                               std::max(1, scale), kDivider, 0);
-        make_placeholder_shape(art, inset, base_y, size - inset * 2,
-                               std::max(1, scale), kDivider, 0);
+        // A "no signal" data readout: offset scan bars of corrupted feed.
+        const int span = size - inset * 4;
+        const int bar_height = std::max(2, size / 16);
+        const int pitch = bar_height * 2;
+        constexpr int widths[] = {72, 46, 88, 30, 64, 52};
+        constexpr int offsets[] = {0, 18, 6, 40, 12, 26};
+        const int count = static_cast<int>(sizeof(widths) / sizeof(widths[0]));
+        const int top = center_y - (count * pitch - bar_height) / 2;
         for (int i = 0; i < count; ++i) {
-            const int x = center_x - group_width / 2 + i * (bar_width + gap);
-            const lv_color_t color = (i % 2) ? kAccent : kTextSecondary;
-            make_placeholder_shape(art, x, base_y - heights[i], bar_width,
-                                   heights[i], color, scale);
+            const lv_color_t color = i == 3 ? lv_color_hex(kHudCyanRgb) :
+                                     i % 2 ? kDivider : kAccent;
+            make_placeholder_shape(art, inset * 2 + span * offsets[i] / 100,
+                                   top + i * pitch, std::max(2, span * widths[i] / 100),
+                                   bar_height, color, 0);
         }
+        const int marker = std::max(3, size / 14);
+        make_placeholder_shape(art, size - inset - marker, inset, marker, marker,
+                               lv_color_hex(kHudYellowRgb), 0);
         return;
     }
 
@@ -294,7 +292,7 @@ void make_status_bar()
     lv_obj_align(s_status_volume_label, LV_ALIGN_LEFT_MID, 9, 0);
     update_status_volume_label(audio_status.volume_percent);
     lv_obj_add_event_cb(volume_button, show_volume_popup_cb, LV_EVENT_CLICKED, nullptr);
-    s_status_time_label = make_label(bar, "", s_neon_hud ? kTextSecondary : kTextPrimary);
+    s_status_time_label = make_label(bar, "", s_neon_hud ? lv_color_hex(kHudCyanRgb) : kTextPrimary);
     lv_obj_align(s_status_time_label, LV_ALIGN_CENTER, 0, 0);
     update_status_time_label();
     // The clock doubles as a shortcut back to whatever is playing.
@@ -321,7 +319,7 @@ void make_status_bar()
         lv_obj_set_style_text_color(battery, kTextOnAccent, 0);
         make_box(bar, 0, kStatusHeight - 1, kScreenWidth, 1, lv_color_hex(0xE6FAFF));
     }
-    if (s_neon_hud) make_box(bar, 8, kStatusHeight - 1, 304, 1, kAccent);
+    decorate_hud_status_bar(bar);
     refresh_status_wifi_signal();
 }
 
@@ -335,8 +333,7 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
          s_view == View::FolderDetail || s_view == View::FolderPlaylist ||
          s_view == View::PlaylistDetail);
     lv_obj_t *header = make_box(s_screen, 0, kStatusHeight, kScreenWidth, 44, kBackground);
-    lv_obj_t *divider = make_box(header, 8, 43, 304, 1, s_neon_hud ? kAccent : kDivider);
-    (void)divider;
+    if (!s_neon_hud) make_box(header, 8, 43, 304, 1, kDivider);
     if (show_back) {
         lv_obj_t *back_button = make_button(header, 4, 4, 42, 36, kBackground, 0);
         if (is_cute_theme()) {
@@ -344,6 +341,10 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
             lv_obj_set_style_bg_color(back_button, kSurface, 0);
             lv_obj_set_style_border_width(back_button, 1, 0);
             add_cute_plastic_finish(back_button);
+        }
+        if (s_neon_hud) {
+            lv_obj_set_style_bg_color(back_button, kSurface, 0);
+            add_hud_frame(back_button);
         }
         if (is_zeno_theme()) {
             lv_obj_set_size(back_button, 36, 36);
@@ -359,8 +360,10 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
             navigate_back(fallback);
         }, LV_EVENT_CLICKED, reinterpret_cast<void *>(static_cast<uintptr_t>(back)));
     }
+    char heading[lyra::media::kMaxName + 32];
     lv_obj_t *label = is_zeno_theme() ? make_zeno_label(header, title) :
-        make_label(header, title, s_neon_hud ? kAccent : kTextPrimary);
+        make_label(header, hud_heading_text(title, heading, sizeof(heading)),
+                   s_neon_hud ? kAccent : kTextPrimary);
     lv_obj_set_style_text_font(label, lyra::font::ui(), 0);
     if (is_zeno_theme()) lv_obj_set_style_text_font(label, zeno_heading_font(), 0);
     const bool show_right_label = right != nullptr && (!queue_add_toggle || right[0] != '\0');
@@ -381,6 +384,7 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
     if (is_cute_theme() && !show_right_label && !queue_add_toggle) {
         make_cute_header_mascot(header);
     }
+    decorate_hud_header(header, label);
     return header;
 }
 
@@ -458,10 +462,10 @@ lv_obj_t *make_row(lv_obj_t *parent, int y, const char *icon_text, const char *t
         lv_obj_set_style_bg_color(row, !is_standard_theme() ? kAccentSurface : kSurfaceRaised, LV_STATE_PRESSED);
     const int text_x = icon_text ? 45 : 12;
     if (icon_text) {
-        lv_obj_t *icon = make_label(row, icon_text, s_neon_hud ? kTextSecondary : kAccent);
+        lv_obj_t *icon = make_label(row, icon_text, kAccent);
         lv_obj_align(icon, LV_ALIGN_LEFT_MID, 12, subtitle == nullptr ? 0 : -1);
     }
-    lv_obj_t *title_label = make_label(row, title, s_neon_hud ? kTextSecondary : kTextPrimary);
+    lv_obj_t *title_label = make_label(row, title, kTextPrimary);
     lv_obj_set_style_text_font(title_label, lyra::font::ui(), 0);
     make_marquee(title_label, icon_text ? 220 : 253);
     lv_obj_align(title_label, LV_ALIGN_LEFT_MID, text_x, subtitle == nullptr ? 0 : -10);

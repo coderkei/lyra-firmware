@@ -32,7 +32,8 @@ void equalizer_slider_cb(lv_event_t *event)
         value, static_cast<int>(lyra::audio::kEqualizerMinimumTenthsDb),
         static_cast<int>(lyra::audio::kEqualizerMaximumTenthsDb)));
     s_equalizer_custom_bands[context->band] = gain;
-    update_equalizer_gain_label(context->value_label, gain, s_neon_hud ? kTextSecondary : kAccent);
+    update_equalizer_gain_label(context->value_label, gain,
+                                s_neon_hud ? lv_color_hex(kHudCyanRgb) : kAccent);
     apply_equalizer_to_audio();
 }
 
@@ -144,8 +145,8 @@ void render_equalizer()
         lv_obj_set_width(frequency, 40);
         lv_obj_set_style_text_align(frequency, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_pos(frequency, 37 + static_cast<int>(band) * kSliderStep, 326);
-        const lv_color_t gain_color = s_neon_hud ? kTextSecondary :
-            (editable ? kAccent : kTextMuted);
+        const lv_color_t gain_color = !editable ? kTextMuted :
+            s_neon_hud ? lv_color_hex(kHudCyanRgb) : kAccent;
         lv_obj_t *gain = make_label(body, "", gain_color);
         lv_obj_set_width(gain, 40);
         lv_obj_set_style_text_align(gain, LV_TEXT_ALIGN_CENTER, 0);

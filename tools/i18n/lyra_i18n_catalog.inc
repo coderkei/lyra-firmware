@@ -74,8 +74,8 @@ LYRA_I18N_ENTRY(Search, "Search", "Rechercher", "Suchen", "Buscar", "Cerca", "�
 LYRA_I18N_ENTRY(Settings, "Settings", "Réglages", "Einstellungen", "Ajustes", "Impostazioni", "設定", "설정", "Настройки", "设置", "設定")
 LYRA_I18N_ENTRY(Theme, "Theme", "Thème", "Design", "Tema", "Tema", "テーマ", "테마", "Тема", "主题", "主題")
 LYRA_I18N_ENTRY(StandardTheme, "Standard", "Standard", "Standard", "Estándar", "Standard", "標準", "기본", "Стандартная", "标准", "標準")
-// Neon Sky is the original theme's proper name in every locale.
-LYRA_I18N_ENTRY(NeonSky, "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky", "Neon Sky")
+// Night City is the HUD theme's proper name in every locale.
+LYRA_I18N_ENTRY(NeonSky, "Night City", "Night City", "Night City", "Night City", "Night City", "Night City", "Night City", "Night City", "Night City", "Night City")
 // Cute & Pink is the theme's proper name in every supported language.
 LYRA_I18N_ENTRY(CutePink, "Cute & Pink", "Cute & Pink", "Cute & Pink", "Cute & Pink", "Cute & Pink", "Cute & Pink", "Cute & Pink", "Cute & Pink", "Cute & Pink", "Cute & Pink")
 LYRA_I18N_ENTRY(QuickSeek, "Quick Seek", "Saut rapide", "Schnellnavigation", "Salto rápido", "Salto rapido", "クイックシーク", "빠른 탐색", "Быстрая перемотка", "快速跳转", "快速跳轉")

@@ -955,7 +955,7 @@ void make_virtual_nav()
 {
     lv_obj_t *dock = make_box(s_screen, 0, kScreenHeight - kNavHeight,
                               kScreenWidth, kNavHeight, kNavSurface);
-    make_box(dock, 0, 0, kScreenWidth, 1, kAccentDark);
+    make_box(dock, 0, 0, kScreenWidth, 1, s_neon_hud ? kAccent : kAccentDark);
     const char *icons[] = {LV_SYMBOL_BARS, LV_SYMBOL_PREV, LV_SYMBOL_PLAY, LV_SYMBOL_NEXT, LV_SYMBOL_LEFT};
     for (int i = 0; i < 5; ++i) {
         lv_obj_t *button = make_button(dock, 5 + i * 63, 4, 58, 36, kSurface, 6);
@@ -970,6 +970,7 @@ void make_virtual_nav()
         }
         lv_obj_t *icon = make_label(button, icons[i],
             (i == 0 && s_view == View::Menu) || (!is_standard_theme() && i == 2) ? kAccent : kTextSecondary);
+        if (s_neon_hud && i == 2) lv_obj_set_style_text_color(icon, lv_color_hex(kHudCyanRgb), 0);
         lv_obj_center(icon);
         if (i == 0) {
             add_route(button, View::Menu);
@@ -1081,7 +1082,8 @@ void show_volume_popup_cb(lv_event_t *)
     char value_text[16];
     std::snprintf(value_text, sizeof(value_text), "%u%%",
                   static_cast<unsigned>(display_volume_percent(audio_status.volume_percent)));
-    lv_obj_t *value = make_label(s_volume_popup, value_text, s_neon_hud ? kTextSecondary : kAccent);
+    lv_obj_t *value = make_label(s_volume_popup, value_text,
+                                 s_neon_hud ? lv_color_hex(kHudCyanRgb) : kAccent);
     lv_obj_align(value, LV_ALIGN_TOP_RIGHT, -52, 12);
     lv_obj_t *close = make_button(s_volume_popup, 184, 7, 32, 32, kSurface, 16);
     lv_obj_t *close_icon = make_label(close, LV_SYMBOL_CLOSE, kTextSecondary);

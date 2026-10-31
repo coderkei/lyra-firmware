@@ -57,20 +57,22 @@ void apply_theme_palette()
                                 s_accent_colour : 0;
     const AccentPalette &accent = kAccentPalettes[accent_index];
     if (s_neon_hud) {
-        kBackground = lv_color_hex(0x05080F);
-        kSurface = lv_color_hex(0x090D16);
-        kSurfaceRaised = lv_color_hex(0x101421);
-        kAccent = lv_color_hex(0xFF174F);
-        kAccentDark = lv_color_hex(0x511029);
-        kAccentSurface = lv_color_hex(0x310C20);
-        kTextPrimary = lv_color_hex(0xE0F3FF);
-        kTextSecondary = lv_color_hex(0x20E7FF);
-        kTextMuted = lv_color_hex(0x91B7CA);
-        kDivider = lv_color_hex(0xB32650);
-        kNavSurface = lv_color_hex(0x05080F);
-        kKeyboardSurface = lv_color_hex(0x090D16);
-        kArtworkSurface = lv_color_hex(0x0C1420);
-        kDangerSurface = lv_color_hex(0x3F1118);
+        // Night City HUD: coral-red type on opaque near-black panels. Cyan is
+        // the selected/live state (kAccentSurface fills), never body text.
+        kBackground = lv_color_hex(0x060609);
+        kSurface = lv_color_hex(0x110C0F);
+        kSurfaceRaised = lv_color_hex(0x1B1116);
+        kAccent = lv_color_hex(0xFF4D42);
+        kAccentDark = lv_color_hex(0x7A1A16);
+        kAccentSurface = lv_color_hex(0x0E3439);
+        kTextPrimary = lv_color_hex(0xFF7064);
+        kTextSecondary = lv_color_hex(0xC9877E);
+        kTextMuted = lv_color_hex(0x9A6A63);
+        kDivider = lv_color_hex(0x5E2220);
+        kNavSurface = lv_color_hex(0x0A0709);
+        kKeyboardSurface = lv_color_hex(0x0C080B);
+        kArtworkSurface = lv_color_hex(0x0D0A0E);
+        kDangerSurface = lv_color_hex(0x5A0F16);
     } else if (is_zeno_theme()) {
         kBackground = lv_color_hex(0x09080F);
         kSurface = lv_color_hex(0x100D18);
@@ -468,8 +470,23 @@ lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int width, int height,
     return box;
 }
 
+static lv_color_t hud_label_color(lv_obj_t *parent, lv_color_t color)
+{
+    if (lv_color_eq(color, kTextOnAccent)) return color;
+    // The nearest button decides: selected and now-playing rows switch from
+    // red to cyan text so their state reads at a glance.
+    for (lv_obj_t *object = parent; object; object = lv_obj_get_parent(object)) {
+        if (!lv_obj_check_type(object, &lv_button_class)) continue;
+        if (!lv_color_eq(lv_obj_get_style_bg_color(object, LV_PART_MAIN), kAccentSurface)) break;
+        return lv_color_eq(color, kTextPrimary) || lv_color_eq(color, kAccent) ?
+            lv_color_hex(kHudCyanRgb) : lv_color_hex(0x9ED9DC);
+    }
+    return color;
+}
+
 lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color)
 {
+    if (s_neon_hud) color = hud_label_color(parent, color);
     if (s_neon_hud && lv_color_eq(color, kTextPrimary) &&
         lv_obj_check_type(parent, &lv_obj_class) && lv_obj_get_child_count(parent) == 0 &&
         (lv_color_eq(lv_obj_get_style_bg_color(parent, LV_PART_MAIN), kSurfaceRaised) ||
@@ -491,6 +508,7 @@ lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color)
         // the state restores each label's original accent or neutral color.
         lv_obj_set_style_text_color(label, kTextPrimary, LV_STATE_USER_1);
     }
+    if (s_neon_hud) lv_obj_set_style_text_color(label, lv_color_hex(kHudCyanRgb), LV_STATE_USER_1);
     lv_obj_set_style_text_color(label, color, 0);
     lv_obj_set_style_text_font(label, lyra::font::ui(), 0);
     return label;
@@ -554,13 +572,16 @@ lv_obj_t *make_button(lv_obj_t *parent, int x, int y, int width, int height,
         }
     }
     if (s_neon_hud) {
-        // Opaque rows let LVGL skip the city beneath them during scrolling.
+        // Opaque rows let LVGL skip the city beneath them during scrolling,
+        // and keep text off the busy skyline.
         lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
         lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
+        lv_obj_set_style_bg_color(button, kAccentSurface, LV_STATE_PRESSED);
         // Keep LVGL's transition descriptors valid: update_obj_state()
         // dereferences their property lists on press/release. nullptr is unsafe.
         lv_obj_set_style_border_width(button, 0, 0);
         if (radius > 0 || show_border) add_hud_frame(button);
+        add_hud_press_feedback(button);
     }
     if (is_aura_theme()) style_aura_surface(button, color, width, height, true);
     if (is_zeno_theme()) style_zeno_button(button, color, width, height);

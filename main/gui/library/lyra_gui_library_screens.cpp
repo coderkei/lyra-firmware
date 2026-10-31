@@ -345,7 +345,7 @@ void build_group(lv_obj_t *slot, size_t, const VirtualRow &data, int width)
         lv_obj_set_style_bg_color(row, !is_standard_theme() ? kAccentSurface : kSurfaceRaised,
                                   LV_STATE_PRESSED);
     }
-    lv_obj_t *title = make_label(row, data.title, s_neon_hud ? kTextSecondary : kTextPrimary);
+    lv_obj_t *title = make_label(row, data.title, kTextPrimary);
     make_marquee(title, width - 47);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -10);
     lv_obj_t *sub = make_label(row, data.subtitle, kTextSecondary);

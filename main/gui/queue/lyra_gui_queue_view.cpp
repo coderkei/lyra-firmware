@@ -321,7 +321,7 @@ void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int hei
     const bool accent_fill = lv_color_eq(fill, kAccentSurface) && !is_cute_theme();
     const lv_color_t title_color = accent_fill ? kTextOnAccent : kTextPrimary;
     const lv_color_t state_color = accent_fill ? kTextOnAccent :
-                                   s_neon_hud ? kTextSecondary : kAccent;
+                                   s_neon_hud ? lv_color_hex(kHudCyanRgb) : kAccent;
     const int artwork_size = detailed_overview ? 80 : 48;
     constexpr int kArtworkX = 10;
     const int artwork_y = (height - artwork_size) / 2;
@@ -336,6 +336,7 @@ void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int hei
     } else {
         make_artwork_placeholder(artwork, artwork_size, artwork_size);
     }
+    add_hud_brackets(artwork);
     lv_obj_t *title = make_label(entry, title_text, title_color);
     make_marquee(title, text_width);
     lv_obj_set_style_text_color(title, title_color, 0);
@@ -454,8 +455,6 @@ void render_classic_menu()
                 lv_obj_set_style_text_color(lv_obj_get_child(row, 1), kAccent, 0);
             }
             make_cute_menu_icon(row, entry.view);
-        } else if (s_neon_hud) {
-            add_hud_frame(row, false);
         }
         lv_obj_remove_event_cb(row, route_cb);
         lv_obj_add_event_cb(row, menu_destination_cb, LV_EVENT_CLICKED,
@@ -514,20 +513,87 @@ void render_aura_menu(lv_obj_t *body)
     }
 }
 
-void render_hud_menu(lv_obj_t *body)
+constexpr MenuEntry kHudDestinations[] = {
+    {lyra::i18n::StringId::NowPlaying, View::Player, LV_SYMBOL_PLAY},
+    {lyra::i18n::StringId::MusicLibrary, View::Library, LV_SYMBOL_AUDIO},
+    {lyra::i18n::StringId::Search, View::Search, LV_SYMBOL_EDIT},
+    {lyra::i18n::StringId::Queue, View::Queue, LV_SYMBOL_LIST},
+    {lyra::i18n::StringId::BrowseFolders, View::Folders, LV_SYMBOL_DIRECTORY},
+    {lyra::i18n::StringId::Equalizer, View::Equalizer, LV_SYMBOL_VOLUME_MID},
+    {lyra::i18n::StringId::Apps, View::Apps, LV_SYMBOL_LIST},
+    {lyra::i18n::StringId::Settings, View::Settings, LV_SYMBOL_SETTINGS},
+};
+constexpr int kHudBannerHeight = 56;
+
+void make_hud_banner()
 {
-    make_menu_playback_entry(body, 8, 5, 304, 104);
-    constexpr int x[] = {9, 164, 9, 164};
-    constexpr int y[] = {116, 116, 194, 194};
-    for (size_t i = 0; i < 4; ++i) {
-        lv_obj_t *button = make_menu_action(body, kListeningDestinations[i], x[i], y[i],
-            147, 70, kSurface, true, true);
-        add_hud_frame(button, true);
+    lv_obj_t *banner = make_box(s_screen, 0, kStatusHeight, kScreenWidth, kHudBannerHeight, kBackground);
+    // A chromatic-split wordmark: cyan and red ghosts behind the yellow brand.
+    char brand[8];
+    const char *text = hud_heading_text("Lyra", brand, sizeof(brand));
+    constexpr struct { int dx, dy; uint32_t rgb; } layers[] = {
+        {-2, 0, kHudCyanRgb}, {2, 1, 0xFF4D42}, {0, 0, kHudYellowRgb},
+    };
+    for (const auto &layer : layers) {
+        lv_obj_t *mark = make_label(banner, text, lv_color_hex(layer.rgb));
+        lv_obj_set_style_text_font(mark, &lv_font_montserrat_28, 0);
+        lv_obj_set_style_text_letter_space(mark, 4, 0);
+        lv_obj_set_pos(mark, 16 + layer.dx, 10 + layer.dy);
     }
-    for (size_t i = 0; i < 3; ++i) {
-        lv_obj_t *button = make_menu_action(body, kUtilityDestinations[i],
-            8 + static_cast<int>(i) * 103, 275, 98, 66, kSurface, false, true);
-        add_hud_frame(button, false);
+    // Barcode and signal ticks fill the right side like a device ID plate.
+    constexpr int stripes[] = {3, 1, 2, 1, 1, 3, 2, 1, 3, 1, 2, 2, 1, 3, 1, 1, 2, 3, 1, 2};
+    int x = 196;
+    for (size_t i = 0; i < sizeof(stripes) / sizeof(stripes[0]); ++i) {
+        if (i % 2 == 0) make_box(banner, x, 16, stripes[i], 16, kAccent);
+        x += stripes[i] + 1;
+    }
+    for (int i = 0; i < 4; ++i) {
+        make_box(banner, 196 + i * 8, 37, 5, 3,
+                 i == 3 ? lv_color_hex(kHudCyanRgb) : kDivider);
+    }
+    make_box(banner, 0, kHudBannerHeight - 1, kScreenWidth, 1, kDivider);
+    make_box(banner, 8, kHudBannerHeight - 3, 132, 3, kAccent);
+    make_box(banner, 144, kHudBannerHeight - 3, 4, 3, lv_color_hex(kHudYellowRgb));
+}
+
+void make_hud_menu_row(lv_obj_t *body, int y, size_t index, const MenuEntry &entry)
+{
+    lv_obj_t *row = make_button(body, 8, y, 304, 46, kSurface, 4, true);
+    lv_obj_add_event_cb(row, menu_destination_cb, LV_EVENT_CLICKED,
+                        reinterpret_cast<void *>(static_cast<uintptr_t>(entry.view)));
+    char number[8];
+    std::snprintf(number, sizeof(number), "%02u", static_cast<unsigned>(index + 1));
+    lv_obj_t *ordinal = make_label(row, number, kTextMuted);
+    lv_obj_set_style_text_font(ordinal, &lv_font_montserrat_14, 0);
+    lv_obj_align(ordinal, LV_ALIGN_LEFT_MID, 12, 0);
+    lv_obj_t *icon = make_label(row, entry.icon, kAccent);
+    lv_obj_align(icon, LV_ALIGN_LEFT_MID, 40, 0);
+    char heading[64];
+    lv_obj_t *label = make_label(row, hud_heading_text(tr(entry.label), heading, sizeof(heading)),
+                                 kTextPrimary);
+    lv_obj_set_style_text_letter_space(label, 1, 0);
+    make_marquee(label, 206);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, 68, 0);
+    lv_obj_t *chevron = make_label(row, LV_SYMBOL_RIGHT, kTextMuted);
+    lv_obj_align(chevron, LV_ALIGN_RIGHT_MID, -16, 0);
+}
+
+// Night City list menu: a numbered, MP3-player-style list under a deck that
+// shows what is playing. Everything is one tap from the first screen.
+void render_hud_menu()
+{
+    make_hud_banner();
+    lv_obj_t *body = make_scroll_body(kStatusHeight + kHudBannerHeight);
+    int y = 8;
+    size_t first = 0;
+    if (s_listening_hub) {
+        make_menu_playback_entry(body, 8, y, 304, 96);
+        y += 106;
+        first = 1; // The deck above already opens Now Playing.
+    }
+    for (size_t i = first; i < sizeof(kHudDestinations) / sizeof(kHudDestinations[0]); ++i) {
+        make_hud_menu_row(body, y, i - first, kHudDestinations[i]);
+        y += 50;
     }
 }
 
@@ -535,12 +601,12 @@ void render_hud_menu(lv_obj_t *body)
 
 void render_menu()
 {
+    if (s_neon_hud) { render_hud_menu(); return; }
     if (!s_listening_hub || is_zeno_theme()) { render_classic_menu(); return; }
     make_header(tr(lyra::i18n::StringId::Menu), View::Menu);
     lv_obj_t *body = make_scroll_body(72);
     if (is_cute_theme()) render_cute_menu(body);
     else if (is_aura_theme()) render_aura_menu(body);
-    else if (s_neon_hud) render_hud_menu(body);
     else render_standard_menu(body);
 }
 

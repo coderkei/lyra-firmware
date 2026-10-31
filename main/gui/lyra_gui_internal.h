@@ -348,11 +348,23 @@ void make_cute_header_mascot(lv_obj_t *header);
 void add_cute_plastic_finish(lv_obj_t *object);
 void make_cute_menu_icon(lv_obj_t *row, View view);
 void style_cute_controls(lv_obj_t *object);
+// Neon Sky (Night City HUD) signal colours beside the shared palette: cyan
+// marks the selected or live item, yellow is reserved for branding.
+constexpr uint32_t kHudCyanRgb = 0x5EF6FF;
+constexpr uint32_t kHudYellowRgb = 0xFCEE0A;
 void make_hud_background();
 void make_hud_body_background(lv_obj_t *body);
 void add_hud_frame(lv_obj_t *object, bool octagonal = false);
+void add_hud_press_feedback(lv_obj_t *button);
+void add_hud_brackets(lv_obj_t *object);
 void make_hud_equalizer_grid(lv_obj_t *parent, int x, int y, int width, int height);
 void style_hud_controls(lv_obj_t *object);
+void style_hud_progress_bar(lv_obj_t *bar);
+void decorate_hud_status_bar(lv_obj_t *bar);
+void decorate_hud_header(lv_obj_t *header, lv_obj_t *title);
+// Uppercases pure-ASCII headings; other scripts are returned unchanged so the
+// font never needs glyphs the catalog check has not verified.
+const char *hud_heading_text(const char *text, char *buffer, size_t capacity);
 void render_theme_options();
 void render_setup_welcome();
 void render_setup_language();

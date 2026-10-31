@@ -403,7 +403,7 @@ void make_file_row(lv_obj_t *parent, int y, size_t track_index, int height)
     const char *filename = std::strrchr(track.path, '/');
     filename = filename ? filename + 1 : track.path;
     lv_obj_t *row = make_button(parent, 7, y, 306, height, kSurface, 5, true);
-    lv_obj_t *icon = make_label(row, LV_SYMBOL_FILE, s_neon_hud ? kTextSecondary : kAccent);
+    lv_obj_t *icon = make_label(row, LV_SYMBOL_FILE, kAccent);
     lv_obj_align(icon, LV_ALIGN_LEFT_MID, 12, 0);
     lv_obj_t *name = make_label(row, filename, kTextPrimary);
     make_marquee(name, s_queue_add_mode ? 202 : 251);
