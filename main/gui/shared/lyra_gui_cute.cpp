@@ -25,8 +25,10 @@ void cute_plastic_cb(lv_event_t *event)
     const int32_t radius = std::min<int32_t>(
         lv_obj_get_style_radius(object, LV_PART_MAIN),
         std::min(lv_area_get_width(&area), lv_area_get_height(&area)) / 2);
-    // Two narrow native borders give the solid surface a molded rim, without
-    // blurred shadows, gradients, image copies or additional child widgets.
+    // One inset highlight on the lit edges gives the surface its molded look;
+    // the style border supplies the outer edge. The display renders straight
+    // into PSRAM, so each anti-aliased rounded pass costs read-modify-write
+    // bandwidth shared with audio: rows keep to fill, border and this rim.
     area.x1 += 2;
     area.y1 += 2;
     area.x2 -= 2;
@@ -36,16 +38,9 @@ void cute_plastic_cb(lv_event_t *event)
     rim.radius = std::max<int32_t>(radius - 2, 0);
     rim.width = 1;
     rim.opa = LV_OPA_COVER;
-    rim.color = lv_color_hex(0xFFFFFF);
-    rim.side = LV_BORDER_SIDE_FULL;
-    lv_layer_t *layer = lv_event_get_layer(event);
-    gui_draw_border(layer, &rim, &area);
-    const bool pressed = lv_obj_has_state(object, LV_STATE_PRESSED);
-    rim.color = lv_color_hex(pressed ? 0xE2A7D0 : 0xDCCBED);
-    rim.side = static_cast<lv_border_side_t>(pressed ?
-        LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT :
-        LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT);
-    gui_draw_border(layer, &rim, &area);
+    rim.color = lv_color_hex(lv_obj_has_state(object, LV_STATE_PRESSED) ? 0xE2A7D0 : 0xFFFFFF);
+    rim.side = static_cast<lv_border_side_t>(LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT);
+    gui_draw_border(lv_event_get_layer(event), &rim, &area);
 }
 
 // Coordinates are local to a 32 px sticker. Each primitive has a solid fill
@@ -322,11 +317,7 @@ void make_cute_body_background(lv_obj_t *body)
 void add_cute_plastic_finish(lv_obj_t *object)
 {
     if (!is_cute_theme()) return;
-    lv_obj_set_style_outline_width(object, 1, 0);
-    lv_obj_set_style_outline_pad(object, 0, 0);
-    lv_obj_set_style_outline_color(object, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_outline_opa(object, LV_OPA_COVER, 0);
-    lv_obj_set_style_shadow_width(object, 0, 0);
+    // No outline: it was a third rounded pass drawn outside every row.
     lv_obj_remove_event_cb(object, cute_plastic_cb);
     lv_obj_add_event_cb(object, cute_plastic_cb, LV_EVENT_DRAW_MAIN, nullptr);
 }

@@ -377,31 +377,34 @@ void render_classic_zeno_menu()
     constexpr MenuEntry items[] = {
         {lyra::i18n::StringId::Music, View::Library, Icon::Music},
         {lyra::i18n::StringId::NowPlaying, View::Player, Icon::NowPlaying},
-        {lyra::i18n::StringId::BrowseFolders, View::Folders, Icon::Folder},
+        // The short label fits the large type on one line.
+        {lyra::i18n::StringId::Folders, View::Folders, Icon::Folder},
         {lyra::i18n::StringId::Queue, View::Queue, Icon::Queue},
         {lyra::i18n::StringId::Search, View::Search, Icon::Search},
         {lyra::i18n::StringId::Apps, View::Apps, Icon::Apps},
         {lyra::i18n::StringId::Settings, View::Settings, Icon::Settings},
         {lyra::i18n::StringId::Equalizer, View::Equalizer, Icon::Equalizer},
     };
+    // Zune-style home: every destination in the large lowercase face, flush
+    // left and stacked tight. Now Playing lights up while music is playing.
+    const lyra::audio::Status playback = lyra::audio::status();
+    const bool playing = playback.playing && !playback.paused;
+    constexpr int kPitch = 54;
     for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
-        lv_obj_t *row = make_button(body, 0, 16 + static_cast<int>(i) * 60,
-                                    320, 58, kBackground, 0);
+        lv_obj_t *row = make_button(body, 0, 10 + static_cast<int>(i) * kPitch,
+                                    320, kPitch - 2, kBackground, 0);
         lv_obj_set_style_border_width(row, 0, 0);
-        lv_obj_t *label = make_zeno_label(row, tr(items[i].label), i == 0);
-        make_marquee(label, 282);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, 23, 0);
-        lv_obj_set_style_text_color(label, i == 0 ? kTextPrimary : kTextMuted, 0);
-        if (i == 0) {
-            lv_obj_t *stripe = make_box(row, 0, 0, 7, 58, kAccent);
-            lv_obj_remove_flag(stripe, LV_OBJ_FLAG_CLICKABLE);
-        }
+        lv_obj_t *label = make_zeno_label(row, tr(items[i].label), true);
+        make_marquee(label, 296);
+        lv_obj_align(label, LV_ALIGN_LEFT_MID, 14, 0);
+        const bool live = items[i].view == View::Player && playing;
+        lv_obj_set_style_text_color(label, live ? kAccent : kTextPrimary, 0);
         lv_obj_add_event_cb(row, menu_destination_cb, LV_EVENT_CLICKED,
             reinterpret_cast<void *>(static_cast<uintptr_t>(items[i].view)));
     }
-    lv_obj_t *brand = make_label(body, "Emotivate Lyra", kTextSecondary);
+    lv_obj_t *brand = make_label(body, "Emotivate Lyra", kTextMuted);
     lv_obj_set_style_text_letter_space(brand, 2, 0);
-    lv_obj_set_pos(brand, 24, 16 + 8 * 60 + 10);
+    lv_obj_set_pos(brand, 16, 10 + 8 * kPitch + 12);
 }
 
 void render_classic_menu()

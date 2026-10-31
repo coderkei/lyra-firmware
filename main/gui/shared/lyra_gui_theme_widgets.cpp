@@ -723,7 +723,10 @@ lv_obj_t *make_button(lv_obj_t *parent, int x, int y, int width, int height,
             lv_color_eq(color, kAccent) || lv_color_eq(color, kAccentDark) ?
                 kAccentDark : kAccentSurface, LV_STATE_PRESSED);
         if (radius > 0 || show_border) {
-            lv_obj_set_style_radius(button, std::max(radius, 18), 0);
+            // List rows scroll in numbers, so they take a smaller radius:
+            // anti-aliased corner work grows with it on every scrolled frame.
+            const bool list_row = width >= 280 && height <= 70;
+            lv_obj_set_style_radius(button, list_row ? 12 : std::max(radius, 18), 0);
             lv_obj_set_style_border_width(button, 1, 0);
             if (lv_color_eq(color, kAccentSurface)) {
                 lv_obj_set_style_border_color(button, kAccent, 0);

@@ -10,7 +10,7 @@ namespace {
 
 constexpr int kSourcePixels = 16;
 const int kHeadingPixels = 28;
-const int kMenuPixels = 40;
+const int kMenuPixels = 34;
 
 int scale_metric(int value, int pixels)
 {
@@ -102,7 +102,7 @@ const lv_font_t *zeno_heading_font(bool large)
     static const lv_font_t unicode_heading = make_scaled_font(&kHeadingPixels);
     static const lv_font_t unicode_menu = make_scaled_font(&kMenuPixels);
     static lv_font_t heading = lv_font_montserrat_28;
-    static lv_font_t menu = lv_font_montserrat_40;
+    static lv_font_t menu = lv_font_montserrat_34;
     // Font packs need common line metrics: allow the taller multilingual
     // glyphs to fit while retaining the original English glyph bitmaps.
     heading.line_height = unicode_heading.line_height;

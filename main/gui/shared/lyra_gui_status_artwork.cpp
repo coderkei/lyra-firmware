@@ -281,9 +281,12 @@ void make_status_bar()
     lv_obj_t *bar = make_box(s_screen, 0, 0, kScreenWidth, kStatusHeight, kBackground);
     if (is_cute_theme()) lv_obj_set_style_bg_color(bar, lv_color_hex(0xD8EEFF), 0);
     if (is_aura_theme()) {
-        lv_obj_set_style_bg_color(bar, lv_color_hex(0x07549E), 0);
-        lv_obj_set_style_bg_grad_color(bar, lv_color_hex(0x177FCC), 0);
+        // A glossy Aero title strip: bright upper half, deep lower half.
+        lv_obj_set_style_bg_color(bar, lv_color_hex(0x46A6EC), 0);
+        lv_obj_set_style_bg_grad_color(bar, lv_color_hex(0x0B5CAE), 0);
         lv_obj_set_style_bg_grad_dir(bar, LV_GRAD_DIR_VER, 0);
+        lv_obj_set_style_bg_main_stop(bar, 120, 0);
+        lv_obj_set_style_bg_grad_stop(bar, 132, 0);
     }
     const lyra::audio::Status audio_status = lyra::audio::status();
     lv_obj_t *volume_button = make_button(bar, 0, 0, 84, kStatusHeight, kBackground, 0);
@@ -321,6 +324,68 @@ void make_status_bar()
     }
     decorate_hud_status_bar(bar);
     refresh_status_wifi_signal();
+}
+
+constexpr LibraryTab kZenoPivotOrder[] = {
+    LibraryTab::Songs, LibraryTab::Artists, LibraryTab::Albums, LibraryTab::Genres, LibraryTab::Years,
+};
+constexpr size_t kZenoPivotCount = sizeof(kZenoPivotOrder) / sizeof(kZenoPivotOrder[0]);
+
+static const char *library_tab_name(LibraryTab tab)
+{
+    switch (tab) {
+        case LibraryTab::Songs: return tr(lyra::i18n::StringId::Songs);
+        case LibraryTab::Artists: return tr(lyra::i18n::StringId::Artists);
+        case LibraryTab::Albums: return tr(lyra::i18n::StringId::Albums);
+        case LibraryTab::Genres: return tr(lyra::i18n::StringId::Genres);
+        case LibraryTab::Years: return tr(lyra::i18n::StringId::Year);
+    }
+    return tr(lyra::i18n::StringId::Songs);
+}
+
+static void zeno_pivot_cb(lv_event_t *event)
+{
+    // Pivots swap sections in place, so Back still returns to the library.
+    const auto tab = static_cast<LibraryTab>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    s_list_page = 0;
+    render(library_section_view(tab));
+}
+
+static bool zeno_pivot_view()
+{
+    return is_zeno_theme() && !s_playlist_add_mode &&
+        (s_view == View::LibrarySongs || s_view == View::LibraryArtists ||
+         s_view == View::LibraryAlbums || s_view == View::LibraryGenres ||
+         s_view == View::LibraryYears);
+}
+
+// Zune-style pivot: the following sections sit dimmed beside the title and
+// run off the edge, inviting a tap to the next one.
+static void make_zeno_pivots(lv_obj_t *header, lv_obj_t *title, int right_limit)
+{
+    lv_obj_update_layout(header);
+    const int x = lv_obj_get_x(title) + lv_obj_get_width(title) + 14;
+    if (x >= right_limit) return;
+    lv_obj_t *strip = lv_obj_create(header);
+    lv_obj_remove_style_all(strip);
+    lv_obj_remove_flag(strip, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_pos(strip, x, 0);
+    lv_obj_set_size(strip, right_limit - x, 44);
+    size_t current = 0;
+    while (current < kZenoPivotCount && kZenoPivotOrder[current] != s_library_tab) ++current;
+    int pivot_x = 0;
+    for (size_t step = 1; step < kZenoPivotCount && pivot_x < right_limit - x; ++step) {
+        const LibraryTab tab = kZenoPivotOrder[(current + step) % kZenoPivotCount];
+        lv_obj_t *pivot = make_zeno_label(strip, library_tab_name(tab));
+        lv_obj_set_style_text_color(pivot, kTextMuted, 0);
+        lv_obj_add_flag(pivot, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_ext_click_area(pivot, 6);
+        lv_obj_add_event_cb(pivot, zeno_pivot_cb, LV_EVENT_CLICKED,
+                            reinterpret_cast<void *>(static_cast<uintptr_t>(tab)));
+        lv_obj_update_layout(pivot);
+        lv_obj_align(pivot, LV_ALIGN_LEFT_MID, pivot_x, 0);
+        pivot_x += lv_obj_get_width(pivot) + 14;
+    }
 }
 
 lv_obj_t *make_header(const char *title, View back, bool show_back, const char *right,
@@ -366,10 +431,17 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
                    s_neon_hud ? kAccent : kTextPrimary);
     lv_obj_set_style_text_font(label, lyra::font::ui(), 0);
     if (is_zeno_theme()) lv_obj_set_style_text_font(label, zeno_heading_font(), 0);
-    const bool show_right_label = right != nullptr && (!queue_add_toggle || right[0] != '\0');
-    make_marquee(label, queue_add_toggle ? (show_right_label ? 150 : 180) :
-                 (right ? 180 : 245), MarqueeMode::Focus);
+    const bool zeno_pivots = zeno_pivot_view();
+    const bool show_right_label = !zeno_pivots && right != nullptr &&
+        (!queue_add_toggle || right[0] != '\0');
+    const int title_width = queue_add_toggle ? (show_right_label ? 150 : 180) : (right ? 180 : 245);
+    // Zeno draws its large scaled headings once instead of scrolling them:
+    // a pivot title keeps its natural width, other titles end in "…".
+    if (!zeno_pivots) {
+        make_marquee(label, title_width, is_zeno_theme() ? MarqueeMode::Truncate : MarqueeMode::Focus);
+    }
     lv_obj_align(label, LV_ALIGN_LEFT_MID, show_back ? 45 : 10, 0);
+    if (zeno_pivots) make_zeno_pivots(header, label, queue_add_toggle ? 270 : kScreenWidth);
     // Tapping a page title returns a long list to its first row.
     lv_obj_add_flag(label, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_ext_click_area(label, 6);

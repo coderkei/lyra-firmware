@@ -735,6 +735,7 @@ void update_player_progress()
 {
     update_zeno_transport();
     update_aura_transport();
+    update_nav_play_icon();
     lyra::audio::Status audio_status = lyra::audio::status();
     const bool ab_mode_changed = update_player_ab_loop(audio_status);
     if (ab_mode_changed && s_view == View::Player) render(View::Player);
@@ -879,6 +880,14 @@ void render_player()
     const bool favorite = lyra::media::is_favorite(s_current_track);
     const int body_height = content_height(kStatusHeight);
     lv_obj_t *body = make_box(s_screen, 0, kStatusHeight, 320, body_height, kBackground);
+    if (zeno && track.artist[0]) {
+        // Zune's now-playing signature: the artist name, huge and faint,
+        // running off the edge behind the cover. Static, so drawn rarely.
+        lv_obj_t *backdrop = make_zeno_label(body, track.artist, true);
+        lv_obj_set_style_text_color(backdrop, kTextPrimary, 0);
+        lv_obj_set_style_text_opa(backdrop, LV_OPA_20, 0);
+        lv_obj_set_pos(backdrop, 4, 226);
+    }
     const size_t queue_count = s_has_active_queue ? playback_queue_count() : 0;
     size_t queue_position = 0;
     const bool queue_position_valid = queue_count > 0 && current_queue_position(&queue_position);

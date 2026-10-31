@@ -463,6 +463,8 @@ void sync_audio_handoff(const lyra::audio::Status &audio_status);
 bool begin_crossfade_pause();
 void request_manual_queue_move(int direction);
 void nav_play_cb(lv_event_t *);
+// Shows Pause on the nav bar while anything is playing, Play otherwise.
+void update_nav_play_icon();
 void nav_previous_cb(lv_event_t *);
 void nav_next_cb(lv_event_t *);
 bool restart_current_track();

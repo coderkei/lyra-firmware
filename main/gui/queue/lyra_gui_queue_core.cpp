@@ -906,25 +906,40 @@ void request_manual_queue_move(int direction)
 
 void nav_play_cb(lv_event_t *)
 {
-    if (s_view == View::Player) {
-        if (s_crossfade_transition_direction != 0 || s_crossfade_pause_pending) return;
-        const lyra::audio::Status audio_status = lyra::audio::status();
-        if (audio_status.playing && !audio_status.paused) {
-            if (!begin_crossfade_pause()) lyra::audio::toggle_pause();
-        } else if (audio_status.playing && audio_status.paused) {
-            if (s_crossfade_seconds == 0) {
-                lyra::audio::toggle_pause();
-            } else {
-                lyra::audio::set_transition_gain(0);
-                if (lyra::audio::toggle_pause() == ESP_OK) begin_crossfade_fade_in();
-                else lyra::audio::set_transition_gain(100);
-            }
-        } else if (restart_current_track()) {
-            begin_crossfade_fade_in();
-        }
-    } else {
+    const lyra::audio::Status audio_status = lyra::audio::status();
+    // With a track (or stream) loaded the button pauses and resumes from any
+    // screen, matching the icon. With nothing loaded it opens Now Playing.
+    if (!audio_status.playing && s_view != View::Player) {
         show_now_playing();
+        return;
     }
+    if (s_crossfade_transition_direction != 0 || s_crossfade_pause_pending) return;
+    if (audio_status.playing && !audio_status.paused) {
+        if (!begin_crossfade_pause()) lyra::audio::toggle_pause();
+    } else if (audio_status.playing && audio_status.paused) {
+        if (s_crossfade_seconds == 0) {
+            lyra::audio::toggle_pause();
+        } else {
+            lyra::audio::set_transition_gain(0);
+            if (lyra::audio::toggle_pause() == ESP_OK) begin_crossfade_fade_in();
+            else lyra::audio::set_transition_gain(100);
+        }
+    } else if (restart_current_track()) {
+        begin_crossfade_fade_in();
+    }
+    update_nav_play_icon();
+}
+
+namespace {
+lv_obj_t *s_nav_play_icon = nullptr;
+}
+
+void update_nav_play_icon()
+{
+    if (!s_nav_play_icon) return;
+    const lyra::audio::Status status = lyra::audio::status();
+    set_label_text_if_changed(s_nav_play_icon,
+                              status.playing && !status.paused ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
 }
 
 void nav_previous_cb(lv_event_t *event)
@@ -989,6 +1004,13 @@ void make_virtual_nav()
             (i == 0 && s_view == View::Menu) || (!is_standard_theme() && i == 2) ? kAccent : kTextSecondary);
         if (s_neon_hud && i == 2) lv_obj_set_style_text_color(icon, lv_color_hex(kHudCyanRgb), 0);
         lv_obj_center(icon);
+        if (i == 2) {
+            // The playback poll keeps this in step with playback on every page.
+            s_nav_play_icon = icon;
+            lv_obj_add_event_cb(icon, [](lv_event_t *) { s_nav_play_icon = nullptr; },
+                                LV_EVENT_DELETE, nullptr);
+            update_nav_play_icon();
+        }
         if (i == 0) {
             add_route(button, View::Menu);
         } else if (i == 1) {
