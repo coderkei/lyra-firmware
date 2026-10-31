@@ -178,6 +178,9 @@ extern lv_color_t kNavSurface;
 extern lv_color_t kKeyboardSurface;
 extern lv_color_t kArtworkSurface;
 extern lv_color_t kDangerSurface;
+// Solid destructive fill for buttons with kTextOnAccent labels; kDangerSurface
+// is the tinted row background that keeps normal text colours.
+extern lv_color_t kDanger;
 extern const lv_color_t kOverlay;
 extern const lv_color_t kTextOnAccent;
 constexpr const char *kHeartOutline = "\xE2\x99\xA1";
@@ -330,6 +333,8 @@ extern bool s_marquee_style_ready;
 
 void apply_theme_palette();
 const char *theme_name(Theme theme);
+// Three palette dots aligned to a row's right edge (offset is negative).
+void make_theme_swatches(lv_obj_t *row, Theme theme, int right_offset);
 // Rasterizes decorative primitives once into a caller-owned RGB565 buffer so
 // themes can blit the result instead of redrawing vectors on every frame.
 using RasterPainter = void (*)(lv_layer_t *layer, void *context);
@@ -396,6 +401,20 @@ size_t library_page_size();
 size_t search_page_size();
 lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int width, int height, lv_color_t color, int radius = 0, bool show_border = false);
 lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color);
+// Vector icons shared by every theme, drawn on a 20 x 20 grid and scaled.
+enum class Icon : uint8_t {
+    Music, NowPlaying, Search, Queue, Apps, Folder, Equalizer, Settings,
+    Playback, Sound, Display, Sorting, System, About, Theme, Language, Clock,
+    Wifi, SdCard, Storage, Sleep, Crossfade, Radio, Album, Artist, Genre,
+    Calendar, Playlist, Favorite, Recent, Added, Calculator, Stopwatch, Timer,
+    Book, Photo, Network,
+};
+// Marks icon objects so pressed-row feedback recolours them with the text.
+constexpr lv_obj_flag_t kIconFlag = LV_OBJ_FLAG_USER_3;
+lv_obj_t *make_icon(lv_obj_t *parent, Icon icon, lv_color_t color, int size = 20);
+// The colour make_label() would give text in this parent, without the
+// heading override, so icons and their labels always agree.
+lv_color_t themed_icon_color(lv_obj_t *parent, lv_color_t color);
 void set_label_text_if_changed(lv_obj_t *label, const char *text);
 // Truncate rests as "…" and plays once when its row is long-pressed. Focus
 // is for the one thing being looked at (now playing, page title): a calm
@@ -471,6 +490,7 @@ void show_notice(const char *title_text, const char *message_text);
 void show_toast(const char *text);
 void go_home();
 lv_obj_t *make_row(lv_obj_t *parent, int y, const char *icon_text, const char *title, const char *subtitle, View target, int height = 54);
+lv_obj_t *make_row(lv_obj_t *parent, int y, Icon icon, const char *title, const char *subtitle, View target, int height = 54);
 void release_boot_image();
 bool load_brand_logo();
 bool load_player_art(const lyra::media::Track &track);

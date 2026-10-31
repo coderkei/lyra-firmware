@@ -58,7 +58,7 @@ void show_clear_queue_confirmation()
                                         kTextSecondary);
     lv_obj_center(cancel_label);
     lv_obj_add_event_cb(cancel, close_queue_confirmation, LV_EVENT_CLICKED, overlay);
-    lv_obj_t *clear = make_button(dialog, 150, 146, 116, 40, kDangerSurface, 7);
+    lv_obj_t *clear = make_button(dialog, 150, 146, 116, 40, kDanger, 7);
     lv_obj_t *clear_label = make_label(clear, tr(lyra::i18n::StringId::Clear), kTextOnAccent);
     lv_obj_center(clear_label);
     lv_obj_add_event_cb(clear, confirm_clear_queue_cb, LV_EVENT_CLICKED, nullptr);
@@ -117,7 +117,7 @@ void add_queue_row_action(lv_obj_t *row, int x, const char *symbol, lv_color_t c
 {
     const bool remove = action == QueueRowAction::Remove;
     lv_obj_t *button = make_button(row, x, 10, 30, 34,
-                                   remove ? lv_color_hex(0x991B1B) : kSurfaceRaised, 5);
+                                   remove ? kDanger : kSurfaceRaised, 5);
     lv_obj_t *icon = make_label(button, symbol, remove ? kTextOnAccent : color);
     lv_obj_center(icon);
     const uintptr_t payload = (static_cast<uintptr_t>(position) << 2) |
@@ -203,31 +203,31 @@ namespace {
 struct MenuEntry {
     lyra::i18n::StringId label;
     View view;
-    const char *icon;
+    Icon icon;
 };
 
 constexpr MenuEntry kListeningDestinations[] = {
-    {lyra::i18n::StringId::MusicLibrary, View::Library, LV_SYMBOL_AUDIO},
-    {lyra::i18n::StringId::Search, View::Search, LV_SYMBOL_EDIT},
-    {lyra::i18n::StringId::Queue, View::Queue, LV_SYMBOL_LIST},
-    {lyra::i18n::StringId::Apps, View::Apps, LV_SYMBOL_LIST},
+    {lyra::i18n::StringId::MusicLibrary, View::Library, Icon::Music},
+    {lyra::i18n::StringId::Search, View::Search, Icon::Search},
+    {lyra::i18n::StringId::Queue, View::Queue, Icon::Queue},
+    {lyra::i18n::StringId::Apps, View::Apps, Icon::Apps},
 };
 
 constexpr MenuEntry kUtilityDestinations[] = {
-    {lyra::i18n::StringId::BrowseFolders, View::Folders, LV_SYMBOL_DIRECTORY},
-    {lyra::i18n::StringId::Equalizer, View::Equalizer, LV_SYMBOL_VOLUME_MID},
-    {lyra::i18n::StringId::Settings, View::Settings, LV_SYMBOL_SETTINGS},
+    {lyra::i18n::StringId::BrowseFolders, View::Folders, Icon::Folder},
+    {lyra::i18n::StringId::Equalizer, View::Equalizer, Icon::Equalizer},
+    {lyra::i18n::StringId::Settings, View::Settings, Icon::Settings},
 };
 
 constexpr MenuEntry kClassicDestinations[] = {
-    {lyra::i18n::StringId::NowPlaying, View::Player, LV_SYMBOL_AUDIO},
-    {lyra::i18n::StringId::MusicLibrary, View::Library, LV_SYMBOL_LIST},
-    {lyra::i18n::StringId::BrowseFolders, View::Folders, LV_SYMBOL_DIRECTORY},
-    {lyra::i18n::StringId::Queue, View::Queue, LV_SYMBOL_LIST},
-    {lyra::i18n::StringId::Equalizer, View::Equalizer, LV_SYMBOL_VOLUME_MID},
-    {lyra::i18n::StringId::Search, View::Search, LV_SYMBOL_EDIT},
-    {lyra::i18n::StringId::Apps, View::Apps, LV_SYMBOL_LIST},
-    {lyra::i18n::StringId::Settings, View::Settings, LV_SYMBOL_SETTINGS},
+    {lyra::i18n::StringId::NowPlaying, View::Player, Icon::NowPlaying},
+    {lyra::i18n::StringId::MusicLibrary, View::Library, Icon::Music},
+    {lyra::i18n::StringId::BrowseFolders, View::Folders, Icon::Folder},
+    {lyra::i18n::StringId::Queue, View::Queue, Icon::Queue},
+    {lyra::i18n::StringId::Equalizer, View::Equalizer, Icon::Equalizer},
+    {lyra::i18n::StringId::Search, View::Search, Icon::Search},
+    {lyra::i18n::StringId::Apps, View::Apps, Icon::Apps},
+    {lyra::i18n::StringId::Settings, View::Settings, Icon::Settings},
 };
 
 constexpr uint32_t kCutePrimaryColors[] = {0xFFD6ED, 0xF3EDFF, 0xEDF7FF, 0xEDF9F5};
@@ -272,9 +272,9 @@ lv_obj_t *make_menu_action(lv_obj_t *parent, const MenuEntry &entry,
 
     const bool icon_above = centered;
     const lv_color_t icon_color = s_neon_hud ? kTextSecondary : kAccent;
-    lv_obj_t *icon = make_label(button, entry.icon, icon_color);
+    lv_obj_t *icon = make_icon(button, entry.icon, icon_color);
     if (icon_above) {
-        lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, is_aura_theme() ? 7 : 5);
+        lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, is_aura_theme() ? 9 : 8);
     } else {
         lv_obj_align(icon, LV_ALIGN_LEFT_MID, 11, 0);
     }
@@ -375,14 +375,14 @@ void render_classic_zeno_menu()
 {
     lv_obj_t *body = make_scroll_body(kStatusHeight);
     constexpr MenuEntry items[] = {
-        {lyra::i18n::StringId::Music, View::Library, LV_SYMBOL_AUDIO},
-        {lyra::i18n::StringId::NowPlaying, View::Player, LV_SYMBOL_PLAY},
-        {lyra::i18n::StringId::BrowseFolders, View::Folders, LV_SYMBOL_DIRECTORY},
-        {lyra::i18n::StringId::Queue, View::Queue, LV_SYMBOL_LIST},
-        {lyra::i18n::StringId::Search, View::Search, LV_SYMBOL_EDIT},
-        {lyra::i18n::StringId::Apps, View::Apps, LV_SYMBOL_LIST},
-        {lyra::i18n::StringId::Settings, View::Settings, LV_SYMBOL_SETTINGS},
-        {lyra::i18n::StringId::Equalizer, View::Equalizer, LV_SYMBOL_VOLUME_MID},
+        {lyra::i18n::StringId::Music, View::Library, Icon::Music},
+        {lyra::i18n::StringId::NowPlaying, View::Player, Icon::NowPlaying},
+        {lyra::i18n::StringId::BrowseFolders, View::Folders, Icon::Folder},
+        {lyra::i18n::StringId::Queue, View::Queue, Icon::Queue},
+        {lyra::i18n::StringId::Search, View::Search, Icon::Search},
+        {lyra::i18n::StringId::Apps, View::Apps, Icon::Apps},
+        {lyra::i18n::StringId::Settings, View::Settings, Icon::Settings},
+        {lyra::i18n::StringId::Equalizer, View::Equalizer, Icon::Equalizer},
     };
     for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
         lv_obj_t *row = make_button(body, 0, 16 + static_cast<int>(i) * 60,
@@ -514,14 +514,14 @@ void render_aura_menu(lv_obj_t *body)
 }
 
 constexpr MenuEntry kHudDestinations[] = {
-    {lyra::i18n::StringId::NowPlaying, View::Player, LV_SYMBOL_PLAY},
-    {lyra::i18n::StringId::MusicLibrary, View::Library, LV_SYMBOL_AUDIO},
-    {lyra::i18n::StringId::Search, View::Search, LV_SYMBOL_EDIT},
-    {lyra::i18n::StringId::Queue, View::Queue, LV_SYMBOL_LIST},
-    {lyra::i18n::StringId::BrowseFolders, View::Folders, LV_SYMBOL_DIRECTORY},
-    {lyra::i18n::StringId::Equalizer, View::Equalizer, LV_SYMBOL_VOLUME_MID},
-    {lyra::i18n::StringId::Apps, View::Apps, LV_SYMBOL_LIST},
-    {lyra::i18n::StringId::Settings, View::Settings, LV_SYMBOL_SETTINGS},
+    {lyra::i18n::StringId::NowPlaying, View::Player, Icon::NowPlaying},
+    {lyra::i18n::StringId::MusicLibrary, View::Library, Icon::Music},
+    {lyra::i18n::StringId::Search, View::Search, Icon::Search},
+    {lyra::i18n::StringId::Queue, View::Queue, Icon::Queue},
+    {lyra::i18n::StringId::BrowseFolders, View::Folders, Icon::Folder},
+    {lyra::i18n::StringId::Equalizer, View::Equalizer, Icon::Equalizer},
+    {lyra::i18n::StringId::Apps, View::Apps, Icon::Apps},
+    {lyra::i18n::StringId::Settings, View::Settings, Icon::Settings},
 };
 constexpr int kHudBannerHeight = 56;
 
@@ -553,8 +553,8 @@ void make_hud_menu_row(lv_obj_t *body, int y, size_t index, const MenuEntry &ent
     lv_obj_t *ordinal = make_label(row, number, kTextMuted);
     lv_obj_set_style_text_font(ordinal, &lv_font_montserrat_14, 0);
     lv_obj_align(ordinal, LV_ALIGN_LEFT_MID, 12, 0);
-    lv_obj_t *icon = make_label(row, entry.icon, kAccent);
-    lv_obj_align(icon, LV_ALIGN_LEFT_MID, 40, 0);
+    lv_obj_t *icon = make_icon(row, entry.icon, kAccent);
+    lv_obj_align(icon, LV_ALIGN_LEFT_MID, 38, 0);
     char heading[64];
     lv_obj_t *label = make_label(row, hud_heading_text(tr(entry.label), heading, sizeof(heading)),
                                  kTextPrimary);

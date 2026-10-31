@@ -116,12 +116,12 @@ static void make_library_shelf(lv_obj_t *body)
         lyra::i18n::StringId::RecentlyAdded,
         lyra::i18n::StringId::Favorites,
     };
-    const char *icons[] = {LV_SYMBOL_LOOP, LV_SYMBOL_PLUS, kHeartFilled};
+    constexpr Icon icons[] = {Icon::Recent, Icon::Added, Icon::Favorite};
     for (size_t i = 0; i < 3; ++i) {
         lv_obj_t *chip = make_button(body, 7 + static_cast<int>(i) * 103, 0, 100, 58,
                                      kSurfaceRaised, 8, true);
-        lv_obj_t *icon = make_label(chip, icons[i], kAccent);
-        lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 7);
+        lv_obj_t *icon = make_icon(chip, icons[i], kAccent);
+        lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 8);
         lv_obj_t *label = make_label(chip, tr(labels[i]), kTextPrimary);
         make_marquee(label, 92);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
@@ -150,31 +150,31 @@ void render_library()
     lv_obj_t *body = make_scroll_body(72);
     const int top = adding_to_playlist ? 0 : 66;
     if (!adding_to_playlist) make_library_shelf(body);
-    make_row(body, top, nullptr, tr(lyra::i18n::StringId::Songs),
+    make_row(body, top, Icon::Music, tr(lyra::i18n::StringId::Songs),
              tr(lyra::i18n::StringId::BrowseEverySong), View::LibrarySongs, 54);
-    make_row(body, top + 58, nullptr, tr(lyra::i18n::StringId::Albums),
+    make_row(body, top + 58, Icon::Album, tr(lyra::i18n::StringId::Albums),
              tr(lyra::i18n::StringId::ArtworkAndAlbumSummaries), View::LibraryAlbums, 54);
-    make_row(body, top + 116, nullptr, tr(lyra::i18n::StringId::Artists),
+    make_row(body, top + 116, Icon::Artist, tr(lyra::i18n::StringId::Artists),
              tr(lyra::i18n::StringId::BrowseByArtist), View::LibraryArtists, 54);
-    make_row(body, top + 174, nullptr, tr(lyra::i18n::StringId::Genres),
+    make_row(body, top + 174, Icon::Genre, tr(lyra::i18n::StringId::Genres),
              tr(lyra::i18n::StringId::BrowseByGenre), View::LibraryGenres, 54);
-    make_row(body, top + 232, nullptr, tr(lyra::i18n::StringId::Year),
+    make_row(body, top + 232, Icon::Calendar, tr(lyra::i18n::StringId::Year),
              tr(lyra::i18n::StringId::BrowseByReleaseYear), View::LibraryYears, 54);
     if (adding_to_playlist) {
         lv_obj_t *hint = make_label(body, tr(lyra::i18n::StringId::SelectSongToAdd), kTextMuted);
         lv_obj_set_pos(hint, 12, 300);
         return;
     }
-    lv_obj_t *playlists = make_row(body, top + 290, nullptr, tr(lyra::i18n::StringId::Playlists),
+    lv_obj_t *playlists = make_row(body, top + 290, Icon::Playlist, tr(lyra::i18n::StringId::Playlists),
                                    tr(lyra::i18n::StringId::YourSavedPlaylists),
                                    View::Playlists, 54);
     lv_obj_remove_event_cb(playlists, route_cb);
     lv_obj_add_event_cb(playlists, open_library_playlists_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *folders = make_row(body, top + 348, nullptr, tr(lyra::i18n::StringId::Folders),
+    lv_obj_t *folders = make_row(body, top + 348, Icon::Folder, tr(lyra::i18n::StringId::Folders),
                                  tr(lyra::i18n::StringId::BrowseByFolder), View::Folders, 54);
     lv_obj_remove_event_cb(folders, route_cb);
     lv_obj_add_event_cb(folders, library_shortcut_cb, LV_EVENT_CLICKED, reinterpret_cast<void *>(3));
-    make_row(body, top + 406, LV_SYMBOL_WIFI, tr(lyra::i18n::StringId::InternetRadio),
+    make_row(body, top + 406, Icon::Radio, tr(lyra::i18n::StringId::InternetRadio),
              tr(lyra::i18n::StringId::RadioStreamsDescription), View::InternetRadio, 54);
 }
 
@@ -773,7 +773,7 @@ void show_playlist_manage_confirmation(PlaylistManageAction action, size_t playl
     lv_obj_t *cancel_label = make_label(cancel, tr(lyra::i18n::StringId::Cancel), kTextSecondary);
     lv_obj_center(cancel_label);
     lv_obj_add_event_cb(cancel, dismiss_overlay_cb, LV_EVENT_CLICKED, overlay);
-    lv_obj_t *confirm = make_button(dialog, 150, 166, 116, 48, lv_color_hex(0x991B1B), 7);
+    lv_obj_t *confirm = make_button(dialog, 150, 166, 116, 48, kDanger, 7);
     lv_obj_t *confirm_label = make_label(confirm, action == PlaylistManageAction::RemoveTrack ?
                                           tr(lyra::i18n::StringId::Remove) : favorites ?
                                           tr(lyra::i18n::StringId::Clear) :
@@ -806,7 +806,7 @@ void make_playlist_manage_row(lv_obj_t *parent, int y, size_t playlist_index,
                  static_cast<uint32_t>(playlist.track_count), subtitle, sizeof(subtitle));
     lv_obj_t *sub = make_label(row, subtitle, kTextSecondary);
     lv_obj_align(sub, LV_ALIGN_LEFT_MID, 12, 11);
-    lv_obj_t *remove = make_button(row, 246, 11, 48, 36, lv_color_hex(0x991B1B), 5);
+    lv_obj_t *remove = make_button(row, 246, 11, 48, 36, kDanger, 5);
     lv_obj_t *remove_icon = make_label(remove, LV_SYMBOL_TRASH, kTextOnAccent);
     lv_obj_center(remove_icon);
     lv_obj_add_event_cb(remove, delete_playlist_cb, LV_EVENT_CLICKED,
@@ -824,7 +824,7 @@ void make_playlist_track_manage_row(lv_obj_t *parent, int y, size_t track_index)
     lv_obj_t *artist = make_label(row, track.artist, kTextSecondary);
     make_marquee(artist, 220);
     lv_obj_align(artist, LV_ALIGN_LEFT_MID, 12, 11);
-    lv_obj_t *remove = make_button(row, 246, 9, 48, 36, lv_color_hex(0x991B1B), 5);
+    lv_obj_t *remove = make_button(row, 246, 9, 48, 36, kDanger, 5);
     lv_obj_t *remove_icon = make_label(remove, LV_SYMBOL_TRASH, kTextOnAccent);
     lv_obj_center(remove_icon);
     lv_obj_add_event_cb(remove, remove_playlist_track_cb, LV_EVENT_CLICKED,

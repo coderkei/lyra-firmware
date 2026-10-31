@@ -20,6 +20,35 @@ const char *theme_name(Theme theme)
     return tr(lyra::i18n::StringId::StandardTheme);
 }
 
+void make_theme_swatches(lv_obj_t *row, Theme theme, int right_offset)
+{
+    // Background, accent and highlight dots preview each theme before it is
+    // chosen. Standard shows the accent colour currently selected.
+    const AccentPalette &accent = kAccentPalettes[
+        s_accent_colour < kAccentPaletteCount ? s_accent_colour : 0];
+    uint32_t colors[3] = {0xF8FAFC, 0x080C12, s_dark_mode ? accent.dark_rgb : accent.light_rgb};
+    switch (theme) {
+        case Theme::NeonSky: colors[0] = 0x060609; colors[1] = 0xFF4D42; colors[2] = kHudCyanRgb; break;
+        case Theme::CutePink: colors[0] = 0xFFF5FC; colors[1] = 0xB91D70; colors[2] = 0xC7A7E5; break;
+        case Theme::Zeno: colors[0] = 0x09080F; colors[1] = 0xFF2185; colors[2] = 0xEF6B24; break;
+        case Theme::Aura: colors[0] = 0xBCEAFF; colors[1] = 0x0066CB; colors[2] = 0x129DE8; break;
+        case Theme::Standard:
+        case Theme::Count: break;
+    }
+    for (int i = 0; i < 3; ++i) {
+        lv_obj_t *swatch = lv_obj_create(row);
+        lv_obj_remove_style_all(swatch);
+        lv_obj_set_size(swatch, 14, 14);
+        lv_obj_set_style_radius(swatch, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(swatch, lv_color_hex(colors[i]), 0);
+        lv_obj_set_style_bg_opa(swatch, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(swatch, 1, 0);
+        lv_obj_set_style_border_color(swatch, kDivider, 0);
+        lv_obj_remove_flag(swatch, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_align(swatch, LV_ALIGN_RIGHT_MID, right_offset - (2 - i) * 18, 0);
+    }
+}
+
 bool rasterize_rgb565(uint16_t *pixels, int width, int height,
                       RasterPainter paint, void *context)
 {
@@ -73,6 +102,7 @@ void apply_theme_palette()
         kKeyboardSurface = lv_color_hex(0x0C080B);
         kArtworkSurface = lv_color_hex(0x0D0A0E);
         kDangerSurface = lv_color_hex(0x5A0F16);
+        kDanger = lv_color_hex(0xB3121F);
     } else if (is_zeno_theme()) {
         kBackground = lv_color_hex(0x09080F);
         kSurface = lv_color_hex(0x100D18);
@@ -88,6 +118,7 @@ void apply_theme_palette()
         kKeyboardSurface = kSurface;
         kArtworkSurface = kSurfaceRaised;
         kDangerSurface = lv_color_hex(0x581528);
+        kDanger = lv_color_hex(0xC0123F);
     } else if (is_aura_theme()) {
         kBackground = lv_color_hex(0xBCEAFF);
         kSurface = lv_color_hex(0xE7F6FF);
@@ -103,6 +134,7 @@ void apply_theme_palette()
         kKeyboardSurface = kSurfaceRaised;
         kArtworkSurface = lv_color_hex(0xD9EFFB);
         kDangerSurface = lv_color_hex(0xFCE2E8);
+        kDanger = lv_color_hex(0xC0264A);
     } else if (is_cute_theme()) {
         kBackground = lv_color_hex(0xFFF5FC);
         kSurface = lv_color_hex(0xFFFAFE);
@@ -118,6 +150,7 @@ void apply_theme_palette()
         kKeyboardSurface = lv_color_hex(0xF3EDFF);
         kArtworkSurface = lv_color_hex(0xEFE6FA);
         kDangerSurface = lv_color_hex(0xFFE1EA);
+        kDanger = lv_color_hex(0xC0265E);
     } else if (s_dark_mode) {
         kBackground = lv_color_hex(0x080C12);
         kSurface = lv_color_hex(0x101720);
@@ -133,6 +166,7 @@ void apply_theme_palette()
         kKeyboardSurface = lv_color_hex(0x05080D);
         kArtworkSurface = lv_color_hex(0x142131);
         kDangerSurface = lv_color_hex(0x3F1118);
+        kDanger = lv_color_hex(0x991B1B);
     } else {
         kBackground = lv_color_hex(0xF8FAFC);
         kSurface = lv_color_hex(0xFFFFFF);
@@ -148,6 +182,7 @@ void apply_theme_palette()
         kKeyboardSurface = lv_color_hex(0xE2E8F0);
         kArtworkSurface = lv_color_hex(0xE2E8F0);
         kDangerSurface = lv_color_hex(0xFEE2E2);
+        kDanger = lv_color_hex(0xB91C1C);
     }
 }
 
@@ -481,6 +516,18 @@ static lv_color_t hud_label_color(lv_obj_t *parent, lv_color_t color)
         return lv_color_eq(color, kTextPrimary) || lv_color_eq(color, kAccent) ?
             lv_color_hex(kHudCyanRgb) : lv_color_hex(0x9ED9DC);
     }
+    return color;
+}
+
+lv_color_t themed_icon_color(lv_obj_t *parent, lv_color_t color)
+{
+    if (s_neon_hud) color = hud_label_color(parent, color);
+    if (is_aura_theme()) {
+        const lv_color_t background = lv_obj_get_style_bg_color(parent, LV_PART_MAIN);
+        if (lv_color_eq(background, kAccentSurface) || lv_color_eq(background, kAccent) ||
+            lv_color_eq(background, kAccentDark)) color = kTextOnAccent;
+    }
+    if (is_zeno_theme()) color = zeno_label_color(parent, color);
     return color;
 }
 

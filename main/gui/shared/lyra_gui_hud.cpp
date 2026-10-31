@@ -258,7 +258,7 @@ void set_pressed_labels(lv_obj_t *parent, bool pressed)
     const uint32_t count = lv_obj_get_child_count(parent);
     for (uint32_t i = 0; i < count; ++i) {
         lv_obj_t *child = lv_obj_get_child(parent, i);
-        if (lv_obj_check_type(child, &lv_label_class)) {
+        if (lv_obj_check_type(child, &lv_label_class) || lv_obj_has_flag(child, kIconFlag)) {
             if (pressed) {
                 lv_obj_add_style(child, &s_pressed_label_style, LV_STATE_USER_1);
                 lv_obj_add_state(child, LV_STATE_USER_1);
@@ -297,7 +297,8 @@ void hud_frame_cb(lv_event_t *event)
     const lv_color_t fill = lv_obj_get_style_bg_color(object, LV_PART_MAIN);
     const bool selected = lv_obj_has_state(object, LV_STATE_PRESSED) ||
         lv_color_eq(fill, kAccentSurface);
-    const bool accent = lv_color_eq(fill, kAccentDark) || lv_color_eq(fill, kAccent);
+    const bool accent = lv_color_eq(fill, kAccentDark) || lv_color_eq(fill, kAccent) ||
+        lv_color_eq(fill, kDanger);
     const lv_color_t cyan = lv_color_hex(kHudCyanRgb);
     const lv_color_t signal = selected ? cyan : kAccent;
 

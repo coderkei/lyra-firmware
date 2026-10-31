@@ -8,6 +8,7 @@ idf_component_register(
         "gui/lyra_gui_state.cpp"
         "gui/shared/lyra_gui_theme_widgets.cpp"
         "gui/shared/lyra_gui_hud.cpp"
+        "gui/shared/lyra_gui_icons.cpp"
         "gui/shared/lyra_gui_cute.cpp"
         "gui/shared/lyra_gui_aura.cpp"
         "gui/shared/lyra_gui_zeno.cpp"

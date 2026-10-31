@@ -233,8 +233,9 @@ void render_theme_options()
         lv_obj_t *label = make_label(row,
             theme_name(theme),
             active ? kAccent : kTextPrimary);
-        make_marquee(label, 250);
+        make_marquee(label, 180);
         lv_obj_align(label, LV_ALIGN_LEFT_MID, 12, 0);
+        make_theme_swatches(row, theme, -40);
         if (active) {
             lv_obj_t *check = make_label(row, LV_SYMBOL_OK, kAccent);
             lv_obj_align(check, LV_ALIGN_RIGHT_MID, -12, 0);
@@ -439,7 +440,7 @@ void render_sorting_settings()
         tr(lyra::i18n::StringId::ChooseArtistOrder),
     };
     for (size_t index = 0; index < 3; ++index) {
-        lv_obj_t *row = make_row(body, static_cast<int>(index) * 58, LV_SYMBOL_LIST,
+        lv_obj_t *row = make_row(body, static_cast<int>(index) * 58, Icon::Sorting,
                                  sort_section_name(sections[index]), subtitles[index],
                                  View::SortingOptions, 54);
         lv_obj_remove_event_cb(row, route_cb);
@@ -796,27 +797,27 @@ void render_clock_settings()
     lv_obj_t *summary_label = make_label(summary, summary_value, kAccent);
     lv_obj_align(summary_label, LV_ALIGN_LEFT_MID, 12, 12);
 
-    lv_obj_t *time = make_row(body, 64, LV_SYMBOL_SETTINGS,
+    lv_obj_t *time = make_row(body, 64, Icon::Clock,
                               tr(lyra::i18n::StringId::SetTime), nullptr,
                               View::ClockTimeSettings, 54);
     lv_obj_remove_event_cb(time, route_cb);
     lv_obj_add_event_cb(time, clock_time_settings_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *date = make_row(body, 122, LV_SYMBOL_SETTINGS,
+    lv_obj_t *date = make_row(body, 122, Icon::Calendar,
                               tr(lyra::i18n::StringId::SetDate), nullptr,
                               View::ClockDateSettings, 54);
     lv_obj_remove_event_cb(date, route_cb);
     lv_obj_add_event_cb(date, clock_date_settings_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *date_format = make_row(body, 180, LV_SYMBOL_SETTINGS,
+    lv_obj_t *date_format = make_row(body, 180, Icon::Calendar,
                                      tr(lyra::i18n::StringId::DateFormat),
                                      clock_date_format_name(), View::ClockSettings, 54);
     lv_obj_remove_event_cb(date_format, route_cb);
     lv_obj_add_event_cb(date_format, clock_date_format_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *time_format = make_row(body, 238, LV_SYMBOL_SETTINGS,
+    lv_obj_t *time_format = make_row(body, 238, Icon::Clock,
                                      tr(lyra::i18n::StringId::TimeFormat),
                                      clock_time_format_name(), View::ClockSettings, 54);
     lv_obj_remove_event_cb(time_format, route_cb);
     lv_obj_add_event_cb(time_format, clock_time_format_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *dst = make_row(body, 296, LV_SYMBOL_SETTINGS,
+    lv_obj_t *dst = make_row(body, 296, Icon::Display,
                              tr(lyra::i18n::StringId::DaylightSaving), clock_dst_name(),
                              View::ClockSettings, 54);
     lv_obj_remove_event_cb(dst, route_cb);
@@ -940,12 +941,12 @@ void render_settings_menu()
     if (is_zeno_theme()) { render_zeno_settings(); return; }
     make_header(tr(lyra::i18n::StringId::Settings), View::Menu, true);
     lv_obj_t *body = make_scroll_body(72);
-    make_row(body, 0, LV_SYMBOL_PLAY, tr(lyra::i18n::StringId::Playback), nullptr, View::PlaybackSettings, 54);
-    make_row(body, 58, LV_SYMBOL_VOLUME_MID, tr(lyra::i18n::StringId::Sound), nullptr, View::SoundSettings, 54);
-    make_row(body, 116, LV_SYMBOL_IMAGE, tr(lyra::i18n::StringId::Display), nullptr, View::DisplaySettings, 54);
-    make_row(body, 174, LV_SYMBOL_LIST, tr(lyra::i18n::StringId::Sorting), nullptr, View::SortingSettings, 54);
-    make_row(body, 232, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::System), nullptr, View::SystemSettings, 54);
-    make_row(body, 290, LV_SYMBOL_WARNING, tr(lyra::i18n::StringId::About), nullptr, View::About, 54);
+    make_row(body, 0, Icon::Playback, tr(lyra::i18n::StringId::Playback), nullptr, View::PlaybackSettings, 54);
+    make_row(body, 58, Icon::Sound, tr(lyra::i18n::StringId::Sound), nullptr, View::SoundSettings, 54);
+    make_row(body, 116, Icon::Display, tr(lyra::i18n::StringId::Display), nullptr, View::DisplaySettings, 54);
+    make_row(body, 174, Icon::Sorting, tr(lyra::i18n::StringId::Sorting), nullptr, View::SortingSettings, 54);
+    make_row(body, 232, Icon::System, tr(lyra::i18n::StringId::System), nullptr, View::SystemSettings, 54);
+    make_row(body, 290, Icon::About, tr(lyra::i18n::StringId::About), nullptr, View::About, 54);
 }
 
 void make_scan_overlay()
@@ -1189,7 +1190,7 @@ void show_power_confirmation(PowerAction action)
     lv_obj_add_event_cb(cancel, cancel_power_action_cb, LV_EVENT_CLICKED, overlay);
 
     lv_obj_t *confirm = make_button(dialog, 150, 152, 116, 48,
-                                    action == PowerAction::Reboot ? kAccentDark : lv_color_hex(0x991B1B), 7);
+                                    action == PowerAction::Reboot ? kAccentDark : kDanger, 7);
     lv_obj_t *confirm_label = make_label(confirm, action == PowerAction::Reboot ?
                                          tr(lyra::i18n::StringId::Reboot) :
                                          action == PowerAction::FactoryReset ?
@@ -1253,7 +1254,7 @@ void show_database_confirmation(DatabaseAction action)
     lv_obj_t *cancel_label = make_label(cancel, tr(lyra::i18n::StringId::Cancel), kTextSecondary);
     lv_obj_center(cancel_label);
     lv_obj_add_event_cb(cancel, cancel_power_action_cb, LV_EVENT_CLICKED, overlay);
-    lv_obj_t *confirm = make_button(dialog, 150, 180, 116, 48, lv_color_hex(0x991B1B), 7);
+    lv_obj_t *confirm = make_button(dialog, 150, 180, 116, 48, kDanger, 7);
     lv_obj_t *confirm_label = make_label(confirm, tr(lyra::i18n::StringId::Clear), kTextOnAccent);
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm, confirm_database_action_cb, LV_EVENT_CLICKED,
@@ -1270,14 +1271,14 @@ void render_database_storage()
 {
     make_header(tr(lyra::i18n::StringId::DatabaseStorage), View::SystemSettings, true);
     lv_obj_t *body = make_scroll_body(72);
-    lv_obj_t *playlists = make_row(body, 0, LV_SYMBOL_LIST,
+    lv_obj_t *playlists = make_row(body, 0, Icon::Playlist,
                                    tr(lyra::i18n::StringId::ClearPlaylists),
                                    tr(lyra::i18n::StringId::RemovePlaylistsFavorites),
                                    View::DatabaseStorage, 62);
     lv_obj_remove_event_cb(playlists, route_cb);
     lv_obj_add_event_cb(playlists, database_action_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(DatabaseAction::Playlists)));
-    lv_obj_t *artwork = make_row(body, 66, LV_SYMBOL_IMAGE,
+    lv_obj_t *artwork = make_row(body, 66, Icon::Photo,
                                  tr(lyra::i18n::StringId::ClearAlbumArtCache),
                                  tr(lyra::i18n::StringId::RemoveLargeDecodedCovers),
                                  View::DatabaseStorage, 62);
@@ -1309,17 +1310,17 @@ void render_settings_page(View view)
         make_setting_toggle(body, 0, tr(lyra::i18n::StringId::GaplessPlayback), nullptr, &s_gapless);
         make_setting_toggle(body, 66, tr(lyra::i18n::StringId::ReplayGain), nullptr, &s_replay_gain);
         make_setting_toggle(body, 132, tr(lyra::i18n::StringId::QuickSeek), nullptr, &s_quick_seek);
-        make_row(body, 198, LV_SYMBOL_LOOP, tr(lyra::i18n::StringId::Crossfade), nullptr, View::CrossfadeOptions, 54);
-        make_row(body, 256, LV_SYMBOL_WARNING, tr(lyra::i18n::StringId::SleepTimer), nullptr, View::SleepTimerOptions, 54);
+        make_row(body, 198, Icon::Crossfade, tr(lyra::i18n::StringId::Crossfade), nullptr, View::CrossfadeOptions, 54);
+        make_row(body, 256, Icon::Sleep, tr(lyra::i18n::StringId::SleepTimer), nullptr, View::SleepTimerOptions, 54);
     } else if (view == View::SoundSettings) {
         make_volume_control(body, 0);
         make_setting_toggle(body, 92, tr(lyra::i18n::StringId::OnBoardSpeaker),
                             tr(lyra::i18n::StringId::AlsoBuiltInSpeaker),
                             &s_speaker_output_enabled);
-        make_row(body, 158, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::EqPreset),
+        make_row(body, 158, Icon::Equalizer, tr(lyra::i18n::StringId::EqPreset),
                  equalizer_preset_name(s_equalizer_preset), View::Equalizer, 62);
     } else if (view == View::DisplaySettings) {
-        make_row(body, 0, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::Theme),
+        make_row(body, 0, Icon::Theme, tr(lyra::i18n::StringId::Theme),
                  theme_name(s_theme),
                  View::ThemeOptions, 62);
         int next_y = 66;
@@ -1340,7 +1341,7 @@ void render_settings_page(View view)
         make_setting_toggle(body, next_y, tr(lyra::i18n::StringId::VirtualControls),
                             tr(lyra::i18n::StringId::ShowBottomNavigation), &s_show_nav);
         make_brightness_control(body, next_y + 66);
-        lv_obj_t *screen_timeout = make_row(body, next_y + 158, LV_SYMBOL_POWER,
+        lv_obj_t *screen_timeout = make_row(body, next_y + 158, Icon::Timer,
                                              tr(lyra::i18n::StringId::ScreenTimeout),
                                              tr(lyra::i18n::StringId::ComingSoon),
                                              View::DisplaySettings, 62);
@@ -1357,14 +1358,14 @@ void render_settings_page(View view)
             format_text(lyra::i18n::StringId::NotMounted,
                         esp_err_to_name(status.last_error), sd_status, sizeof(sd_status));
         }
-        make_row(body, 0, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::Language),
+        make_row(body, 0, Icon::Language, tr(lyra::i18n::StringId::Language),
                  lyra::i18n::language_name(lyra::i18n::current_language()),
                  View::LanguageOptions, 62);
         make_setting_toggle(body, 66, tr(lyra::i18n::StringId::T9Input),
                             tr(lyra::i18n::StringId::T9InputDescription), &s_t9_input);
         char clock_text[32];
         format_clock_date_time(lyra::clock::now(), clock_text, sizeof(clock_text));
-        lv_obj_t *clock = make_row(body, 132, LV_SYMBOL_SETTINGS,
+        lv_obj_t *clock = make_row(body, 132, Icon::Clock,
                                    tr(lyra::i18n::StringId::TimeAndDate), clock_text,
                                    View::ClockSettings, 62);
         lv_obj_remove_event_cb(clock, route_cb);
@@ -1383,9 +1384,9 @@ void render_settings_page(View view)
                                             lyra::i18n::StringId::NotConnected) :
                 tr(lyra::i18n::StringId::Off));
         }
-        make_row(body, 198, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::WifiSettings),
+        make_row(body, 198, Icon::Wifi, tr(lyra::i18n::StringId::WifiSettings),
                  wifi_summary, View::WifiSettings, 62);
-        make_row(body, 264, LV_SYMBOL_SD_CARD, tr(lyra::i18n::StringId::MicroSdCard),
+        make_row(body, 264, Icon::SdCard, tr(lyra::i18n::StringId::MicroSdCard),
                  sd_status, View::SystemSettings, 62);
         char scan_status[48];
         if (status.scanning) {
@@ -1401,7 +1402,7 @@ void render_settings_page(View view)
                                   View::SystemSettings, 62);
         lv_obj_remove_event_cb(scan, route_cb);
         lv_obj_add_event_cb(scan, scan_library_cb, LV_EVENT_CLICKED, nullptr);
-        make_row(body, 396, LV_SYMBOL_DRIVE, tr(lyra::i18n::StringId::DatabaseStorage),
+        make_row(body, 396, Icon::Storage, tr(lyra::i18n::StringId::DatabaseStorage),
                  tr(lyra::i18n::StringId::ManagePlaylistsLibrary),
                  View::DatabaseStorage, 62);
         make_artwork_setting_toggle(body, 462, tr(lyra::i18n::StringId::SdAlbumArtCache),

@@ -205,7 +205,7 @@ void style_aura_surface(lv_obj_t *object, lv_color_t color, int width, int heigh
     const bool accent = lv_color_eq(color, kAccent) || lv_color_eq(color, kAccentDark) ||
                         lv_color_eq(color, kAccentSurface);
     // Danger buttons retain their semantic colour rather than becoming blue.
-    if (lv_color_eq(color, kDangerSurface)) return;
+    if (lv_color_eq(color, kDangerSurface) || lv_color_eq(color, kDanger)) return;
     if (accent) {
         gradient(object, lv_color_to_u32(color) & 0xFFFFFF, 0x0074D2, 0);
     } else {

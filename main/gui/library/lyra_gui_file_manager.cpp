@@ -697,7 +697,7 @@ void show_delete_confirmation()
     lv_obj_t *cancel_label = make_label(cancel, tr(StringId::Cancel), kTextSecondary);
     lv_obj_center(cancel_label);
     lv_obj_add_event_cb(cancel, dismiss_overlay_cb, LV_EVENT_CLICKED, overlay);
-    lv_obj_t *confirm = make_button(dialog, 150, 160, 116, 46, lv_color_hex(0x991B1B), 7);
+    lv_obj_t *confirm = make_button(dialog, 150, 160, 116, 46, kDanger, 7);
     lv_obj_t *confirm_label = make_label(confirm, tr(StringId::Delete), kTextOnAccent);
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm, confirm_delete_cb, LV_EVENT_CLICKED, overlay);

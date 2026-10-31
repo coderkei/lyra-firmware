@@ -232,7 +232,9 @@ void setup_theme_row(lv_obj_t *parent, int y, Theme theme, uintptr_t selection)
                                 active ? kAccentSurface : kSurface, 10, true);
     lv_obj_t *label = make_label(row, theme_name(theme),
                                  active ? kAccent : kTextPrimary);
+    make_marquee(label, 166);
     lv_obj_align(label, LV_ALIGN_LEFT_MID, 14, 0);
+    make_theme_swatches(row, theme, -42);
     if (active) {
         lv_obj_t *check = make_label(row, LV_SYMBOL_OK, kAccent);
         lv_obj_align(check, LV_ALIGN_RIGHT_MID, -14, 0);

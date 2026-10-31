@@ -467,34 +467,45 @@ void show_toast(const char *text)
     if (s_toast_timer) lv_timer_set_repeat_count(s_toast_timer, 1);
 }
 
-lv_obj_t *make_row(lv_obj_t *parent, int y, const char *icon_text, const char *title,
-                   const char *subtitle, View target, int height)
+static lv_obj_t *make_row_with(lv_obj_t *parent, int y, const char *icon_text, const Icon *icon,
+                               const char *title, const char *subtitle, View target, int height)
 {
     lv_obj_t *row = make_button(parent, 7, y, 306, height, kSurface, 6, true);
     if (!is_aura_theme())
         lv_obj_set_style_bg_color(row, !is_standard_theme() ? kAccentSurface : kSurfaceRaised, LV_STATE_PRESSED);
-    const int text_x = icon_text ? 45 : 12;
-    if (icon_text) {
-        lv_obj_t *icon = make_label(row, icon_text, kAccent);
-        lv_obj_align(icon, LV_ALIGN_LEFT_MID, 12, subtitle == nullptr ? 0 : -1);
+    const bool has_icon = icon_text || icon;
+    const int text_x = has_icon ? 45 : 12;
+    if (has_icon) {
+        const lv_color_t color = is_zeno_theme() && subtitle == nullptr ? kTextPrimary : kAccent;
+        lv_obj_t *glyph = icon ? make_icon(row, *icon, color) : make_label(row, icon_text, color);
+        lv_obj_align(glyph, LV_ALIGN_LEFT_MID, icon ? 11 : 12, subtitle == nullptr ? 0 : -1);
     }
     lv_obj_t *title_label = make_label(row, title, kTextPrimary);
-    lv_obj_set_style_text_font(title_label, lyra::font::ui(), 0);
-    make_marquee(title_label, icon_text ? 220 : 253);
+    lv_obj_set_style_text_font(title_label, is_zeno_theme() && subtitle == nullptr ?
+                               zeno_heading_font() : lyra::font::ui(), 0);
+    make_marquee(title_label, has_icon ? 220 : 253);
     lv_obj_align(title_label, LV_ALIGN_LEFT_MID, text_x, subtitle == nullptr ? 0 : -10);
     if (subtitle != nullptr) {
         lv_obj_t *sub = make_label(row, subtitle, kTextSecondary);
-        make_marquee(sub, icon_text ? 220 : 253);
+        make_marquee(sub, has_icon ? 220 : 253);
         lv_obj_align(sub, LV_ALIGN_LEFT_MID, text_x, 11);
     }
     lv_obj_t *chevron = make_label(row, LV_SYMBOL_RIGHT, kTextMuted);
     lv_obj_align(chevron, LV_ALIGN_RIGHT_MID, -12, 0);
-    if (is_zeno_theme() && subtitle == nullptr) {
-        lv_obj_set_style_text_font(title_label, zeno_heading_font(), 0);
-        if (icon_text) lv_obj_set_style_text_color(lv_obj_get_child(row, 0), kTextPrimary, 0);
-    }
     add_route(row, target);
     return row;
+}
+
+lv_obj_t *make_row(lv_obj_t *parent, int y, const char *icon_text, const char *title,
+                   const char *subtitle, View target, int height)
+{
+    return make_row_with(parent, y, icon_text, nullptr, title, subtitle, target, height);
+}
+
+lv_obj_t *make_row(lv_obj_t *parent, int y, Icon icon, const char *title,
+                   const char *subtitle, View target, int height)
+{
+    return make_row_with(parent, y, nullptr, &icon, title, subtitle, target, height);
 }
 
 void release_boot_image()

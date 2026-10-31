@@ -521,7 +521,7 @@ void show_clear_nvs_confirmation()
     lv_obj_t *cancel_label = make_label(cancel, tr(lyra::i18n::StringId::Cancel), kTextSecondary);
     lv_obj_center(cancel_label);
     lv_obj_add_event_cb(cancel, cancel_power_action_cb, LV_EVENT_CLICKED, overlay);
-    lv_obj_t *confirm = make_button(dialog, 150, 164, 116, 48, lv_color_hex(0x991B1B), 7);
+    lv_obj_t *confirm = make_button(dialog, 150, 164, 116, 48, kDanger, 7);
     lv_obj_t *confirm_label = make_label(confirm, tr(lyra::i18n::StringId::Clear), kTextOnAccent);
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm, confirm_clear_nvs_cb, LV_EVENT_CLICKED, overlay);

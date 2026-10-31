@@ -38,6 +38,7 @@ lv_color_t kNavSurface = lv_color_hex(0x0B111A);
 lv_color_t kKeyboardSurface = lv_color_hex(0x05080D);
 lv_color_t kArtworkSurface = lv_color_hex(0x142131);
 lv_color_t kDangerSurface = lv_color_hex(0x3F1118);
+lv_color_t kDanger = lv_color_hex(0x991B1B);
 extern const lv_color_t kOverlay = lv_color_hex(0x000000);
 extern const lv_color_t kTextOnAccent = lv_color_hex(0xFFFFFF);
 

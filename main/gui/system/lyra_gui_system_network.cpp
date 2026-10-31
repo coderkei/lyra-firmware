@@ -151,7 +151,7 @@ void make_access_point_row(lv_obj_t *body, int y, size_t index,
         access_point.secured ? tr(lyra::i18n::StringId::SecuredNetwork) :
                                tr(lyra::i18n::StringId::OpenNetwork);
     const char *subtitle = kind;
-    lv_obj_t *row = make_row(body, y, LV_SYMBOL_SETTINGS, access_point.ssid,
+    lv_obj_t *row = make_row(body, y, Icon::Wifi, access_point.ssid,
                              subtitle, View::WifiSettings, 56);
     make_wifi_signal_bars(row, 269, 21, wifi_signal_bar_count(access_point.rssi),
                           kAccent, kDivider);
@@ -284,7 +284,7 @@ void render_wifi_settings()
 
     int next_y = 66;
     if (wifi.connected && wifi.ip_address[0]) {
-        make_row(body, next_y, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::IpAddress),
+        make_row(body, next_y, Icon::Network, tr(lyra::i18n::StringId::IpAddress),
                  wifi.ip_address, View::WifiSettings, 54);
         next_y += 58;
     }
@@ -393,12 +393,12 @@ void render_network_tests()
                                        lyra::i18n::StringId::NotConnected) :
             tr(lyra::i18n::StringId::Off));
     }
-    make_row(body, 0, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::WifiSettings),
+    make_row(body, 0, Icon::Wifi, tr(lyra::i18n::StringId::WifiSettings),
              connection, View::WifiSettings, 58);
 
     char ip_status[80];
     const char *ip_summary = ping_summary(wifi.ip_ping, false, ip_status, sizeof(ip_status));
-    lv_obj_t *ip = make_row(body, 64, LV_SYMBOL_REFRESH,
+    lv_obj_t *ip = make_row(body, 64, Icon::Network,
                             tr(lyra::i18n::StringId::PingIp), ip_summary,
                             View::NetworkTests, 62);
     lv_obj_remove_event_cb(ip, route_cb);
@@ -407,7 +407,7 @@ void render_network_tests()
 
     char dns_status[80];
     const char *dns_summary = ping_summary(wifi.dns_ping, true, dns_status, sizeof(dns_status));
-    lv_obj_t *dns = make_row(body, 130, LV_SYMBOL_REFRESH,
+    lv_obj_t *dns = make_row(body, 130, Icon::Network,
                              tr(lyra::i18n::StringId::PingDns), dns_summary,
                              View::NetworkTests, 62);
     lv_obj_remove_event_cb(dns, route_cb);
@@ -415,7 +415,7 @@ void render_network_tests()
         reinterpret_cast<void *>(static_cast<uintptr_t>(lyra::wifi::PingTarget::Dns) + 1));
 
     if (wifi.connected && wifi.ip_address[0]) {
-        make_row(body, 196, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::IpAddress),
+        make_row(body, 196, Icon::Network, tr(lyra::i18n::StringId::IpAddress),
                  wifi.ip_address, View::NetworkTests, 54);
     }
     s_network_test_rendered_generation = wifi.generation;

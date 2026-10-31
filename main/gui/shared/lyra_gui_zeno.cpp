@@ -155,78 +155,12 @@ void favorites_cb(lv_event_t *)
     open_library_playlists_cb(nullptr);
 }
 
-void choice_icon_cb(lv_event_t *event)
-{
-    lv_area_t area;
-    lv_obj_get_coords(lv_event_get_current_target_obj(event), &area);
-    const int x = area.x1 + 16, y = area.y1 + 11;
-    lv_layer_t *layer = lv_event_get_layer(event);
-    const View target = static_cast<View>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-    auto box = [&](int dx, int dy, int width, int height, int radius, bool filled) {
-        lv_draw_rect_dsc_t rect;
-        lv_draw_rect_dsc_init(&rect);
-        rect.radius = radius;
-        rect.bg_color = kTextPrimary;
-        rect.bg_opa = filled ? LV_OPA_COVER : LV_OPA_TRANSP;
-        rect.border_width = filled ? 0 : 2;
-        rect.border_color = kTextPrimary;
-        rect.border_opa = LV_OPA_COVER;
-        const lv_area_t bounds{x + dx, y + dy, x + dx + width - 1, y + dy + height - 1};
-        lv_draw_rect(layer, &rect, &bounds);
-    };
-    auto line = [&](int x1, int y1, int x2, int y2) {
-        lv_draw_line_dsc_t stroke;
-        lv_draw_line_dsc_init(&stroke);
-        stroke.p1 = {static_cast<lv_value_precise_t>(x + x1), static_cast<lv_value_precise_t>(y + y1)};
-        stroke.p2 = {static_cast<lv_value_precise_t>(x + x2), static_cast<lv_value_precise_t>(y + y2)};
-        stroke.color = kTextPrimary;
-        stroke.width = 2;
-        lv_draw_line(layer, &stroke);
-    };
-    switch (target) {
-        case View::LibraryAlbums:
-            box(2, 2, 28, 28, LV_RADIUS_CIRCLE, false);
-            box(6, 6, 20, 20, LV_RADIUS_CIRCLE, false);
-            box(13, 13, 6, 6, LV_RADIUS_CIRCLE, true);
-            break;
-        case View::LibraryArtists:
-            box(10, 1, 13, 13, LV_RADIUS_CIRCLE, true);
-            box(3, 17, 27, 14, 7, true);
-            break;
-        case View::ThemeOptions:
-            box(1, 3, 30, 21, 0, false);
-            line(16, 24, 16, 30);
-            line(8, 30, 24, 30);
-            break;
-        case View::LanguageOptions:
-            box(1, 1, 30, 30, LV_RADIUS_CIRCLE, false);
-            box(9, 1, 14, 30, LV_RADIUS_CIRCLE, false);
-            line(2, 16, 30, 16);
-            break;
-        case View::DisplaySettings:
-            box(9, 9, 14, 14, LV_RADIUS_CIRCLE, true);
-            line(16, 0, 16, 5); line(16, 27, 16, 32);
-            line(0, 16, 5, 16); line(27, 16, 32, 16);
-            line(4, 4, 8, 8); line(24, 24, 28, 28);
-            line(4, 28, 8, 24); line(24, 8, 28, 4);
-            break;
-        default: break;
-    }
-}
-
-lv_obj_t *choice(lv_obj_t *body, int y, const char *icon, const char *title,
+lv_obj_t *choice(lv_obj_t *body, int y, Icon icon, const char *title,
                   View target, const char *value = nullptr)
 {
     lv_obj_t *row = make_button(body, 0, y, kScreenWidth, 54, kSurface, 0, true);
-    lv_obj_t *glyph = make_label(row, icon, kTextPrimary);
-    lv_obj_set_style_text_font(glyph, zeno_heading_font(), 0);
-    lv_obj_align(glyph, LV_ALIGN_LEFT_MID, 16, 0);
-    if (target == View::LibraryAlbums || target == View::LibraryArtists || target == View::ThemeOptions ||
-        target == View::LanguageOptions || target == View::DisplaySettings) {
-        lv_obj_add_flag(glyph, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_event_cb(row, choice_icon_cb, LV_EVENT_DRAW_POST,
-            reinterpret_cast<void *>(static_cast<uintptr_t>(target)));
-    }
+    lv_obj_t *glyph = make_icon(row, icon, kTextPrimary, 28);
+    lv_obj_align(glyph, LV_ALIGN_LEFT_MID, 18, 0);
     lv_obj_t *label = make_zeno_label(row, title);
     const bool setting = target == View::ThemeOptions || target == View::LanguageOptions ||
         target == View::DisplaySettings || target == View::PlaybackSettings || target == View::SoundSettings ||
@@ -375,25 +309,25 @@ void render_zeno_library()
 {
     make_header(tr(lyra::i18n::StringId::Music), View::Menu, true);
     lv_obj_t *body = make_scroll_body(72);
-    choice(body, 0, LV_SYMBOL_AUDIO, tr(lyra::i18n::StringId::AllSongs), View::LibrarySongs);
-    choice(body, 56, LV_SYMBOL_BULLET, tr(lyra::i18n::StringId::Albums), View::LibraryAlbums);
-    choice(body, 112, LV_SYMBOL_BULLET, tr(lyra::i18n::StringId::Artists), View::LibraryArtists);
-    choice(body, 168, LV_SYMBOL_EDIT, tr(lyra::i18n::StringId::Genres), View::LibraryGenres);
-    lv_obj_t *playlists = choice(body, 224, LV_SYMBOL_LIST,
+    choice(body, 0, Icon::Music, tr(lyra::i18n::StringId::AllSongs), View::LibrarySongs);
+    choice(body, 56, Icon::Album, tr(lyra::i18n::StringId::Albums), View::LibraryAlbums);
+    choice(body, 112, Icon::Artist, tr(lyra::i18n::StringId::Artists), View::LibraryArtists);
+    choice(body, 168, Icon::Genre, tr(lyra::i18n::StringId::Genres), View::LibraryGenres);
+    lv_obj_t *playlists = choice(body, 224, Icon::Playlist,
         tr(lyra::i18n::StringId::Playlists), View::Playlists);
     lv_obj_remove_event_cb(playlists, route_cb);
     lv_obj_add_event_cb(playlists, open_library_playlists_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *favorites = choice(body, 280, kHeartFilled, tr(lyra::i18n::StringId::Favorites), View::PlaylistDetail);
+    lv_obj_t *favorites = choice(body, 280, Icon::Favorite, tr(lyra::i18n::StringId::Favorites), View::PlaylistDetail);
     lv_obj_remove_event_cb(favorites, route_cb);
     lv_obj_add_event_cb(favorites, favorites_cb, LV_EVENT_CLICKED, nullptr);
-    choice(body, 336, LV_SYMBOL_REFRESH, tr(lyra::i18n::StringId::Year), View::LibraryYears);
-    choice(body, 392, LV_SYMBOL_WIFI, tr(lyra::i18n::StringId::InternetRadio),
+    choice(body, 336, Icon::Calendar, tr(lyra::i18n::StringId::Year), View::LibraryYears);
+    choice(body, 392, Icon::Radio, tr(lyra::i18n::StringId::InternetRadio),
            View::InternetRadio);
-    lv_obj_t *recent = choice(body, 448, LV_SYMBOL_LOOP, tr(lyra::i18n::StringId::RecentlyPlayed),
+    lv_obj_t *recent = choice(body, 448, Icon::Recent, tr(lyra::i18n::StringId::RecentlyPlayed),
                               View::PlaylistDetail);
     lv_obj_remove_event_cb(recent, route_cb);
     lv_obj_add_event_cb(recent, library_shortcut_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *folders = choice(body, 504, LV_SYMBOL_DIRECTORY, tr(lyra::i18n::StringId::Folders),
+    lv_obj_t *folders = choice(body, 504, Icon::Folder, tr(lyra::i18n::StringId::Folders),
                                View::Folders);
     lv_obj_remove_event_cb(folders, route_cb);
     lv_obj_add_event_cb(folders, library_shortcut_cb, LV_EVENT_CLICKED, reinterpret_cast<void *>(3));
@@ -423,15 +357,15 @@ void render_zeno_settings()
 {
     make_header(tr(lyra::i18n::StringId::Settings), View::Menu, true);
     lv_obj_t *body = make_scroll_body(72);
-    choice(body, 0, LV_SYMBOL_IMAGE, tr(lyra::i18n::StringId::Theme), View::ThemeOptions, theme_name(s_theme));
-    choice(body, 56, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::Language), View::LanguageOptions,
+    choice(body, 0, Icon::Theme, tr(lyra::i18n::StringId::Theme), View::ThemeOptions, theme_name(s_theme));
+    choice(body, 56, Icon::Language, tr(lyra::i18n::StringId::Language), View::LanguageOptions,
         lyra::i18n::language_name(lyra::i18n::current_language()));
-    choice(body, 112, LV_SYMBOL_IMAGE, tr(lyra::i18n::StringId::Display), View::DisplaySettings);
-    choice(body, 168, LV_SYMBOL_PLAY, tr(lyra::i18n::StringId::Playback), View::PlaybackSettings);
-    choice(body, 224, LV_SYMBOL_VOLUME_MID, tr(lyra::i18n::StringId::Sound), View::SoundSettings);
-    choice(body, 280, LV_SYMBOL_WARNING, tr(lyra::i18n::StringId::About), View::About);
-    choice(body, 336, LV_SYMBOL_LIST, tr(lyra::i18n::StringId::Sorting), View::SortingSettings);
-    choice(body, 392, LV_SYMBOL_SETTINGS, tr(lyra::i18n::StringId::System), View::SystemSettings);
+    choice(body, 112, Icon::Display, tr(lyra::i18n::StringId::Display), View::DisplaySettings);
+    choice(body, 168, Icon::Playback, tr(lyra::i18n::StringId::Playback), View::PlaybackSettings);
+    choice(body, 224, Icon::Sound, tr(lyra::i18n::StringId::Sound), View::SoundSettings);
+    choice(body, 280, Icon::About, tr(lyra::i18n::StringId::About), View::About);
+    choice(body, 336, Icon::Sorting, tr(lyra::i18n::StringId::Sorting), View::SortingSettings);
+    choice(body, 392, Icon::System, tr(lyra::i18n::StringId::System), View::SystemSettings);
 }
 
 void make_zeno_transport(lv_obj_t *parent, int y)

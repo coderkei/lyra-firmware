@@ -1290,7 +1290,7 @@ void render_search()
     lv_obj_t *body = make_box(s_screen, 0, kStatusHeight, 320, content_height(kStatusHeight), kBackground);
     constexpr int input_width = 170;
     lv_obj_t *input = make_box(body, 9, 4, input_width, 43, kSurfaceRaised, 7);
-    lv_obj_t *magnifier = make_label(input, LV_SYMBOL_EDIT, kTextSecondary);
+    lv_obj_t *magnifier = make_icon(input, Icon::Search, kTextSecondary, 18);
     lv_obj_align(magnifier, LV_ALIGN_LEFT_MID, 10, 0);
     s_search_label = make_label(input, "", kTextMuted);
     make_marquee(s_search_label, input_width - 44, MarqueeMode::Continuous);

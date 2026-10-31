@@ -490,17 +490,18 @@ void render_apps()
 {
     make_header(tr(lyra::i18n::StringId::Apps), View::Menu, true);
     lv_obj_t *body = make_scroll_body(72);
-    struct AppEntry { lyra::i18n::StringId label; View view; const char *icon; };
+    // Dot Link and Dice keep their own two-colour artwork (custom = true).
+    struct AppEntry { lyra::i18n::StringId label; View view; Icon icon; bool custom; };
     constexpr AppEntry apps[] = {
-        {lyra::i18n::StringId::Calculator, View::Calculator, "+"},
-        {lyra::i18n::StringId::Calendar, View::Calendar, LV_SYMBOL_DIRECTORY},
-        {lyra::i18n::StringId::Stopwatch, View::Stopwatch, LV_SYMBOL_PLAY},
-        {lyra::i18n::StringId::Timer, View::Timer, LV_SYMBOL_REFRESH},
-        {lyra::i18n::StringId::Photos, View::Photos, LV_SYMBOL_IMAGE},
-        {lyra::i18n::StringId::Ebook, View::Ebook, LV_SYMBOL_FILE},
-        {lyra::i18n::StringId::Files, View::Folders, LV_SYMBOL_SD_CARD},
-        {lyra::i18n::StringId::DotLink, View::DotLink, nullptr},
-        {lyra::i18n::StringId::Dice, View::Dice, nullptr},
+        {lyra::i18n::StringId::Calculator, View::Calculator, Icon::Calculator, false},
+        {lyra::i18n::StringId::Calendar, View::Calendar, Icon::Calendar, false},
+        {lyra::i18n::StringId::Stopwatch, View::Stopwatch, Icon::Stopwatch, false},
+        {lyra::i18n::StringId::Timer, View::Timer, Icon::Timer, false},
+        {lyra::i18n::StringId::Photos, View::Photos, Icon::Photo, false},
+        {lyra::i18n::StringId::Ebook, View::Ebook, Icon::Book, false},
+        {lyra::i18n::StringId::Files, View::Folders, Icon::Folder, false},
+        {lyra::i18n::StringId::DotLink, View::DotLink, Icon::Apps, true},
+        {lyra::i18n::StringId::Dice, View::Dice, Icon::Apps, true},
     };
     constexpr int kColumns = 3;
     constexpr int kTileWidth = 98;
@@ -511,10 +512,9 @@ void render_apps()
         lv_obj_t *button = make_button(body, x, y, kTileWidth, kTileHeight,
             is_cute_theme() ? lv_color_hex(0xF3EDFF) : kSurfaceRaised,
             is_cute_theme() ? 18 : 9, true);
-        if (apps[i].icon) {
-            lv_obj_t *icon = make_label(button, apps[i].icon, kAccent);
-            lv_obj_set_style_text_font(icon, &lv_font_montserrat_28, 0);
-            lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 16);
+        if (!apps[i].custom) {
+            lv_obj_t *icon = make_icon(button, apps[i].icon, kAccent, 32);
+            lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 14);
         } else {
             lv_obj_t *icon = make_box(button, (kTileWidth - 32) / 2, 14, 32, 32, kSurfaceRaised);
             lv_obj_set_style_bg_opa(icon, LV_OPA_TRANSP, 0);
