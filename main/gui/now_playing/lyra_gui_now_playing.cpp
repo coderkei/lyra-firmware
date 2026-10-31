@@ -985,13 +985,13 @@ void render_player()
     lv_obj_t *title = make_label(overview, track.title, !is_standard_theme() ? kAccent : kTextPrimary);
     lv_obj_set_style_text_font(title, lyra::font::ui(), 0);
     if (zeno) lv_obj_set_style_text_color(title, kTextPrimary, 0);
-    make_marquee(title, zeno ? 136 : 240);
+    make_marquee(title, zeno ? 136 : 240, MarqueeMode::Focus);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, zeno ? 172 : 20, zeno ? 20 : progress_y - 79);
     lv_obj_t *artist = make_label(overview, track.artist, kTextSecondary);
-    make_marquee(artist, zeno ? 136 : 240);
+    make_marquee(artist, zeno ? 136 : 240, MarqueeMode::Focus);
     lv_obj_align(artist, LV_ALIGN_TOP_LEFT, zeno ? 172 : 20, zeno ? 50 : progress_y - 56);
     lv_obj_t *album = make_label(overview, track.album, kTextMuted);
-    make_marquee(album, zeno ? 136 : 240);
+    make_marquee(album, zeno ? 136 : 240, MarqueeMode::Focus);
     lv_obj_align(album, LV_ALIGN_TOP_LEFT, zeno ? 172 : 20, zeno ? 81 : progress_y - 35);
 
     lv_obj_t *bar = lv_bar_create(body);

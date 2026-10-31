@@ -240,8 +240,7 @@ void player_progress_poll_cb(lv_timer_t *)
     if (!radio_stream && audio_status.last_error != ESP_OK &&
         audio_status.playback_serial != reported_error_serial) {
         reported_error_serial = audio_status.playback_serial;
-        show_notice(tr(lyra::i18n::StringId::NowPlaying),
-                    tr(lyra::i18n::StringId::PlaybackFailed));
+        show_playback_error(audio_status.last_error);
     }
     static uint32_t observed_serial = 0;
     if (!radio_stream && audio_status.playback_serial != observed_serial) {

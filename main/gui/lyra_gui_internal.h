@@ -355,13 +355,13 @@ constexpr uint32_t kHudYellowRgb = 0xFCEE0A;
 void make_hud_background();
 void make_hud_body_background(lv_obj_t *body);
 void add_hud_frame(lv_obj_t *object, bool octagonal = false);
-void add_hud_press_feedback(lv_obj_t *button);
 void add_hud_brackets(lv_obj_t *object);
 void make_hud_equalizer_grid(lv_obj_t *parent, int x, int y, int width, int height);
 void style_hud_controls(lv_obj_t *object);
 void style_hud_progress_bar(lv_obj_t *bar);
 void decorate_hud_status_bar(lv_obj_t *bar);
 void decorate_hud_header(lv_obj_t *header, lv_obj_t *title);
+void decorate_hud_banner(lv_obj_t *banner);
 // Uppercases pure-ASCII headings; other scripts are returned unchanged so the
 // font never needs glyphs the catalog check has not verified.
 const char *hud_heading_text(const char *text, char *buffer, size_t capacity);
@@ -397,7 +397,15 @@ size_t search_page_size();
 lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int width, int height, lv_color_t color, int radius = 0, bool show_border = false);
 lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color);
 void set_label_text_if_changed(lv_obj_t *label, const char *text);
-void make_marquee(lv_obj_t *label, int width);
+// Truncate rests as "…" and plays once when its row is long-pressed. Focus
+// is for the one thing being looked at (now playing, page title): a calm
+// scroll that stops after a few passes. Continuous never stops and is only
+// for text-entry fields, where the end of the text must stay reachable.
+// Set the label's font first: the "…" box is sized to one line of it.
+enum class MarqueeMode : uint8_t { Truncate, Focus, Continuous };
+void make_marquee(lv_obj_t *label, int width, MarqueeMode mode = MarqueeMode::Truncate);
+// For rows whose long press already does something else.
+void disable_marquee_reveal(lv_obj_t *row);
 lv_obj_t *make_button(lv_obj_t *parent, int x, int y, int width, int height, lv_color_t color, int radius = 7, bool show_border = false);
 void make_equalizer_icon(lv_obj_t *parent, lv_color_t color);
 void configure_cover_aware_scroll(lv_obj_t *body);
@@ -440,6 +448,8 @@ void nav_previous_cb(lv_event_t *);
 void nav_next_cb(lv_event_t *);
 bool restart_current_track();
 void make_virtual_nav();
+// Explains why a track failed (memory, missing file, format, unreadable).
+void show_playback_error(esp_err_t error);
 uint8_t display_volume_percent(uint8_t volume_percent);
 uint8_t audio_volume_percent_from_display(uint8_t display_percent);
 void update_status_volume_label(uint8_t volume_percent);

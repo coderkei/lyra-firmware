@@ -368,7 +368,7 @@ lv_obj_t *make_header(const char *title, View back, bool show_back, const char *
     if (is_zeno_theme()) lv_obj_set_style_text_font(label, zeno_heading_font(), 0);
     const bool show_right_label = right != nullptr && (!queue_add_toggle || right[0] != '\0');
     make_marquee(label, queue_add_toggle ? (show_right_label ? 150 : 180) :
-                 (right ? 180 : 245));
+                 (right ? 180 : 245), MarqueeMode::Focus);
     lv_obj_align(label, LV_ALIGN_LEFT_MID, show_back ? 45 : 10, 0);
     // Tapping a page title returns a long list to its first row.
     lv_obj_add_flag(label, LV_OBJ_FLAG_CLICKABLE);
@@ -418,18 +418,31 @@ void show_notice(const char *title_text, const char *message_text)
     lv_obj_set_style_bg_opa(overlay, LV_OPA_90, 0);
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_move_foreground(overlay);
-    lv_obj_t *dialog = make_box(overlay, 24, 142, 272, 196, kSurfaceRaised, 12);
+    constexpr int kMinimumHeight = 196;
+    constexpr int kButtonHeight = 44;
+    lv_obj_t *dialog = make_box(overlay, 24, 142, 272, kMinimumHeight, kSurfaceRaised, 12);
     lv_obj_t *title = make_label(dialog, title_text, s_neon_hud ? kAccent : kTextPrimary);
     lv_obj_set_width(title, 232);
     lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
     lv_obj_t *message = make_label(dialog, message_text, kTextSecondary);
     lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(message, 232);
     lv_label_set_long_mode(message, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_align(message, LV_ALIGN_CENTER, 0, -3);
-    lv_obj_t *close = make_button(dialog, 78, 134, 116, 44, kAccentDark, 7);
+    // Grow with the wrapped text so longer explanations and translations never
+    // run into the title or the button.
+    lv_obj_update_layout(dialog);
+    const int title_bottom = 20 + lv_obj_get_height(title);
+    const int message_height = lv_obj_get_height(message);
+    const int height = std::clamp(title_bottom + 12 + message_height + 20 + kButtonHeight + 18,
+                                  kMinimumHeight, kScreenHeight - 32);
+    const int button_y = height - kButtonHeight - 18;
+    lv_obj_set_height(dialog, height);
+    lv_obj_set_y(dialog, (kScreenHeight - height) / 2);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_align(message, LV_ALIGN_TOP_MID, 0,
+                 title_bottom + std::max(12, (button_y - title_bottom - message_height) / 2));
+    lv_obj_t *close = make_button(dialog, 78, button_y, 116, kButtonHeight, kAccentDark, 7);
     lv_obj_t *close_label = make_label(close, tr(lyra::i18n::StringId::Ok), kTextOnAccent);
     lv_obj_center(close_label);
     lv_obj_add_event_cb(close, dismiss_overlay_cb, LV_EVENT_CLICKED, overlay);

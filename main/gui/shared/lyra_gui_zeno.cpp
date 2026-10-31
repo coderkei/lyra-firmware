@@ -236,11 +236,11 @@ lv_obj_t *choice(lv_obj_t *body, int y, const char *icon, const char *title,
         lv_obj_t *arrow = make_label(row, LV_SYMBOL_RIGHT, kTextSecondary);
         lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -8, 0);
     }
+    // Values and settings remain legible in the normal multilingual font.
+    if (value) lv_obj_set_style_text_font(label, lyra::font::ui(), 0);
     make_marquee(label, value ? 167 : 238);
     lv_obj_align(label, LV_ALIGN_LEFT_MID, 60, 0);
     if (value) {
-        // Values and settings remain legible in the normal multilingual font.
-        lv_obj_set_style_text_font(label, lyra::font::ui(), 0);
         lv_obj_t *detail = make_label(row, value, kTextSecondary);
         make_marquee(detail, 65);
         lv_obj_set_style_text_align(detail, LV_TEXT_ALIGN_RIGHT, 0);

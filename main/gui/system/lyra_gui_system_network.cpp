@@ -356,7 +356,7 @@ void render_wifi_password()
 
     lv_obj_t *input = make_box(body, 9, 34, 220, 48, kSurfaceRaised, 7, true);
     s_search_label = make_label(input, "", kTextMuted);
-    make_marquee(s_search_label, 196);
+    make_marquee(s_search_label, 196, MarqueeMode::Continuous);
     lv_obj_align(s_search_label, LV_ALIGN_LEFT_MID, 12, 0);
     update_search_label();
     lv_obj_t *visibility = make_button(body, 239, 34, 72, 48, kSurfaceRaised, 7, true);

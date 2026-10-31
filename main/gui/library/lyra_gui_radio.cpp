@@ -260,7 +260,7 @@ void render_radio_add()
                               content_height(72), kBackground);
     lv_obj_t *input = make_box(body, 8, 8, 240, 44, kSurfaceRaised, 7);
     s_search_label = make_label(input, "", kTextMuted);
-    make_marquee(s_search_label, 214);
+    make_marquee(s_search_label, 214, MarqueeMode::Continuous);
     lv_obj_align(s_search_label, LV_ALIGN_LEFT_MID, 12, 0);
     update_search_label();
 
@@ -357,8 +357,7 @@ void render_radio_playing()
     lv_obj_center(icon);
 
     lv_obj_t *title = make_label(body, s_current_station_name, kTextPrimary);
-    lv_obj_set_width(title, 292);
-    lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
+    make_marquee(title, 292, MarqueeMode::Focus);
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 202);
     s_radio_status_label = make_label(body, "", kTextSecondary);

@@ -1293,7 +1293,7 @@ void render_search()
     lv_obj_t *magnifier = make_label(input, LV_SYMBOL_EDIT, kTextSecondary);
     lv_obj_align(magnifier, LV_ALIGN_LEFT_MID, 10, 0);
     s_search_label = make_label(input, "", kTextMuted);
-    make_marquee(s_search_label, input_width - 44);
+    make_marquee(s_search_label, input_width - 44, MarqueeMode::Continuous);
     lv_obj_align(s_search_label, LV_ALIGN_LEFT_MID, 37, 0);
     update_search_label();
     make_keyboard_selector(body, 183, 4, 36, 43, true);
@@ -1343,7 +1343,7 @@ void render_playlist_create()
     lv_obj_t *body = make_box(s_screen, 0, 72, 320, content_height(72), kBackground);
     lv_obj_t *input = make_box(body, 9, 8, 240, 43, kSurfaceRaised, 7);
     s_search_label = make_label(input, "", kTextMuted);
-    make_marquee(s_search_label, 214);
+    make_marquee(s_search_label, 214, MarqueeMode::Continuous);
     lv_obj_align(s_search_label, LV_ALIGN_LEFT_MID, 12, 0);
     update_search_label();
     make_keyboard_selector(body, 255, 8, 56, 43);
@@ -1361,7 +1361,7 @@ void render_file_name_input()
     lv_obj_t *body = make_box(s_screen, 0, 72, 320, content_height(72), kBackground);
     lv_obj_t *input = make_box(body, 9, 8, 240, 43, kSurfaceRaised, 7);
     s_search_label = make_label(input, "", kTextMuted);
-    make_marquee(s_search_label, 214);
+    make_marquee(s_search_label, 214, MarqueeMode::Continuous);
     lv_obj_align(s_search_label, LV_ALIGN_LEFT_MID, 12, 0);
     update_search_label();
     make_keyboard_selector(body, 255, 8, 56, 43);

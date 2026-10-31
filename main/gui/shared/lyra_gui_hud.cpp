@@ -56,14 +56,25 @@ void blend(Rgb &base, const Rgb &top, int alpha)
     base.b += (top.b - base.b) * alpha / 256;
 }
 
-void paint_city(uint16_t *pixels)
+bool paint_city(uint16_t *pixels)
 {
-    // Static scratch keeps ~3 KB of column tables off the GUI task stack.
-    static int16_t far_top[kScreenWidth];
-    static int16_t near_top[kScreenWidth];
-    static int16_t near_left[kScreenWidth];
-    static int16_t near_right[kScreenWidth];
-    static uint16_t near_id[kScreenWidth];
+    // Column tables live in PSRAM for the paint only, keeping ~3 KB off both
+    // the GUI task stack and permanent internal RAM.
+    struct Columns {
+        int16_t far_top[kScreenWidth];
+        int16_t near_top[kScreenWidth];
+        int16_t near_left[kScreenWidth];
+        int16_t near_right[kScreenWidth];
+        uint16_t near_id[kScreenWidth];
+    };
+    auto *columns = static_cast<Columns *>(heap_caps_malloc(
+        sizeof(Columns), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!columns) return false;
+    int16_t *far_top = columns->far_top;
+    int16_t *near_top = columns->near_top;
+    int16_t *near_left = columns->near_left;
+    int16_t *near_right = columns->near_right;
+    uint16_t *near_id = columns->near_id;
     Sign signs[kMaxSigns]{};
     int sign_count = 0;
 
@@ -174,6 +185,8 @@ void paint_city(uint16_t *pixels)
                 ((pixel.r >> 3) << 11) | ((pixel.g >> 2) << 5) | (pixel.b >> 3));
         }
     }
+    heap_caps_free(columns);
+    return true;
 }
 
 bool load_city()
@@ -182,11 +195,11 @@ bool load_city()
     constexpr size_t bytes = kScreenWidth * kScreenHeight * sizeof(uint16_t);
     auto *pixels = static_cast<uint16_t *>(heap_caps_malloc(
         bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!pixels) {
+    if (!pixels || !paint_city(pixels)) {
+        heap_caps_free(pixels);
         ESP_LOGW(kTag, "Night City backdrop unavailable; using the HUD palette only");
         return false;
     }
-    paint_city(pixels);
     s_city_pixels = pixels;
     init_rgb565_image(&s_city_image, pixels, kScreenWidth, kScreenHeight);
     return true;
@@ -235,9 +248,46 @@ void hud_triangle(lv_layer_t *layer, lv_point_t a, lv_point_t b, lv_point_t c, l
     lv_draw_triangle(layer, &triangle);
 }
 
+// One shared style turns a pressed row's labels cyan. It is attached only
+// while the finger is down, so idle rows cost no extra internal RAM.
+lv_style_t s_pressed_label_style;
+bool s_pressed_label_style_ready = false;
+
+void set_pressed_labels(lv_obj_t *parent, bool pressed)
+{
+    const uint32_t count = lv_obj_get_child_count(parent);
+    for (uint32_t i = 0; i < count; ++i) {
+        lv_obj_t *child = lv_obj_get_child(parent, i);
+        if (lv_obj_check_type(child, &lv_label_class)) {
+            if (pressed) {
+                lv_obj_add_style(child, &s_pressed_label_style, LV_STATE_USER_1);
+                lv_obj_add_state(child, LV_STATE_USER_1);
+            } else {
+                lv_obj_remove_state(child, LV_STATE_USER_1);
+                lv_obj_remove_style(child, &s_pressed_label_style, LV_STATE_USER_1);
+            }
+        }
+        set_pressed_labels(child, pressed);
+    }
+}
+
 void hud_frame_cb(lv_event_t *event)
 {
     lv_obj_t *object = lv_event_get_current_target_obj(event);
+    const lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_PRESSED || code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        // The frame's own registration doubles as the press handler, so the
+        // cyan feedback adds no event descriptors to any row.
+        if (lv_event_get_target_obj(event) != object) return;
+        if (!s_pressed_label_style_ready) {
+            lv_style_init(&s_pressed_label_style);
+            lv_style_set_text_color(&s_pressed_label_style, lv_color_hex(kHudCyanRgb));
+            s_pressed_label_style_ready = true;
+        }
+        set_pressed_labels(object, code == LV_EVENT_PRESSED);
+        return;
+    }
+    if (code != LV_EVENT_DRAW_MAIN) return;
     lv_layer_t *layer = lv_event_get_layer(event);
     lv_area_t area;
     lv_obj_get_coords(object, &area);
@@ -321,24 +371,54 @@ void hud_equalizer_grid_cb(lv_event_t *event)
     }
 }
 
-void set_label_selection(lv_obj_t *parent, bool selected)
+// Decorations are painted by one draw callback on their host rather than as
+// child objects: LVGL allocates objects from internal RAM, which the audio
+// output task needs at every track start.
+void hud_status_decor_cb(lv_event_t *event)
 {
-    const uint32_t count = lv_obj_get_child_count(parent);
-    for (uint32_t i = 0; i < count; ++i) {
-        lv_obj_t *child = lv_obj_get_child(parent, i);
-        if (lv_obj_check_type(child, &lv_label_class)) {
-            if (selected) lv_obj_add_state(child, LV_STATE_USER_1);
-            else lv_obj_remove_state(child, LV_STATE_USER_1);
-        }
-        set_label_selection(child, selected);
-    }
+    lv_area_t area;
+    lv_obj_get_coords(lv_event_get_current_target_obj(event), &area);
+    lv_layer_t *layer = lv_event_get_layer(event);
+    const int bottom = area.y2;
+    hud_rect(layer, area.x1, bottom, area.x2, bottom, kDivider);
+    hud_rect(layer, area.x1, bottom - 1, area.x1 + 71, bottom, kAccent);
+    hud_rect(layer, area.x1 + 76, bottom - 1, area.x1 + 79, bottom, kAccent);
+    hud_rect(layer, area.x2 - 13, bottom - 3, area.x2 - 8, bottom, lv_color_hex(kHudYellowRgb));
 }
 
-void hud_press_cb(lv_event_t *event)
+void hud_header_decor_cb(lv_event_t *event)
 {
-    lv_obj_t *button = lv_event_get_current_target_obj(event);
-    if (lv_event_get_target_obj(event) != button) return;
-    set_label_selection(button, lv_event_get_code(event) == LV_EVENT_PRESSED);
+    lv_area_t area;
+    lv_obj_get_coords(lv_event_get_current_target_obj(event), &area);
+    lv_layer_t *layer = lv_event_get_layer(event);
+    const int bottom = area.y2;
+    hud_rect(layer, area.x1, bottom, area.x2, bottom, kDivider);
+    hud_rect(layer, area.x1 + 8, bottom - 2, area.x1 + 95, bottom, kAccent);
+    hud_rect(layer, area.x1 + 100, bottom - 2, area.x1 + 103, bottom, lv_color_hex(kHudCyanRgb));
+    hud_rect(layer, area.x2 - 19, bottom - 2, area.x2 - 8, bottom, lv_color_hex(kHudYellowRgb));
+}
+
+void hud_banner_decor_cb(lv_event_t *event)
+{
+    lv_area_t area;
+    lv_obj_get_coords(lv_event_get_current_target_obj(event), &area);
+    lv_layer_t *layer = lv_event_get_layer(event);
+    // Barcode and signal ticks fill the right side like a device ID plate.
+    constexpr int stripes[] = {3, 1, 2, 1, 1, 3, 2, 1, 3, 1, 2, 2, 1, 3, 1, 1, 2, 3, 1, 2};
+    int x = area.x1 + 196;
+    for (size_t i = 0; i < sizeof(stripes) / sizeof(stripes[0]); ++i) {
+        if (i % 2 == 0) hud_rect(layer, x, area.y1 + 16, x + stripes[i] - 1, area.y1 + 31, kAccent);
+        x += stripes[i] + 1;
+    }
+    for (int i = 0; i < 4; ++i) {
+        const int tick = area.x1 + 196 + i * 8;
+        hud_rect(layer, tick, area.y1 + 37, tick + 4, area.y1 + 39,
+                 i == 3 ? lv_color_hex(kHudCyanRgb) : kDivider);
+    }
+    const int bottom = area.y2;
+    hud_rect(layer, area.x1, bottom, area.x2, bottom, kDivider);
+    hud_rect(layer, area.x1 + 8, bottom - 2, area.x1 + 139, bottom, kAccent);
+    hud_rect(layer, area.x1 + 144, bottom - 2, area.x1 + 147, bottom, lv_color_hex(kHudYellowRgb));
 }
 
 } // namespace
@@ -362,19 +442,8 @@ void add_hud_frame(lv_obj_t *object, bool octagonal)
     if (!s_neon_hud) return;
     // Draw events do not create children or alter rectangular touch targets.
     lv_obj_remove_event_cb(object, hud_frame_cb);
-    lv_obj_set_style_outline_width(object, 0, 0);
-    lv_obj_set_style_shadow_width(object, 0, 0);
-    lv_obj_add_event_cb(object, hud_frame_cb, LV_EVENT_DRAW_MAIN,
+    lv_obj_add_event_cb(object, hud_frame_cb, LV_EVENT_ALL,
                         octagonal ? reinterpret_cast<void *>(1) : nullptr);
-}
-
-void add_hud_press_feedback(lv_obj_t *button)
-{
-    if (!s_neon_hud) return;
-    // Pressed rows light their labels cyan, the HUD's "selected" signal.
-    lv_obj_add_event_cb(button, hud_press_cb, LV_EVENT_PRESSED, nullptr);
-    lv_obj_add_event_cb(button, hud_press_cb, LV_EVENT_RELEASED, nullptr);
-    lv_obj_add_event_cb(button, hud_press_cb, LV_EVENT_PRESS_LOST, nullptr);
 }
 
 void add_hud_brackets(lv_obj_t *object)
@@ -453,20 +522,20 @@ void decorate_hud_status_bar(lv_obj_t *bar)
     // A solid strip keeps the readouts crisp above the skyline.
     lv_obj_remove_event_cb(bar, hud_city_cb);
     lv_obj_set_style_bg_color(bar, kNavSurface, 0);
-    make_box(bar, 0, kStatusHeight - 1, kScreenWidth, 1, kDivider);
-    make_box(bar, 0, kStatusHeight - 2, 72, 2, kAccent);
-    make_box(bar, 76, kStatusHeight - 2, 4, 2, kAccent);
-    make_box(bar, 306, kStatusHeight - 4, 6, 4, lv_color_hex(kHudYellowRgb));
+    lv_obj_add_event_cb(bar, hud_status_decor_cb, LV_EVENT_DRAW_POST, nullptr);
 }
 
 void decorate_hud_header(lv_obj_t *header, lv_obj_t *title)
 {
     if (!s_neon_hud) return;
     if (title) lv_obj_set_style_text_letter_space(title, 1, 0);
-    make_box(header, 0, 43, kScreenWidth, 1, kDivider);
-    make_box(header, 8, 41, 88, 3, kAccent);
-    make_box(header, 100, 41, 4, 3, lv_color_hex(kHudCyanRgb));
-    make_box(header, 300, 41, 12, 3, lv_color_hex(kHudYellowRgb));
+    lv_obj_add_event_cb(header, hud_header_decor_cb, LV_EVENT_DRAW_POST, nullptr);
+}
+
+void decorate_hud_banner(lv_obj_t *banner)
+{
+    if (!s_neon_hud) return;
+    lv_obj_add_event_cb(banner, hud_banner_decor_cb, LV_EVENT_DRAW_POST, nullptr);
 }
 
 void style_hud_controls(lv_obj_t *object)

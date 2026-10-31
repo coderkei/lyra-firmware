@@ -673,10 +673,9 @@ esp_err_t start_track_audio(const lyra::media::Track &track,
     if (play_result != ESP_OK) {
         // Callers may navigate to Now Playing after this returns. Defer the
         // notice until that render finishes so it is not immediately deleted.
-        lv_async_call([](void *) {
-            show_notice(tr(lyra::i18n::StringId::NowPlaying),
-                        tr(lyra::i18n::StringId::PlaybackFailed));
-        }, nullptr);
+        lv_async_call([](void *error) {
+            show_playback_error(static_cast<esp_err_t>(reinterpret_cast<intptr_t>(error)));
+        }, reinterpret_cast<void *>(static_cast<intptr_t>(play_result)));
     }
     if (play_result == ESP_OK && record_play) {
         const esp_err_t stats_result = lyra::media::record_track_play(s_current_track);
@@ -949,6 +948,24 @@ bool restart_current_track()
     }
     s_audio_eof_seen = false;
     return true;
+}
+
+void show_playback_error(esp_err_t error)
+{
+    lyra::i18n::StringId reason = lyra::i18n::StringId::PlaybackFailedRead;
+    if (error == ESP_ERR_NO_MEM) reason = lyra::i18n::StringId::PlaybackFailedMemory;
+    else if (error == ESP_ERR_NOT_FOUND) reason = lyra::i18n::StringId::PlaybackFailedMissing;
+    else if (error == ESP_ERR_NOT_SUPPORTED) reason = lyra::i18n::StringId::PlaybackFailedFormat;
+    // The plain reason comes first; the code underneath helps match the
+    // notice against a serial log when reporting a problem.
+    char message[256];
+    copy_ui_text(message, sizeof(message), tr(reason));
+    char code[64];
+    format_text(lyra::i18n::StringId::PlaybackErrorCode, esp_err_to_name(error),
+                code, sizeof(code));
+    append_ui_text(message, sizeof(message), "\n");
+    append_ui_text(message, sizeof(message), code);
+    show_notice(tr(lyra::i18n::StringId::PlaybackFailed), message);
 }
 
 void make_virtual_nav()

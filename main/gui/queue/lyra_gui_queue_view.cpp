@@ -338,7 +338,7 @@ void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int hei
     }
     add_hud_brackets(artwork);
     lv_obj_t *title = make_label(entry, title_text, title_color);
-    make_marquee(title, text_width);
+    make_marquee(title, text_width, MarqueeMode::Focus);
     lv_obj_set_style_text_color(title, title_color, 0);
     lv_obj_t *state = make_label(entry, state_text, state_color);
     lv_obj_set_width(state, text_width);
@@ -353,14 +353,14 @@ void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int hei
         if (show_album) {
             lv_obj_t *album = make_label(entry, track.album,
                 accent_fill ? kTextOnAccent : kTextMuted);
-            make_marquee(album, text_width);
+            make_marquee(album, text_width, MarqueeMode::Focus);
             lv_obj_align(album, LV_ALIGN_TOP_LEFT, text_x, line_y);
             line_y += kOverviewLineHeight;
         }
         if (show_artist) {
             lv_obj_t *artist = make_label(entry, track.artist,
                 accent_fill ? kTextOnAccent : kTextSecondary);
-            make_marquee(artist, text_width);
+            make_marquee(artist, text_width, MarqueeMode::Focus);
             lv_obj_align(artist, LV_ALIGN_TOP_LEFT, text_x, line_y);
             line_y += kOverviewLineHeight;
         }
@@ -540,20 +540,7 @@ void make_hud_banner()
         lv_obj_set_style_text_letter_space(mark, 4, 0);
         lv_obj_set_pos(mark, 16 + layer.dx, 10 + layer.dy);
     }
-    // Barcode and signal ticks fill the right side like a device ID plate.
-    constexpr int stripes[] = {3, 1, 2, 1, 1, 3, 2, 1, 3, 1, 2, 2, 1, 3, 1, 1, 2, 3, 1, 2};
-    int x = 196;
-    for (size_t i = 0; i < sizeof(stripes) / sizeof(stripes[0]); ++i) {
-        if (i % 2 == 0) make_box(banner, x, 16, stripes[i], 16, kAccent);
-        x += stripes[i] + 1;
-    }
-    for (int i = 0; i < 4; ++i) {
-        make_box(banner, 196 + i * 8, 37, 5, 3,
-                 i == 3 ? lv_color_hex(kHudCyanRgb) : kDivider);
-    }
-    make_box(banner, 0, kHudBannerHeight - 1, kScreenWidth, 1, kDivider);
-    make_box(banner, 8, kHudBannerHeight - 3, 132, 3, kAccent);
-    make_box(banner, 144, kHudBannerHeight - 3, 4, 3, lv_color_hex(kHudYellowRgb));
+    decorate_hud_banner(banner);
 }
 
 void make_hud_menu_row(lv_obj_t *body, int y, size_t index, const MenuEntry &entry)

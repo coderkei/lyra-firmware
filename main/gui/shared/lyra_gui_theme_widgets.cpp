@@ -508,7 +508,6 @@ lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color)
         // the state restores each label's original accent or neutral color.
         lv_obj_set_style_text_color(label, kTextPrimary, LV_STATE_USER_1);
     }
-    if (s_neon_hud) lv_obj_set_style_text_color(label, lv_color_hex(kHudCyanRgb), LV_STATE_USER_1);
     lv_obj_set_style_text_color(label, color, 0);
     lv_obj_set_style_text_font(label, lyra::font::ui(), 0);
     return label;
@@ -522,9 +521,124 @@ void set_label_text_if_changed(lv_obj_t *label, const char *text)
     lv_label_set_text(label, text);
 }
 
-void make_marquee(lv_obj_t *label, int width)
+namespace {
+
+// Marquee-managed labels that rest as "…" carry this flag so a long press on
+// their row can find and reveal them.
+constexpr lv_obj_flag_t kTruncatedMarqueeFlag = LV_OBJ_FLAG_USER_4;
+lv_style_t s_focus_marquee_style;
+lv_style_t s_reveal_marquee_style;
+lv_anim_t s_focus_marquee_animation;
+lv_anim_t s_reveal_marquee_animation;
+bool s_quiet_marquee_styles_ready = false;
+
+void marquee_rest_cb(lv_anim_t *animation)
+{
+    // After its passes the label settles back to its first characters.
+    // Leave scroll mode first so removing the template starts no new scroll.
+    auto *label = static_cast<lv_obj_t *>(animation->var);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_remove_style(label, &s_focus_marquee_style, LV_STATE_DEFAULT);
+    lv_obj_remove_style(label, &s_reveal_marquee_style, LV_STATE_DEFAULT);
+}
+
+void init_quiet_marquee_styles()
+{
+    if (s_quiet_marquee_styles_ready) return;
+    // Slower than LVGL's default 40 px/s, so a scrolling name stays readable.
+    const uint32_t speed = lv_anim_speed_clamped(30, 400, 20000);
+    lv_anim_init(&s_focus_marquee_animation);
+    lv_anim_set_delay(&s_focus_marquee_animation, 3000);
+    lv_anim_set_repeat_delay(&s_focus_marquee_animation, 2500);
+    lv_anim_set_repeat_count(&s_focus_marquee_animation, 3);
+    lv_anim_set_completed_cb(&s_focus_marquee_animation, marquee_rest_cb);
+    lv_style_init(&s_focus_marquee_style);
+    lv_style_set_anim(&s_focus_marquee_style, &s_focus_marquee_animation);
+    lv_style_set_anim_duration(&s_focus_marquee_style, speed);
+
+    lv_anim_init(&s_reveal_marquee_animation);
+    lv_anim_set_delay(&s_reveal_marquee_animation, 200);
+    lv_anim_set_repeat_count(&s_reveal_marquee_animation, 1);
+    lv_anim_set_completed_cb(&s_reveal_marquee_animation, marquee_rest_cb);
+    lv_style_init(&s_reveal_marquee_style);
+    lv_style_set_anim(&s_reveal_marquee_style, &s_reveal_marquee_animation);
+    lv_style_set_anim_duration(&s_reveal_marquee_style, speed);
+    s_quiet_marquee_styles_ready = true;
+}
+
+void fit_single_line(lv_obj_t *label)
+{
+    // "…" truncation needs a one-line box; otherwise LVGL wraps the text.
+    // Callers therefore set a label's font before calling make_marquee().
+    const lv_font_t *font = lv_obj_get_style_text_font(label, LV_PART_MAIN);
+    const int32_t height = font ? lv_font_get_line_height(font) : 0;
+    if (height > 0 && lv_obj_get_style_height(label, LV_PART_MAIN) != height) {
+        lv_obj_set_height(label, height);
+    }
+}
+
+void reveal_truncated_labels(lv_obj_t *parent)
+{
+    const uint32_t count = lv_obj_get_child_count(parent);
+    for (uint32_t i = 0; i < count; ++i) {
+        lv_obj_t *child = lv_obj_get_child(parent, i);
+        if (lv_obj_check_type(child, &lv_label_class) &&
+            lv_obj_has_flag(child, kTruncatedMarqueeFlag) &&
+            lv_label_get_long_mode(child) == LV_LABEL_LONG_MODE_DOTS) {
+            lv_obj_remove_style(child, &s_focus_marquee_style, LV_STATE_DEFAULT);
+            lv_obj_add_style(child, &s_reveal_marquee_style, LV_STATE_DEFAULT);
+            lv_label_set_long_mode(child, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
+        }
+        reveal_truncated_labels(child);
+    }
+}
+
+void marquee_reveal_cb(lv_event_t *event)
+{
+    // Holding a row plays its cut-off text once instead of opening it.
+    lv_obj_t *row = lv_event_get_current_target_obj(event);
+    lv_indev_t *indev = lv_indev_active();
+    if (indev) lv_indev_wait_release(indev);
+    reveal_truncated_labels(row);
+}
+
+lv_obj_t *marquee_row(lv_obj_t *label)
+{
+    for (lv_obj_t *object = lv_obj_get_parent(label); object; object = lv_obj_get_parent(object)) {
+        if (lv_obj_check_type(object, &lv_button_class)) return object;
+    }
+    return nullptr;
+}
+
+} // namespace
+
+void disable_marquee_reveal(lv_obj_t *row)
+{
+    if (row) lv_obj_remove_event_cb(row, marquee_reveal_cb);
+}
+
+void make_marquee(lv_obj_t *label, int width, MarqueeMode mode)
 {
     if (!label || width <= 0) return;
+    if (mode != MarqueeMode::Continuous) {
+        init_quiet_marquee_styles();
+        lv_obj_set_width(label, width);
+        lv_obj_clear_flag(label, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+        lv_obj_add_flag(label, kTruncatedMarqueeFlag);
+        fit_single_line(label);
+        if (lv_obj_t *row = marquee_row(label)) {
+            // One handler per row, however many labels it holds.
+            lv_obj_remove_event_cb(row, marquee_reveal_cb);
+            lv_obj_add_event_cb(row, marquee_reveal_cb, LV_EVENT_LONG_PRESSED, nullptr);
+        }
+        if (mode == MarqueeMode::Focus) {
+            lv_obj_add_style(label, &s_focus_marquee_style, LV_STATE_DEFAULT);
+            lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
+        } else {
+            lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
+        }
+        return;
+    }
     if (!s_marquee_style_ready) {
         lv_anim_init(&s_marquee_animation);
         lv_anim_set_delay(&s_marquee_animation, 2000);
@@ -581,7 +695,6 @@ lv_obj_t *make_button(lv_obj_t *parent, int x, int y, int width, int height,
         // dereferences their property lists on press/release. nullptr is unsafe.
         lv_obj_set_style_border_width(button, 0, 0);
         if (radius > 0 || show_border) add_hud_frame(button);
-        add_hud_press_feedback(button);
     }
     if (is_aura_theme()) style_aura_surface(button, color, width, height, true);
     if (is_zeno_theme()) style_zeno_button(button, color, width, height);

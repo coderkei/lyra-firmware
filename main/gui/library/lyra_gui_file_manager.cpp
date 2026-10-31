@@ -947,6 +947,7 @@ void make_entry_row(lv_obj_t *body, int y, size_t index)
     lv_obj_add_event_cb(more, entry_more_cb, LV_EVENT_CLICKED, payload);
     lv_obj_add_event_cb(row, entry_clicked_cb, LV_EVENT_CLICKED, payload);
     lv_obj_add_event_cb(row, entry_long_pressed_cb, LV_EVENT_LONG_PRESSED, payload);
+    disable_marquee_reveal(row);
 }
 
 void append_rows(lv_obj_t *body, ListContext *context)
