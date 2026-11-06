@@ -185,7 +185,15 @@ matching the block-ack window, keep that reservation small. Internal RAM stays
 available for the audio output task,
 DMA, the display bands and the GUI stack. The I2S DMA rings stay at 186 ms
 each: flash writes stall the output task, and the rings must cover an NVS
-sector erase during playback.
+sector erase during playback. Background MicroSD workers (scan, search, sort
+and duration indexing, artwork) never write flash and run on PSRAM stacks. A
+firmware update from `/sdcard/update.bin` writes flash, so it runs on the GUI
+task's internal stack after stopping playback and waiting for media work; a
+failed update shows its error and restarts Lyra six seconds later.
+`update.bin` may be the app image (`build/lyra_firmware.bin`) or an
+`idf.py merge-bin` image, whose embedded partition table locates the app. Only
+the app is installed; a merged image's bootloader and partition table are not
+written.
 Decoded glyph masks and glyph lookups are cached in PSRAM (`main/lyra_font.cpp`);
 the compressed UI font is otherwise decompressed for every glyph on every
 redraw. QIO flash and a 32 KiB instruction cache reduce the stalls that LVGL

@@ -5,6 +5,8 @@
 
 #include "../lyra_gui_internal.h"
 
+#include "sdkconfig.h"
+
 namespace lyra::gui::internal {
 
 bool append_debug_text(char *destination, size_t capacity, const char *format, ...)
@@ -508,6 +510,26 @@ struct FirmwareUpdateFailure {
     char message[176];
 };
 
+constexpr uint32_t kFailedUpdateRestartDelayMs = 6000;
+
+// Playback and media work were stopped for the update, so a failed update
+// restarts Lyra once the message has been read, with a defragmented heap.
+static void restart_after_failed_update_cb(lv_timer_t *)
+{
+    const esp_err_t shutdown_result = lyra::media::shutdown();
+    if (shutdown_result != ESP_OK) {
+        // Preserving the card takes priority over the restart, as for a
+        // normal reboot. A power cycle remains safe after this point.
+        ESP_LOGE(kTag, "firmware update failed and MicroSD unmount failed: %s",
+                 esp_err_to_name(shutdown_result));
+        return;
+    }
+    ESP_LOGI(kTag, "restarting after failed firmware update");
+    lyra_board_display_set_backlight(false);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    esp_restart();
+}
+
 void firmware_update_failure_async_cb(void *context)
 {
     auto *failure = static_cast<FirmwareUpdateFailure *>(context);
@@ -517,6 +539,9 @@ void firmware_update_failure_async_cb(void *context)
         heap_caps_free(failure);
     }
     s_firmware_update_in_progress = false;
+    lv_timer_t *timer = lv_timer_create(restart_after_failed_update_cb,
+                                        kFailedUpdateRestartDelayMs, nullptr);
+    if (timer) lv_timer_set_repeat_count(timer, 1);
 }
 
 void post_firmware_update_failure(const char *message)
@@ -524,8 +549,9 @@ void post_firmware_update_failure(const char *message)
     auto *failure = static_cast<FirmwareUpdateFailure *>(
         heap_caps_malloc(sizeof(FirmwareUpdateFailure), MALLOC_CAP_8BIT));
     if (!failure) {
+        // Without a message there is no notice, but the restart still runs.
         ESP_LOGE(kTag, "could not allocate firmware update error message");
-        s_firmware_update_in_progress = false;
+        lv_async_call(firmware_update_failure_async_cb, nullptr);
         return;
     }
     std::strncpy(failure->message, message ? message :
@@ -562,14 +588,54 @@ bool firmware_update_media_idle()
     return false;
 }
 
-void firmware_update_task(void *)
+// `idf.py merge-bin` images start with the bootloader, whose header also
+// begins with 0xE9, and hold the app at its partition offset. Find the first
+// app partition in the embedded table so either kind of file installs. A
+// plain app image has no table there and starts at offset 0.
+static size_t firmware_update_app_offset(FILE *file, size_t file_size)
+{
+    constexpr size_t kTableOffset = CONFIG_PARTITION_TABLE_OFFSET;
+    constexpr size_t kEntryBytes = 32;
+    constexpr size_t kMaxEntries = 96;  // The 3 KiB table, MD5 entry included.
+    constexpr uint32_t kAppAlignment = 0x10000;
+    for (size_t index = 0; index < kMaxEntries; ++index) {
+        const size_t entry_offset = kTableOffset + index * kEntryBytes;
+        if (entry_offset + kEntryBytes > file_size) break;
+        uint8_t entry[kEntryBytes];
+        if (lyra::sd::seek(file, static_cast<long>(entry_offset), SEEK_SET,
+                           lyra::sd::Client::Filesystem) != 0 ||
+            lyra::sd::read(file, entry, kEntryBytes,
+                           lyra::sd::Client::Filesystem) != kEntryBytes) break;
+        // Entries start with magic AA 50; anything else ends the table, or
+        // means this is not a merged image at all.
+        if (entry[0] != 0xAA || entry[1] != 0x50) break;
+        if (entry[2] != 0x00) continue;  // Data partition, not an app.
+        const uint32_t offset = static_cast<uint32_t>(entry[4]) |
+                                static_cast<uint32_t>(entry[5]) << 8 |
+                                static_cast<uint32_t>(entry[6]) << 16 |
+                                static_cast<uint32_t>(entry[7]) << 24;
+        if (offset == 0 || offset % kAppAlignment != 0 || offset >= file_size) return 0;
+        uint8_t magic = 0;
+        const bool app_found =
+            lyra::sd::seek(file, static_cast<long>(offset), SEEK_SET,
+                           lyra::sd::Client::Filesystem) == 0 &&
+            lyra::sd::read(file, &magic, 1, lyra::sd::Client::Filesystem) == 1 &&
+            magic == 0xE9;
+        return app_found ? offset : 0;
+    }
+    return 0;
+}
+
+// The update sequence. It returns only after posting a failure; success
+// restarts into the new image. It writes flash, so it runs on the GUI
+// task's internal stack instead of a task allocated when RAM is fragmented.
+static void run_firmware_update()
 {
     constexpr const char *kUpdatePath = "/sdcard/update.bin";
     constexpr size_t kTransferBufferSize = 8192;
     FILE *file = lyra::sd::open(kUpdatePath, "rb", lyra::sd::Client::Filesystem);
     if (!file) {
         post_firmware_update_failure(tr(lyra::i18n::StringId::UpdateFileMissing));
-        vTaskDelete(nullptr);
         return;
     }
 
@@ -580,7 +646,6 @@ void firmware_update_task(void *)
     if (stop_result != ESP_OK && stop_result != ESP_ERR_INVALID_STATE) {
         lyra::sd::close(file, lyra::sd::Client::Filesystem);
         post_firmware_update_failure(tr(lyra::i18n::StringId::CouldNotStopAudio));
-        vTaskDelete(nullptr);
         return;
     }
     for (int wait_count = 0; wait_count < 200; ++wait_count) {
@@ -590,7 +655,6 @@ void firmware_update_task(void *)
     if (lyra::audio::status().playing || !firmware_update_media_idle()) {
         lyra::sd::close(file, lyra::sd::Client::Filesystem);
         post_firmware_update_failure(tr(lyra::i18n::StringId::SdCardBusy));
-        vTaskDelete(nullptr);
         return;
     }
 
@@ -598,7 +662,6 @@ void firmware_update_task(void *)
     if (!firmware_update_file_size(file, &file_size)) {
         lyra::sd::close(file, lyra::sd::Client::Filesystem);
         post_firmware_update_failure(tr(lyra::i18n::StringId::CouldNotReadUpdate));
-        vTaskDelete(nullptr);
         return;
     }
 
@@ -612,28 +675,32 @@ void firmware_update_task(void *)
     if (!header_read || image_header[0] != 0xE9 || image_header[1] == 0 || image_header[1] > 16) {
         lyra::sd::close(file, lyra::sd::Client::Filesystem);
         post_firmware_update_failure(tr(lyra::i18n::StringId::InvalidFirmwareUpdate));
-        vTaskDelete(nullptr);
         return;
+    }
+
+    const size_t image_offset = firmware_update_app_offset(file, file_size);
+    const size_t image_size = file_size - image_offset;
+    if (image_offset) {
+        ESP_LOGI(kTag, "update.bin is a merged image; installing the app at 0x%x (%u bytes)",
+                 static_cast<unsigned>(image_offset), static_cast<unsigned>(image_size));
     }
 
     const esp_partition_t *running = esp_ota_get_running_partition();
     const esp_partition_t *target = esp_ota_get_next_update_partition(running);
-    if (!target || target == running || file_size > target->size) {
+    if (!target || target == running || image_size > target->size) {
         lyra::sd::close(file, lyra::sd::Client::Filesystem);
         post_firmware_update_failure(tr(lyra::i18n::StringId::UpdateTooLarge));
-        vTaskDelete(nullptr);
         return;
     }
 
     esp_ota_handle_t ota_handle = 0;
-    esp_err_t result = esp_ota_begin(target, file_size, &ota_handle);
+    esp_err_t result = esp_ota_begin(target, image_size, &ota_handle);
     if (result != ESP_OK) {
         lyra::sd::close(file, lyra::sd::Client::Filesystem);
         char message[176];
         format_text(lyra::i18n::StringId::CouldNotPrepareOta, esp_err_to_name(result),
                     message, sizeof(message));
         post_firmware_update_failure(message);
-        vTaskDelete(nullptr);
         return;
     }
 
@@ -642,13 +709,12 @@ void firmware_update_task(void *)
         esp_ota_abort(ota_handle);
         lyra::sd::close(file, lyra::sd::Client::Filesystem);
         post_firmware_update_failure(tr(lyra::i18n::StringId::NotEnoughMemoryUpdate));
-        vTaskDelete(nullptr);
         return;
     }
 
-    bool transfer_succeeded = lyra::sd::seek(file, 0, SEEK_SET,
+    bool transfer_succeeded = lyra::sd::seek(file, static_cast<long>(image_offset), SEEK_SET,
                                              lyra::sd::Client::Filesystem) == 0;
-    size_t remaining = file_size;
+    size_t remaining = image_size;
     while (transfer_succeeded && remaining > 0) {
         const size_t wanted = remaining < kTransferBufferSize ? remaining : kTransferBufferSize;
         const size_t read = lyra::sd::read(file, buffer, wanted, lyra::sd::Client::Filesystem);
@@ -671,7 +737,6 @@ void firmware_update_task(void *)
     if (!transfer_succeeded) {
         esp_ota_abort(ota_handle);
         post_firmware_update_failure(tr(lyra::i18n::StringId::CouldNotReadWriteUpdate));
-        vTaskDelete(nullptr);
         return;
     }
 
@@ -684,7 +749,6 @@ void firmware_update_task(void *)
         format_text(lyra::i18n::StringId::InvalidFirmwareUpdateDetail,
                     esp_err_to_name(result), message, sizeof(message));
         post_firmware_update_failure(message);
-        vTaskDelete(nullptr);
         return;
     }
 
@@ -694,7 +758,6 @@ void firmware_update_task(void *)
         format_text(lyra::i18n::StringId::CouldNotSelectFirmware,
                     esp_err_to_name(result), message, sizeof(message));
         post_firmware_update_failure(message);
-        vTaskDelete(nullptr);
         return;
     }
 
@@ -704,14 +767,12 @@ void firmware_update_task(void *)
     const esp_err_t shutdown_result = lyra::media::shutdown();
     if (shutdown_result != ESP_OK) {
         post_firmware_update_failure(tr(lyra::i18n::StringId::SdUnmountFailed));
-        vTaskDelete(nullptr);
         return;
     }
     ESP_LOGI(kTag, "firmware update installed in %s; restarting", target->label);
     lyra_board_display_set_backlight(false);
     vTaskDelay(pdMS_TO_TICKS(100));
     esp_restart();
-    vTaskDelete(nullptr);
 }
 
 void start_firmware_update()
@@ -724,12 +785,16 @@ void start_firmware_update()
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, -10);
     lv_refr_now(lv_obj_get_display(s_screen));
-    if (xTaskCreatePinnedToCore(firmware_update_task, "lyra_ota", 8192, nullptr,
-                                3, nullptr, 0) != pdPASS) {
-        s_firmware_update_in_progress = false;
-        render(View::About);
-        show_notice(tr(lyra::i18n::StringId::FirmwareUpdateFailed),
-                    tr(lyra::i18n::StringId::CouldNotStartUpdateTask));
+    // The update owns the device until it restarts: it stops playback and
+    // waits for media work, leaving only Wi-Fi and MicroSD access. Running it
+    // on the GUI task means starting it never depends on internal RAM, which
+    // playback fragments. The one-shot timer lets the confirming tap finish.
+    lv_timer_t *timer = lv_timer_create([](lv_timer_t *) { run_firmware_update(); },
+                                        50, nullptr);
+    if (timer) {
+        lv_timer_set_repeat_count(timer, 1);
+    } else {
+        post_firmware_update_failure(tr(lyra::i18n::StringId::CouldNotStartUpdateTask));
     }
 }
 

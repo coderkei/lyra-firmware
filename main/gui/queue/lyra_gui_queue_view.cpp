@@ -292,6 +292,28 @@ lv_obj_t *make_menu_action(lv_obj_t *parent, const MenuEntry &entry,
     return button;
 }
 
+// The home screen stays up while playback changes underneath it. These track
+// what its now-playing card was built for, so update_menu_playback() can
+// refresh it; each pointer is cleared when its label is deleted.
+lv_obj_t *s_menu_playback_state = nullptr;
+lv_obj_t *s_menu_live_label = nullptr;
+char s_menu_playback_path[sizeof(lyra::audio::Status::path)] = "";
+bool s_menu_playback_playing = false;
+
+void clear_menu_pointer_cb(lv_event_t *event)
+{
+    lv_obj_t *target = lv_event_get_current_target_obj(event);
+    if (target == s_menu_playback_state) s_menu_playback_state = nullptr;
+    if (target == s_menu_live_label) s_menu_live_label = nullptr;
+}
+
+lyra::i18n::StringId playback_state_id(const lyra::audio::Status &playback)
+{
+    return !playback.playing ? lyra::i18n::StringId::PlaybackIdle :
+           playback.paused ? lyra::i18n::StringId::PlaybackPaused :
+                             lyra::i18n::StringId::PlaybackPlaying;
+}
+
 void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int height)
 {
     const lv_color_t fill = is_cute_theme() ? kAccentSurface :
@@ -314,10 +336,7 @@ void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int hei
                            lyra::media::track_at(s_current_track, &track) && track.title[0];
     const char *title_text = radio ? radio_station_name(playback.path) :
                              has_track ? track.title : tr(lyra::i18n::StringId::NowPlaying);
-    const lyra::i18n::StringId state_id = !playback.playing ?
-        lyra::i18n::StringId::PlaybackIdle : playback.paused ?
-        lyra::i18n::StringId::PlaybackPaused : lyra::i18n::StringId::PlaybackPlaying;
-    const char *state_text = tr(state_id);
+    const char *state_text = tr(playback_state_id(playback));
     const bool detailed_overview = height >= 96;
     const bool show_album = detailed_overview && has_track && track.album[0];
     // The card is not refreshed while a station plays, so name the source
@@ -355,6 +374,10 @@ void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int hei
     lv_obj_t *state = make_label(entry, state_text, state_color);
     lv_obj_set_width(state, text_width);
     lv_label_set_long_mode(state, LV_LABEL_LONG_MODE_DOTS);
+    s_menu_playback_state = state;
+    lv_obj_add_event_cb(state, clear_menu_pointer_cb, LV_EVENT_DELETE, nullptr);
+    copy_ui_text(s_menu_playback_path, sizeof(s_menu_playback_path), playback.path);
+    s_menu_playback_playing = playback.playing;
     if (detailed_overview) {
         constexpr int kOverviewLineHeight = 24;
         const int line_count = 2 + static_cast<int>(show_album) +
@@ -411,6 +434,10 @@ void render_classic_zeno_menu()
         lv_obj_align(label, LV_ALIGN_LEFT_MID, 14, 0);
         const bool live = items[i].view == View::Player && playing;
         lv_obj_set_style_text_color(label, live ? kAccent : kTextPrimary, 0);
+        if (items[i].view == View::Player) {
+            s_menu_live_label = label;
+            lv_obj_add_event_cb(label, clear_menu_pointer_cb, LV_EVENT_DELETE, nullptr);
+        }
         lv_obj_add_event_cb(row, menu_destination_cb, LV_EVENT_CLICKED,
             reinterpret_cast<void *>(static_cast<uintptr_t>(items[i].view)));
     }
@@ -600,6 +627,28 @@ void render_hud_menu()
 }
 
 } // namespace
+
+void update_menu_playback()
+{
+    if (!s_menu_playback_state && !s_menu_live_label) return;
+    const lyra::audio::Status playback = lyra::audio::status();
+    if (s_menu_live_label) {
+        lv_obj_set_style_text_color(s_menu_live_label,
+            playback.playing && !playback.paused ? kAccent : kTextPrimary, 0);
+    }
+    if (!s_menu_playback_state) return;
+    if (playback.playing != s_menu_playback_playing ||
+        std::strcmp(playback.path, s_menu_playback_path) != 0) {
+        // A new track or station, or playback starting or stopping, changes
+        // the title, cover and details: rebuild the card where it scrolled to.
+        if (s_view == View::Menu) {
+            if (s_scroll_body) s_pending_scroll_restore_y = lv_obj_get_scroll_y(s_scroll_body);
+            render(View::Menu);
+        }
+        return;
+    }
+    set_label_text_if_changed(s_menu_playback_state, tr(playback_state_id(playback)));
+}
 
 void render_menu()
 {

@@ -584,6 +584,9 @@ void make_zeno_album_song_row(lv_obj_t *parent, int y, size_t track_index, size_
 void make_zeno_transport(lv_obj_t *parent, int y);
 void update_zeno_transport();
 void render_menu();
+// Keeps the home screen's now-playing card (and Zeno's lit entry) in step
+// with playback while the home screen is shown. Called from the player poll.
+void update_menu_playback();
 void render_apps();
 void render_calculator();
 void render_calendar();
@@ -691,7 +694,6 @@ void firmware_update_failure_async_cb(void *context);
 void post_firmware_update_failure(const char *message);
 bool firmware_update_file_size(FILE *file, size_t *size);
 bool firmware_update_media_idle();
-void firmware_update_task(void *);
 void start_firmware_update();
 void confirm_firmware_update_cb(lv_event_t *event);
 void show_firmware_update_confirmation();

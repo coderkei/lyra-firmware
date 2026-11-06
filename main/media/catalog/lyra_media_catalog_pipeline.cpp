@@ -294,7 +294,7 @@ void search_task(void *)
         s_search_status.ready = result == ESP_OK;
         ++s_search_status.generation;
     }
-    vTaskDelete(nullptr);
+    vTaskDeleteWithCaps(nullptr);
 }
 
 enum class ScanRecordState : uint8_t {
@@ -932,7 +932,7 @@ void sort_cache_task(void *argument)
         }
     }
     if (!request_valid) {
-        vTaskDelete(nullptr);
+        vTaskDeleteWithCaps(nullptr);
         return;
     }
 
@@ -1091,7 +1091,7 @@ void sort_cache_task(void *argument)
         }
     }
     heap_caps_free(order);
-    vTaskDelete(nullptr);
+    vTaskDeleteWithCaps(nullptr);
 }
 
 void start_sort_cache_indexing_locked(SortSection section)
@@ -1107,9 +1107,13 @@ void start_sort_cache_indexing_locked(SortSection section)
     s_status.sorting_indexed = 0;
     s_status.sorting_total = total;
     s_status.sorting_section = static_cast<uint8_t>(section);
-    if (xTaskCreatePinnedToCore(sort_cache_task, "lyra_sort", kSortStack,
-                                reinterpret_cast<void *>(static_cast<uintptr_t>(section)),
-                                1, nullptr, kArtworkCore) != pdPASS) {
+    // Background media workers only read and write the MicroSD card, never
+    // flash, so their stacks live in PSRAM like the artwork worker's. A
+    // fragmented internal heap must not stop indexing.
+    if (xTaskCreatePinnedToCoreWithCaps(sort_cache_task, "lyra_sort", kSortStack,
+                                        reinterpret_cast<void *>(static_cast<uintptr_t>(section)),
+                                        1, nullptr, kArtworkCore,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         s_status.sorting_indexing = false;
         ++s_status.sorting_generation;
         s_sort_cancel_requested = true;
@@ -1933,7 +1937,7 @@ void duration_task(void *)
             s_status.duration_indexing = false;
         }
     }
-    vTaskDelete(nullptr);
+    vTaskDeleteWithCaps(nullptr);
 }
 
 void start_duration_indexing_if_needed()
@@ -1947,8 +1951,9 @@ void start_duration_indexing_if_needed()
         s_status.duration_indexed = 0;
         s_duration_cancel_requested = false;
     }
-    if (xTaskCreatePinnedToCore(duration_task, "lyra_duration", kDurationStack,
-                                nullptr, 1, nullptr, kArtworkCore) != pdPASS) {
+    if (xTaskCreatePinnedToCoreWithCaps(duration_task, "lyra_duration", kDurationStack,
+                                        nullptr, 1, nullptr, kArtworkCore,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         Lock lock;
         s_status.duration_indexing = false;
         s_duration_cancel_requested = true;
@@ -2051,7 +2056,7 @@ void scan_task(void *)
         ESP_LOGE(kTag, "scan failed after %u tracks: %s; previous catalog retained",
                  static_cast<unsigned>(track_count), esp_err_to_name(result));
     }
-    vTaskDelete(nullptr);
+    vTaskDeleteWithCaps(nullptr);
 }
 
 

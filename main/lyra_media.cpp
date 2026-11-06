@@ -220,7 +220,10 @@ esp_err_t start_search(SearchCategory category, const char *query)
         s_search_status.result_count = 0;
         s_search_status.result = ESP_OK;
     }
-    if (xTaskCreatePinnedToCore(search_task, "lyra_search", 8192, nullptr, 1, nullptr, 0) != pdPASS) {
+    // Media workers never write flash, so a PSRAM stack is safe and keeps
+    // search working when the internal heap is fragmented.
+    if (xTaskCreatePinnedToCoreWithCaps(search_task, "lyra_search", 8192, nullptr, 1, nullptr, 0,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         Lock lock;
         s_search_status.running = false;
         s_search_status.result = ESP_ERR_NO_MEM;
@@ -270,10 +273,14 @@ esp_err_t start_scan()
         s_status.scan_found = 0;
         s_status.scan_indexing = false;
     }
-    if (xTaskCreatePinnedToCore(scan_task, "lyra_sd_scan", kScanStack, nullptr, 2, nullptr, 0) != pdPASS) {
+    // The 24 KiB scan stack never fits a fragmented internal heap. The scan
+    // only touches the MicroSD card, never flash, so its stack lives in PSRAM.
+    if (xTaskCreatePinnedToCoreWithCaps(scan_task, "lyra_sd_scan", kScanStack, nullptr, 2,
+                                        nullptr, 0, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         Lock lock;
         s_status.scanning = false;
         s_status.last_error = ESP_ERR_NO_MEM;
+        ESP_LOGE(kTag, "could not start the library scan task");
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;

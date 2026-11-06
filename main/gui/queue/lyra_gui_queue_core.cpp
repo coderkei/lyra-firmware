@@ -941,6 +941,7 @@ void nav_play_cb(lv_event_t *)
         begin_crossfade_fade_in();
     }
     update_nav_play_icon();
+    update_menu_playback();
 }
 
 namespace {

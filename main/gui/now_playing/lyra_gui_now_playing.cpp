@@ -781,6 +781,7 @@ void update_player_progress()
     update_zeno_transport();
     update_aura_transport();
     update_nav_play_icon();
+    update_menu_playback();
     lyra::audio::Status audio_status = lyra::audio::status();
     const bool ab_mode_changed = update_player_ab_loop(audio_status);
     if (ab_mode_changed && s_view == View::Player) render(View::Player);
