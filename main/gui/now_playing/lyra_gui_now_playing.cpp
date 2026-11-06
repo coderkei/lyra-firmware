@@ -15,6 +15,35 @@ constexpr size_t kMaximumLyricsRows = 256;
 constexpr size_t kLyricsRowsPerTick = 6;
 constexpr uint32_t kLyricsRowsTickMs = 10;
 constexpr uint32_t kUntimedLyric = UINT32_MAX;
+constexpr int32_t kPlayerProgressMax = 1000;
+constexpr int32_t kSeekHandleRadius = 6;
+
+void player_seek_handle_cb(lv_event_t *event)
+{
+    if (lv_event_get_code(event) == LV_EVENT_REFR_EXT_DRAW_SIZE) {
+        auto *extra = static_cast<int32_t *>(lv_event_get_param(event));
+        *extra = std::max(*extra, kSeekHandleRadius);
+        return;
+    }
+
+    lv_obj_t *bar = lv_event_get_current_target_obj(event);
+    lv_area_t rail;
+    lv_obj_get_coords(bar, &rail);
+    const int32_t x = rail.x1 + (rail.x2 - rail.x1) * lv_bar_get_value(bar) / kPlayerProgressMax;
+    const int32_t y = (rail.y1 + rail.y2) / 2;
+    const lv_area_t handle{x - kSeekHandleRadius, y - kSeekHandleRadius,
+                           x + kSeekHandleRadius, y + kSeekHandleRadius};
+    const bool light_center = is_cute_theme() || is_aura_theme();
+    lv_draw_rect_dsc_t rect;
+    lv_draw_rect_dsc_init(&rect);
+    rect.bg_color = s_neon_hud ? lv_color_hex(kHudCyanRgb) : light_center ? kSurface : kAccent;
+    rect.bg_opa = LV_OPA_COVER;
+    rect.radius = s_neon_hud ? 0 : LV_RADIUS_CIRCLE;
+    rect.border_width = light_center ? 2 : 1;
+    rect.border_color = light_center ? kAccent : kSurface;
+    rect.border_opa = LV_OPA_COVER;
+    lv_draw_rect(lv_event_get_layer(event), &rect, &handle);
+}
 
 struct LyricsRow {
     uint32_t time_ms;
@@ -669,16 +698,16 @@ void reset_player_lyrics_state()
     s_player_flip_phase = FlipPhase::None;
 }
 
-void update_player_progress_touch_value(lv_obj_t *touch)
+void update_player_progress_touch_value()
 {
-    if (!touch || !lv_indev_active()) return;
+    if (!s_player_progress_bar || !lv_indev_active()) return;
     lv_area_t area;
-    lv_obj_get_coords(touch, &area);
+    lv_obj_get_coords(s_player_progress_bar, &area);
     lv_point_t point;
     lv_indev_get_point(lv_indev_active(), &point);
     const int32_t width = std::max<int32_t>(1, area.x2 - area.x1);
     const int32_t x = std::max<int32_t>(0, std::min<int32_t>(point.x - area.x1, width));
-    s_player_progress_drag_value = (x * 1000) / width;
+    s_player_progress_drag_value = (x * kPlayerProgressMax) / width;
 }
 
 void update_player_progress_preview()
@@ -689,7 +718,7 @@ void update_player_progress_preview()
         lv_bar_set_value(s_player_progress_bar, s_player_progress_drag_value, LV_ANIM_OFF);
     }
     const uint32_t preview_ms = static_cast<uint32_t>(
-        (static_cast<uint64_t>(s_player_progress_drag_value) * audio_status.duration_ms) / 1000u);
+        (static_cast<uint64_t>(s_player_progress_drag_value) * audio_status.duration_ms) / kPlayerProgressMax);
     char elapsed[16];
     format_playback_time(preview_ms, false, elapsed, sizeof(elapsed));
     if (s_player_elapsed_label) set_label_text_if_changed(s_player_elapsed_label, elapsed);
@@ -698,28 +727,27 @@ void update_player_progress_preview()
 void player_progress_touch_cb(lv_event_t *event)
 {
     const lv_event_code_t code = lv_event_get_code(event);
-    lv_obj_t *touch = lv_event_get_current_target_obj(event);
     if (code == LV_EVENT_PRESSED) {
         s_player_progress_dragging = true;
-        update_player_progress_touch_value(touch);
+        update_player_progress_touch_value();
         update_player_progress_preview();
         return;
     }
 
     if (code == LV_EVENT_PRESSING && s_player_progress_dragging) {
-        update_player_progress_touch_value(touch);
+        update_player_progress_touch_value();
         update_player_progress_preview();
         return;
     }
 
     if (code != LV_EVENT_RELEASED && code != LV_EVENT_PRESS_LOST) return;
     if (!s_player_progress_dragging) return;
-    update_player_progress_touch_value(touch);
+    update_player_progress_touch_value();
     const lyra::audio::Status audio_status = lyra::audio::status();
     s_player_progress_dragging = false;
     if (audio_status.duration_ms == 0) return;
     const uint32_t target_ms = static_cast<uint32_t>(
-        (static_cast<uint64_t>(s_player_progress_drag_value) * audio_status.duration_ms) / 1000u);
+        (static_cast<uint64_t>(s_player_progress_drag_value) * audio_status.duration_ms) / kPlayerProgressMax);
     const esp_err_t seek_ret = lyra::audio::seek(target_ms);
     if (seek_ret != ESP_OK) {
         ESP_LOGW(kTag, "could not seek playback: %s", esp_err_to_name(seek_ret));
@@ -769,8 +797,8 @@ void update_player_progress()
     if (s_player_progress_dragging) return;
     if (s_player_progress_bar) {
         const int progress = duration_ms > 0 ? static_cast<int>(
-            (static_cast<uint64_t>(position_ms) * 1000u) / duration_ms) : 0;
-        lv_bar_set_value(s_player_progress_bar, std::min(progress, 1000), LV_ANIM_OFF);
+            (static_cast<uint64_t>(position_ms) * kPlayerProgressMax) / duration_ms) : 0;
+        lv_bar_set_value(s_player_progress_bar, std::min<int32_t>(progress, kPlayerProgressMax), LV_ANIM_OFF);
     }
     char elapsed[16];
     char duration[16];
@@ -871,8 +899,8 @@ void update_player_progress_seek_preview(uint32_t position_ms, uint32_t duration
     if (s_player_progress_dragging) return;
     if (s_player_progress_bar && duration_ms > 0) {
         const int progress = static_cast<int>(
-            (static_cast<uint64_t>(s_player_seek_preview_position_ms) * 1000u) / duration_ms);
-        lv_bar_set_value(s_player_progress_bar, std::min(progress, 1000), LV_ANIM_OFF);
+            (static_cast<uint64_t>(s_player_seek_preview_position_ms) * kPlayerProgressMax) / duration_ms);
+        lv_bar_set_value(s_player_progress_bar, std::min<int32_t>(progress, kPlayerProgressMax), LV_ANIM_OFF);
     }
     char elapsed[16];
     format_playback_time(s_player_seek_preview_position_ms, false, elapsed, sizeof(elapsed));
@@ -1016,10 +1044,12 @@ void render_player()
     make_marquee(album, zeno ? 136 : 240, MarqueeMode::Focus);
     lv_obj_align(album, LV_ALIGN_TOP_LEFT, zeno ? 172 : 20, zeno ? 81 : progress_y - 35);
 
+    const int progress_x = zeno ? 16 : 56;
+    const int progress_width = zeno ? 288 : 208;
     lv_obj_t *bar = lv_bar_create(body);
-    lv_obj_set_pos(bar, zeno ? 16 : 56, progress_y);
-    lv_obj_set_size(bar, zeno ? 288 : 208, (zeno || aura) ? 8 : 5);
-    lv_bar_set_range(bar, 0, 1000);
+    lv_obj_set_pos(bar, progress_x, progress_y);
+    lv_obj_set_size(bar, progress_width, (zeno || aura) ? 8 : 5);
+    lv_bar_set_range(bar, 0, kPlayerProgressMax);
     lv_bar_set_value(bar, 0, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(bar, kDivider, LV_PART_MAIN);
     lv_obj_set_style_bg_color(bar, kAccent, LV_PART_INDICATOR);
@@ -1027,9 +1057,15 @@ void render_player()
         lv_obj_set_height(bar, 7);
         style_hud_progress_bar(bar);
     }
+    // Draw over the rail and its theme decorations, including when LVGL
+    // refreshes only the pixels beyond the edge of the rail.
+    lv_obj_add_flag(bar, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_add_event_cb(bar, player_seek_handle_cb, LV_EVENT_DRAW_POST, nullptr);
+    lv_obj_add_event_cb(bar, player_seek_handle_cb, LV_EVENT_REFR_EXT_DRAW_SIZE, nullptr);
+    lv_obj_refresh_ext_draw_size(bar);
     s_player_progress_bar = bar;
-    s_player_progress_touch = make_player_progress_touch(body, zeno ? 16 : 56,
-        progress_y - (zeno ? 6 : 8), zeno ? 288 : 208, zeno ? 36 : 21);
+    s_player_progress_touch = make_player_progress_touch(body, progress_x - kSeekHandleRadius,
+        progress_y - (zeno ? 6 : 8), progress_width + 2 * kSeekHandleRadius, zeno ? 36 : 21);
     s_player_elapsed_label = make_label(body, "00:00", kTextSecondary);
     lv_obj_set_pos(s_player_elapsed_label, zeno ? 16 : 10, (zeno || aura) ? progress_y + 14 : progress_y - 8);
     s_player_duration_label = make_label(body, "--:--", kTextSecondary);
