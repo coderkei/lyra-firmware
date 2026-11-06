@@ -44,6 +44,12 @@ esp_netif_t *s_station_netif;
 Status s_status{};
 char s_saved_password[64]{};
 bool s_driver_started;
+// The Wi-Fi driver is brought up at boot by ensure_driver(); later calls
+// retry a failed start. Guarded by s_driver_mutex; s_mutex may be taken while
+// holding it, never the reverse.
+SemaphoreHandle_t s_driver_mutex;
+bool s_driver_ready;
+bool s_wifi_initialized;
 bool s_connect_request_active;
 bool s_user_disconnect;
 uint8_t s_reconnect_attempts;
@@ -304,6 +310,86 @@ void wifi_event_handler(void *, esp_event_base_t event_base, int32_t event_id,
     }
 }
 
+bool driver_ready()
+{
+    if (!s_driver_mutex) return false;
+    xSemaphoreTake(s_driver_mutex, portMAX_DELAY);
+    const bool ready = s_driver_ready;
+    xSemaphoreGive(s_driver_mutex);
+    return ready;
+}
+
+esp_err_t register_event_handlers()
+{
+    esp_err_t result = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
+                                                  wifi_event_handler, nullptr);
+    if (result != ESP_OK) return result;
+    result = esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                        wifi_event_handler, nullptr);
+    if (result == ESP_OK) {
+        result = esp_event_handler_register(IP_EVENT, IP_EVENT_STA_LOST_IP,
+                                            wifi_event_handler, nullptr);
+        if (result != ESP_OK) {
+            esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler);
+        }
+    }
+    if (result != ESP_OK) {
+        esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler);
+    }
+    return result;
+}
+
+// Brings up the station netif and the Wi-Fi driver. esp_wifi_init() needs
+// contiguous internal DMA RAM for its static RX buffers and its task, which
+// playback later fragments, so this runs at boot even when Wi-Fi is off:
+// deferring it made enabling Wi-Fi fail mid-session. A failed attempt can be
+// retried; completed stages are not repeated.
+esp_err_t ensure_driver()
+{
+    if (!s_driver_mutex) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(s_driver_mutex, portMAX_DELAY);
+    if (s_driver_ready) {
+        xSemaphoreGive(s_driver_mutex);
+        return ESP_OK;
+    }
+    esp_err_t result = ESP_OK;
+    if (!s_station_netif) {
+        s_station_netif = esp_netif_create_default_wifi_sta();
+        if (!s_station_netif) result = ESP_FAIL;
+    }
+    if (result == ESP_OK && !s_wifi_initialized) {
+        wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
+        result = esp_wifi_init(&config);
+        s_wifi_initialized = result == ESP_OK;
+    }
+    if (result == ESP_OK) result = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    if (result == ESP_OK) result = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (result == ESP_OK) result = register_event_handlers();
+    if (result == ESP_OK) {
+        char ssid[33]{};
+        char password[64]{};
+        xSemaphoreTake(s_mutex, portMAX_DELAY);
+        copy_c_string(ssid, sizeof(ssid), s_status.saved_ssid);
+        copy_c_string(password, sizeof(password), s_saved_password);
+        xSemaphoreGive(s_mutex);
+        if (ssid[0]) {
+            wifi_config_t station_config = make_station_config(ssid, password);
+            result = esp_wifi_set_config(WIFI_IF_STA, &station_config);
+            if (result != ESP_OK) {
+                esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler);
+                esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler);
+                esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_LOST_IP, wifi_event_handler);
+            }
+        }
+    }
+    s_driver_ready = result == ESP_OK;
+    xSemaphoreGive(s_driver_mutex);
+    if (result != ESP_OK) {
+        ESP_LOGE(kTag, "Wi-Fi driver start failed: %s", esp_err_to_name(result));
+    }
+    return result;
+}
+
 struct ConnectRequest {
     uint32_t serial;
     char ssid[33];
@@ -341,7 +427,8 @@ void connect_worker(void *context)
     xSemaphoreGive(s_mutex);
     esp_err_t result = ESP_OK;
     if (!driver_started) {
-        result = esp_wifi_set_config(WIFI_IF_STA, &config);
+        result = ensure_driver();
+        if (result == ESP_OK) result = esp_wifi_set_config(WIFI_IF_STA, &config);
         if (s_events) xEventGroupClearBits(s_events, kStationStartedBit);
         if (result == ESP_OK) result = esp_wifi_start();
         if (result == ESP_OK) {
@@ -504,35 +591,15 @@ esp_err_t init()
 {
     if (s_status.initialized) return ESP_OK;
     if (!s_mutex) s_mutex = xSemaphoreCreateMutex();
+    if (!s_driver_mutex) s_driver_mutex = xSemaphoreCreateMutex();
     if (!s_events) s_events = xEventGroupCreate();
-    if (!s_mutex || !s_events) return ESP_ERR_NO_MEM;
+    if (!s_mutex || !s_driver_mutex || !s_events) return ESP_ERR_NO_MEM;
 
     esp_err_t result = esp_netif_init();
     if (result == ESP_ERR_INVALID_STATE) result = ESP_OK;
     if (result != ESP_OK) return result;
     result = esp_event_loop_create_default();
     if (result == ESP_ERR_INVALID_STATE) result = ESP_OK;
-    if (result != ESP_OK) return result;
-    s_station_netif = esp_netif_create_default_wifi_sta();
-    if (!s_station_netif) return ESP_FAIL;
-
-    wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
-    result = esp_wifi_init(&config);
-    if (result != ESP_OK) return result;
-    result = esp_wifi_set_storage(WIFI_STORAGE_RAM);
-    if (result == ESP_OK) result = esp_wifi_set_mode(WIFI_MODE_STA);
-    if (result == ESP_OK) {
-        result = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
-                                            wifi_event_handler, nullptr);
-    }
-    if (result == ESP_OK) {
-        result = esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
-                                            wifi_event_handler, nullptr);
-    }
-    if (result == ESP_OK) {
-        result = esp_event_handler_register(IP_EVENT, IP_EVENT_STA_LOST_IP,
-                                            wifi_event_handler, nullptr);
-    }
     if (result != ESP_OK) return result;
 
     xSemaphoreTake(s_mutex, portMAX_DELAY);
@@ -543,19 +610,12 @@ esp_err_t init()
     const bool enabled = s_status.enabled;
     xSemaphoreGive(s_mutex);
 
-    if (s_status.has_saved_network) {
-        wifi_config_t station_config = make_station_config(s_status.saved_ssid,
-                                                            s_saved_password);
-        result = esp_wifi_set_config(WIFI_IF_STA, &station_config);
-        if (result != ESP_OK) {
-            xSemaphoreTake(s_mutex, portMAX_DELAY);
-            s_status.initialized = false;
-            xSemaphoreGive(s_mutex);
-            return result;
-        }
-    }
+    // Reserve the driver's internal RAM while it is still contiguous, even
+    // when Wi-Fi is off. If this fails, enabling Wi-Fi later retries it.
+    const esp_err_t driver_result = ensure_driver();
     if (enabled) {
-        result = esp_wifi_start();
+        result = driver_result;
+        if (result == ESP_OK) result = esp_wifi_start();
         if (result == ESP_OK) {
             xSemaphoreTake(s_mutex, portMAX_DELAY);
             s_driver_started = true;
@@ -615,7 +675,8 @@ esp_err_t set_enabled(bool enabled)
             bump_generation_locked();
             xSemaphoreGive(s_mutex);
         }
-        result = esp_wifi_start();
+        result = ensure_driver();
+        if (result == ESP_OK) result = esp_wifi_start();
         if (result == ESP_OK) {
             xSemaphoreTake(s_mutex, portMAX_DELAY);
             s_driver_started = true;
@@ -633,7 +694,8 @@ esp_err_t set_enabled(bool enabled)
             bump_generation_locked();
             xSemaphoreGive(s_mutex);
         }
-        result = esp_wifi_stop();
+        // A driver that was never brought up has nothing to stop.
+        result = driver_ready() ? esp_wifi_stop() : ESP_OK;
         if (result == ESP_OK) {
             xSemaphoreTake(s_mutex, portMAX_DELAY);
             s_driver_started = false;
@@ -662,7 +724,7 @@ esp_err_t scan()
     const bool enabled = s_status.enabled;
     const bool already_scanning = s_status.scanning;
     xSemaphoreGive(s_mutex);
-    if (!enabled) return ESP_ERR_INVALID_STATE;
+    if (!enabled || !driver_ready()) return ESP_ERR_INVALID_STATE;
     if (already_scanning) return ESP_OK;
 
     xSemaphoreTake(s_mutex, portMAX_DELAY);
@@ -687,6 +749,10 @@ esp_err_t connect(const char *ssid, const char *password)
     const size_t ssid_length = std::strlen(ssid);
     const size_t password_length = std::strlen(password);
     if (ssid_length > 32 || password_length > 63) return ESP_ERR_INVALID_ARG;
+    // Normally a no-op. If the boot-time driver start failed, the retry needs
+    // more stack than the 4 KiB connect worker has, so run it here.
+    const esp_err_t driver_result = ensure_driver();
+    if (driver_result != ESP_OK) return driver_result;
 
     auto *request = static_cast<ConnectRequest *>(std::calloc(1, sizeof(ConnectRequest)));
     if (!request) return ESP_ERR_NO_MEM;

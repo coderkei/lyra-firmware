@@ -178,8 +178,14 @@ framebuffer pipeline remains selectable as
 LVGL's heap lives in PSRAM (`components/lyra_board/lyra_lvgl_memory.cpp`), so
 widgets, styles, label text and draw tasks do not consume internal RAM. Wi-Fi
 and LWIP buffers and TLS sessions are also allocated in PSRAM first, and the
-Wi-Fi IRAM throughput options are disabled. Internal RAM stays available for
-the audio output task, DMA, the display bands and the GUI stack.
+Wi-Fi IRAM throughput options are disabled. The Wi-Fi driver initializes at
+boot even when Wi-Fi is off, because its static RX buffers and task need
+contiguous internal RAM that playback later fragments. Six static RX buffers,
+matching the block-ack window, keep that reservation small. Internal RAM stays
+available for the audio output task,
+DMA, the display bands and the GUI stack. The I2S DMA rings stay at 186 ms
+each: flash writes stall the output task, and the rings must cover an NVS
+sector erase during playback.
 Decoded glyph masks and glyph lookups are cached in PSRAM (`main/lyra_font.cpp`);
 the compressed UI font is otherwise decompressed for every glyph on every
 redraw. QIO flash and a 32 KiB instruction cache reduce the stalls that LVGL

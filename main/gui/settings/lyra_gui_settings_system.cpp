@@ -1056,12 +1056,12 @@ void save_active_queue_snapshot(const lyra::audio::Status &audio_status)
     }
 }
 
-void power_action_task(void *context)
+// The shutdown sequence. It returns only when the action could not complete;
+// a successful reboot, power-off or factory reset never returns. It writes
+// NVS, so it must run on a task with an internal stack.
+static void run_power_action(PowerAction action)
 {
-    const PowerAction action = static_cast<PowerAction>(reinterpret_cast<uintptr_t>(context));
     const bool factory_reset = action == PowerAction::FactoryReset;
-    // Give LVGL time to present the shutdown status before filesystem work.
-    vTaskDelay(pdMS_TO_TICKS(250));
     const lyra::audio::Status audio_status = lyra::audio::status();
     // A factory reset must not create or update any files on the MicroSD card,
     // so it deliberately skips the normal shutdown queue/volume persistence.
@@ -1073,7 +1073,6 @@ void power_action_task(void *context)
         if (factory_reset) post_factory_reset_failure(audio_result);
         // Do not write queue state or unmount while a decoder may still own
         // an open MicroSD file.
-        vTaskDelete(nullptr);
         return;
     }
     ESP_LOGI(kTag, "shutdown: audio workers released files");
@@ -1095,7 +1094,6 @@ void power_action_task(void *context)
         if (factory_reset) post_factory_reset_failure(media_result);
         // Do not restart or sleep after an unmount failure: preserving the card
         // takes priority over completing the requested power action.
-        vTaskDelete(nullptr);
         return;
     }
 
@@ -1108,15 +1106,12 @@ void power_action_task(void *context)
         if (result != ESP_OK) {
             ESP_LOGE(kTag, "factory reset failed: %s", esp_err_to_name(result));
             post_factory_reset_failure(result);
-            vTaskDelete(nullptr);
             return;
         }
         ESP_LOGI(kTag, "factory reset complete; restarting");
         lyra_board_display_set_backlight(false);
         vTaskDelay(pdMS_TO_TICKS(100));
         esp_restart();
-        vTaskDelete(nullptr);
-        return;
     }
 
     lyra_board_display_set_backlight(false);
@@ -1128,6 +1123,22 @@ void power_action_task(void *context)
     ESP_LOGI(kTag, "entering deep sleep after safe MicroSD unmount");
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
     esp_deep_sleep_start();
+}
+
+void power_action_task(void *context)
+{
+    // Give LVGL time to present the shutdown status before filesystem work.
+    vTaskDelay(pdMS_TO_TICKS(250));
+    run_power_action(static_cast<PowerAction>(reinterpret_cast<uintptr_t>(context)));
+    vTaskDelete(nullptr);
+}
+
+static void power_action_timer_cb(lv_timer_t *timer)
+{
+    // One-shot: LVGL has presented the status screen by the time this runs.
+    // The GUI task stack is internal, so the sequence's NVS writes are safe.
+    run_power_action(static_cast<PowerAction>(
+        reinterpret_cast<uintptr_t>(lv_timer_get_user_data(timer))));
 }
 
 void confirm_power_action_cb(lv_event_t *event)
@@ -1143,10 +1154,22 @@ void confirm_power_action_cb(lv_event_t *event)
                                  tr(lyra::i18n::StringId::PoweringOff), kTextPrimary);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, -10);
+    void *const action_data = reinterpret_cast<void *>(static_cast<uintptr_t>(action));
     if (xTaskCreatePinnedToCore(power_action_task, "lyra_power", kPowerActionTaskStack,
-                                reinterpret_cast<void *>(static_cast<uintptr_t>(action)),
-                                3, nullptr, 0) != pdPASS) {
-        ESP_LOGE(kTag, "could not create power action task");
+                                action_data, 3, nullptr, 0) == pdPASS) {
+        return;
+    }
+    // Shutdown is when the internal heap is most fragmented (a radio stream
+    // or two decoders may be live), and this sequence writes NVS, so it cannot
+    // fall back to a PSRAM stack. Run it on the GUI task instead; the status
+    // screen stays up while it works.
+    ESP_LOGW(kTag, "power action task unavailable (internal largest=%u); using the GUI task",
+             static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+    lv_timer_t *timer = lv_timer_create(power_action_timer_cb, 250, action_data);
+    if (timer) {
+        lv_timer_set_repeat_count(timer, 1);
+    } else {
+        ESP_LOGE(kTag, "could not start the power action");
         render(View::SystemSettings);
     }
 }
