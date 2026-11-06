@@ -162,18 +162,38 @@ pauses and refreshes its results without rebuilding the keyboard.
 Themes with decorative wallpapers rasterize them once into PSRAM (Aura's sky
 and light trails, Zeno's logo tile) and blit the cached pixels on redraw.
 
-**Display performance.** LVGL draws damaged rectangles into one persistent
-RGB565 framebuffer. A display worker on the GUI core swaps byte order while filling two reserved
-four-row DMA buffers, so the next strip can be staged during the current
-transfer. The AXS15231B write starts at row zero and ends at the lowest dirty
-row. The first frame and recovery from a transfer failure write the full
-panel. Audio decode, mixing, and I2S output keep their existing core and
-priority assignments.
+**Display performance.** The AXS15231B accepts pixel writes only as one
+stream that starts at row zero, so every invalidated area is rounded to full
+rows from the top of the panel. LVGL renders that range in horizontal bands
+into two internal-RAM DMA buffers (24 rows each by default,
+`CONFIG_LYRA_DISPLAY_BAND_LINES`). Each band is byte-swapped in place and sent
+inside a single CS-held RAMWR while LVGL renders the next band into the other
+buffer, so drawing and the QSPI transfer overlap. The refresh waits only for
+its final band. No PSRAM framebuffer is read or written, which keeps the
+display out of the PSRAM bandwidth and data cache that audio decoding uses.
+Recovery from a transfer failure redraws the full panel. The previous PSRAM
+framebuffer pipeline remains selectable as
+`CONFIG_LYRA_DISPLAY_LEGACY_FRAMEBUFFER` for comparison.
+
+LVGL's heap lives in PSRAM (`components/lyra_board/lyra_lvgl_memory.cpp`), so
+widgets, styles, label text and draw tasks do not consume internal RAM. Wi-Fi
+and LWIP buffers and TLS sessions are also allocated in PSRAM first, and the
+Wi-Fi IRAM throughput options are disabled. Internal RAM stays available for
+the audio output task, DMA, the display bands and the GUI stack.
+Decoded glyph masks and glyph lookups are cached in PSRAM (`main/lyra_font.cpp`);
+the compressed UI font is otherwise decompressed for every glyph on every
+redraw. QIO flash and a 32 KiB instruction cache reduce the stalls that LVGL
+on the GUI core and the decoders on the audio core cause each other. Audio
+decode, mixing, and I2S output keep their existing core and priority
+assignments. `CONFIG_LYRA_LCD_QSPI_CLOCK_80MHZ` halves panel transfer time
+and needs validation on each board.
 
 For device validation, enable `CONFIG_LYRA_GUI_FRAME_TIMING` in menuconfig.
-The serial log reports the actual QSPI clock and summarizes rendering,
-transfer, and frame intervals above 33.3 ms. The interval summary omits gaps
-over 100 ms, so also watch for visible stalls during continuous gestures.
+The serial log reports the actual QSPI clock, the band height and internal
+heap after display setup, and summarizes frame time, the wait for the final
+band, rows sent per frame and intervals above 33.3 ms. The interval summary
+omits gaps over 100 ms, so also watch for visible stalls during continuous
+gestures.
 Compare continuous drags and flings in Songs, Albums, and Queue with playback
 idle and with playback active. Include a track handoff with artwork and
 crossfade enabled, and compare the audio underrun counters against the

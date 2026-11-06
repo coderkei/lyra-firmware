@@ -476,7 +476,7 @@ void player_lyrics_load_task(void *context)
 {
     auto *request = static_cast<LyricsLoadRequest *>(context);
     if (!request) {
-        vTaskDelete(nullptr);
+        vTaskDeleteWithCaps(nullptr);
         return;
     }
     request->loaded = lyra::media::load_lyrics(request->track, request->buffer,
@@ -485,7 +485,7 @@ void player_lyrics_load_task(void *context)
     if (lv_async_call(player_lyrics_loaded_async_cb, request) != LV_RESULT_OK) {
         free_lyrics_load_request(request);
     }
-    vTaskDelete(nullptr);
+    vTaskDeleteWithCaps(nullptr);
 }
 
 void start_player_lyrics_load()
@@ -510,8 +510,12 @@ void start_player_lyrics_load()
         return;
     }
     request->buffer[0] = '\0';
-    if (xTaskCreatePinnedToCore(player_lyrics_load_task, "lyra_lyrics", 8192,
-                                request, 1, nullptr, 0) != pdPASS) {
+    // Lyrics load whenever the player opens, which is exactly when a new
+    // track needs internal RAM for its I2S output. Reading metadata and .lrc
+    // files never writes flash, so this stack lives in PSRAM.
+    if (xTaskCreatePinnedToCoreWithCaps(player_lyrics_load_task, "lyra_lyrics", 8192,
+                                        request, 1, nullptr, 0,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         free_lyrics_load_request(request);
         show_player_no_lyrics();
     }

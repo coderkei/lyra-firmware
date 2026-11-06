@@ -1,0 +1,64 @@
+menu "Lyra JC3248W535EN display"
+
+choice LYRA_DISPLAY_PIPELINE
+    prompt "Display pipeline"
+    default LYRA_DISPLAY_STREAMED_BANDS
+    help
+        Selects how LVGL output reaches the AXS15231B panel.
+
+    config LYRA_DISPLAY_STREAMED_BANDS
+        bool "Streamed bands in internal RAM"
+        help
+            LVGL renders horizontal bands into two internal DMA buffers. Each
+            band is sent to the panel while the next one is rendered, so
+            drawing and the QSPI transfer overlap and no PSRAM framebuffer
+            traffic competes with audio. Redraws start at row zero, as the
+            panel requires.
+
+    config LYRA_DISPLAY_LEGACY_FRAMEBUFFER
+        bool "Legacy PSRAM framebuffer"
+        help
+            The previous pipeline: LVGL draws into one PSRAM framebuffer and a
+            display task copies rows into small DMA strips after each frame.
+            Rendering and transfer run one after the other. Keep only for
+            comparison or as a fallback during board bring-up.
+endchoice
+
+config LYRA_DISPLAY_BAND_LINES
+    int "Rows per streamed band"
+    depends on LYRA_DISPLAY_STREAMED_BANDS
+    range 8 48
+    default 24
+    help
+        Height of each of the two internal DMA render buffers. Each row costs
+        640 bytes per buffer, so 24 rows use 30 KiB of internal RAM in total.
+        Taller bands reduce per-band LVGL overhead; shorter bands leave more
+        internal RAM for audio and Wi-Fi. If the buffers cannot be allocated
+        at boot, the firmware halves the height until they fit.
+
+choice LYRA_LCD_QSPI_CLOCK
+    prompt "LCD QSPI pixel clock"
+    default LYRA_LCD_QSPI_CLOCK_40MHZ
+    help
+        The ESP32-S3 SPI clock is derived from the 80 MHz APB clock, so only
+        integer divisors are available. Earlier firmware requested 50 MHz,
+        which the driver rounds down to 40 MHz.
+
+    config LYRA_LCD_QSPI_CLOCK_40MHZ
+        bool "40 MHz"
+
+    config LYRA_LCD_QSPI_CLOCK_80MHZ
+        bool "80 MHz (experimental)"
+        help
+            Halves panel transfer time. The panel signals are routed through
+            the GPIO matrix and the AXS15231B rating at this clock is not
+            documented for this board. Validate for corrupted or shifted rows
+            on the physical kit before keeping this setting.
+endchoice
+
+config LYRA_LCD_QSPI_CLOCK_MHZ
+    int
+    default 80 if LYRA_LCD_QSPI_CLOCK_80MHZ
+    default 40
+
+endmenu

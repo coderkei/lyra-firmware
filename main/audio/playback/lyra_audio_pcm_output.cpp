@@ -7,9 +7,17 @@
 
 namespace lyra::audio::internal {
 
+static void delete_output_task_self(bool psram_stack)
+{
+    if (psram_stack) vTaskDeleteWithCaps(nullptr);
+    else vTaskDelete(nullptr);
+}
+
 void pcm_output_task(void *context)
 {
     auto *output = static_cast<PcmOutput *>(context);
+    // Read before `done` is given: the owner may reuse the output afterwards.
+    const bool psram_stack = output && output->psram_stack;
     if (!output || !output->staging_buffer) {
         if (output) {
             output->error_code = ESP_ERR_NO_MEM;
@@ -19,7 +27,7 @@ void pcm_output_task(void *context)
             output->finished = true;
             xSemaphoreGive(output->done);
         }
-        vTaskDelete(nullptr);
+        delete_output_task_self(psram_stack);
         return;
     }
 
@@ -108,7 +116,7 @@ void pcm_output_task(void *context)
 
     output->finished = true;
     xSemaphoreGive(output->done);
-    vTaskDelete(nullptr);
+    delete_output_task_self(psram_stack);
 }
 
 bool start_pcm_output(PcmOutput *output)
@@ -143,9 +151,30 @@ bool start_pcm_output(PcmOutput *output)
         kPcmOutputBufferBytes, kI2sFrameBytes, output->ring_buffer,
         &output->stream_storage);
     output->done = xSemaphoreCreateBinary();
-    if (!output->stream || !output->done ||
-        xTaskCreatePinnedToCore(pcm_output_task, "lyra_i2s", kAudioOutputTaskStack,
-                                output, kAudioOutputTaskPriority, &output->task, 0) != pdPASS) {
+    bool task_started = false;
+    if (output->stream && output->done) {
+        // Prefer an internal stack. When the internal heap is too fragmented
+        // for one, play from a PSRAM stack instead of failing the track: the
+        // output task never performs flash operations, like the mixer and
+        // decoder workers that already run on PSRAM stacks.
+        output->psram_stack = false;
+        task_started = xTaskCreatePinnedToCore(
+            pcm_output_task, "lyra_i2s", kAudioOutputTaskStack, output,
+            kAudioOutputTaskPriority, &output->task, 0) == pdPASS;
+        if (!task_started) {
+            output->psram_stack = true;
+            task_started = xTaskCreatePinnedToCoreWithCaps(
+                pcm_output_task, "lyra_i2s", kAudioOutputTaskStack, output,
+                kAudioOutputTaskPriority, &output->task, 0,
+                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
+            if (task_started) {
+                ESP_LOGW(kTag, "PCM output stack in PSRAM: internal largest=%u",
+                         static_cast<unsigned>(heap_caps_get_largest_free_block(
+                             MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+            }
+        }
+    }
+    if (!task_started) {
         ESP_LOGE(kTag, "PCM output task/stream creation failed: internal free=%u largest=%u",
                  static_cast<unsigned>(heap_caps_get_free_size(
                      MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
@@ -188,7 +217,8 @@ void stop_pcm_output(PcmOutput *output, bool drain, uint32_t generation)
 
     if (!output->finished && output->task) {
         ESP_LOGW(kTag, "timed out stopping I2S output task");
-        vTaskDelete(output->task);
+        if (output->psram_stack) vTaskDeleteWithCaps(output->task);
+        else vTaskDelete(output->task);
     }
     if (output->stream) vStreamBufferDelete(output->stream);
     if (output->done) vSemaphoreDelete(output->done);

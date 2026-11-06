@@ -88,3 +88,9 @@ prefer PSRAM, the I2S staging chunk uses 8 KiB of DMA memory, reduced from
 track with known duration. FLAC SD reads are limited to 16 KiB per
 transaction; same-rate PCM bypasses interpolation. Recheck marquee smoothness,
 LCD flush errors, `pcm-fifo-underruns`, and the new memory fields together.
+
+The I2S output task still prefers an internal stack. When no internal block
+of its stack size is available, it starts on a PSRAM stack instead of failing
+the track and logs `PCM output stack in PSRAM`. Compare `pcm-fifo-underruns`
+across tracks that log this line and tracks that do not. The lyrics loader,
+which starts whenever Now Playing opens, always uses a PSRAM stack.

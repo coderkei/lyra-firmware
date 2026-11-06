@@ -82,3 +82,19 @@ the embedded font data and allocates one small source-glyph mask during a
 fallback glyph draw, freeing it before returning. LVGL owns the output mask.
 At heading sizes, fallback glyph appearance follows the scaled embedded
 bitmap source.
+
+## Glyph cache
+
+LVGL 9 expands every glyph to an A8 mask each time it is drawn, and the
+compressed UI font must also be decompressed. `lyra::font::enable_glyph_cache()`
+keeps each decoded mask in a 160 KiB PSRAM arena, so a redraw blends stored
+masks instead. The UI font, the CJK supplement, the Montserrat font that
+supplies `LV_SYMBOL_*` icons, and the Zeno heading fonts use it. When the
+arena or its index fills, the cache is cleared and refilled by the glyphs in
+use.
+
+For fmt_txt fonts without kerning (the UI font and CJK supplement), lookups
+outside ASCII are also remembered by code point, including misses. Symbol
+icons and Han characters therefore no longer rescan every character map of
+the fonts ahead of them in the fallback chain. The cache assumes LVGL renders
+on one thread and refuses to compile otherwise.

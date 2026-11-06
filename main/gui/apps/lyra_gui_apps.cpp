@@ -24,6 +24,7 @@ struct FileScanJob {
     FileScan *scan;
     lyra::media::FileKind kind;
     bool refresh_cache;
+    bool psram_stack;
 };
 
 FileScan s_photo_scan;
@@ -83,15 +84,17 @@ void file_scan_task(void *argument)
     job->scan->found.store(count, std::memory_order_release);
     job->scan->complete.store(true, std::memory_order_release);
     job->scan->running.store(false, std::memory_order_release);
+    const bool psram_stack = job->psram_stack;
     delete job;
-    vTaskDelete(nullptr);
+    if (psram_stack) vTaskDeleteWithCaps(nullptr);
+    else vTaskDelete(nullptr);
 }
 
 bool start_file_scan(FileScan *scan, lyra::media::FileKind kind)
 {
     if (scan->running.load(std::memory_order_acquire)) return true;
     if (scan->complete.load(std::memory_order_acquire)) return true;
-    auto *job = new (std::nothrow) FileScanJob{scan, kind, scan->refresh_cache};
+    auto *job = new (std::nothrow) FileScanJob{scan, kind, scan->refresh_cache, false};
     if (!job) {
         scan->succeeded = false;
         scan->complete.store(true, std::memory_order_release);
@@ -100,7 +103,16 @@ bool start_file_scan(FileScan *scan, lyra::media::FileKind kind)
     scan->refresh_cache = false;
     scan->found.store(0, std::memory_order_release);
     scan->running.store(true, std::memory_order_release);
-    if (xTaskCreate(file_scan_task, "lyra.app.files", 16 * 1024, job, 2, nullptr) != pdPASS) {
+    // The scan only reads the SD card, so a PSRAM stack is safe when the
+    // internal heap is too fragmented for 16 KiB; scanning must not fail.
+    bool started = xTaskCreate(file_scan_task, "lyra.app.files", 16 * 1024, job, 2, nullptr) == pdPASS;
+    if (!started) {
+        job->psram_stack = true;
+        started = xTaskCreatePinnedToCoreWithCaps(file_scan_task, "lyra.app.files", 16 * 1024, job, 2,
+                                                  nullptr, tskNO_AFFINITY,
+                                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
+    }
+    if (!started) {
         scan->running.store(false, std::memory_order_release);
         delete job;
         scan->succeeded = false;

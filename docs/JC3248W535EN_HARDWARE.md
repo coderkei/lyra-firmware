@@ -67,7 +67,13 @@ speaker** is enabled. The setting is enabled by default and persists in NVS.
 
 Record these measurements and observations from the physical development kit:
 
-- Detected flash size/mode and PSRAM mode/speed.
+- Detected flash size/mode and PSRAM mode/speed. The firmware selects QIO
+  flash; confirm the boot log reports QIO after a full flash, including the
+  bootloader.
+- Streamed display bands hold CS asserted between bands while the next band
+  renders. Confirm there are no shifted or corrupted rows during long scrolls,
+  artwork loads and the boot splash.
+- Whether the panel is stable with `CONFIG_LYRA_LCD_QSPI_CLOCK_80MHZ`.
 - Touch orientation, coordinate alignment, and whether GPIO3 is a reliable
   interrupt source.
 - Panel orientation and the usefulness of the TE signal for the final flush

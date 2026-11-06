@@ -5,6 +5,8 @@
 
 #include "../lyra_gui_internal.h"
 
+#include <initializer_list>
+
 namespace lyra::gui::internal {
 namespace {
 
@@ -99,10 +101,19 @@ lv_font_t make_scaled_font(const int *pixels)
 
 const lv_font_t *zeno_heading_font(bool large)
 {
-    static const lv_font_t unicode_heading = make_scaled_font(&kHeadingPixels);
-    static const lv_font_t unicode_menu = make_scaled_font(&kMenuPixels);
+    static lv_font_t unicode_heading = make_scaled_font(&kHeadingPixels);
+    static lv_font_t unicode_menu = make_scaled_font(&kMenuPixels);
     static lv_font_t heading = lv_font_montserrat_28;
     static lv_font_t menu = lv_font_montserrat_34;
+    static bool glyphs_cached = false;
+    if (!glyphs_cached) {
+        // Scaled fallback glyphs are interpolated per pixel; keep each
+        // result instead of rescaling it on every redraw.
+        for (lv_font_t *font : {&heading, &menu, &unicode_heading, &unicode_menu}) {
+            lyra::font::enable_glyph_cache(font);
+        }
+        glyphs_cached = true;
+    }
     // Font packs need common line metrics: allow the taller multilingual
     // glyphs to fit while retaining the original English glyph bitmaps.
     heading.line_height = unicode_heading.line_height;

@@ -24,8 +24,9 @@ inventory and its distribution notes.
 
 | Path | What it currently contains |
 | --- | --- |
-| `components/lyra_board/include/lyra_board.h` | Existing display initialization, LVGL display access, brightness/backlight control, and explicit LVGL task-start interface. |
-| `components/lyra_board/lyra_board.cpp` | JC3248W535EN display/touch initialization, LVGL buffers and flush callback, touch polling, backlight, and worker setup. |
+| `components/lyra_board/include/lyra_board.h` | Existing display initialization, LVGL display access, brightness/backlight control, screen capture, and explicit LVGL task-start interface. |
+| `components/lyra_board/lyra_board.cpp` | JC3248W535EN display/touch initialization, streamed LVGL band buffers and flush callback, invalidation rounding for the row-zero panel stream, touch polling, backlight, and worker setup. |
+| `components/lyra_board/Kconfig`, `components/lyra_board/lyra_lvgl_memory.cpp` | Display pipeline, band height and QSPI clock options; the PSRAM-backed LVGL heap. A panel that accepts row windows does not need the row-zero rounding. |
 | `components/lyra_board/lyra_axs15231b.cpp` | AXS15231B panel command and QSPI transfer implementation. |
 | `board/JC3248W535EN/include/lyra_board_pins.h` | Current panel, touch, SD, I2S, speaker, and battery-sense GPIO definitions. |
 | `main/lyra_audio.cpp` | Main I2S output initialization and optional second I2S device for mirrored speaker output. |

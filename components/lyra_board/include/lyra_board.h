@@ -43,6 +43,11 @@ esp_err_t lyra_board_display_set_brightness(uint8_t brightness_percent);
 // builds the first LVGL object tree.
 esp_err_t lyra_board_display_start(void);
 
+// Redraws the complete active screen and copies it into `pixels` as native
+// RGB565 rows of LYRA_BOARD_DISPLAY_WIDTH * 2 bytes. `size` must hold a full
+// frame. Call only from the LVGL task; the panel is updated as usual.
+esp_err_t lyra_board_display_capture(lv_display_t *display, uint8_t *pixels, size_t size);
+
 #ifdef __cplusplus
 }
 #endif

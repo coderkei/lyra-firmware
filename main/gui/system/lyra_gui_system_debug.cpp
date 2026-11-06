@@ -391,50 +391,27 @@ void take_screenshot_cb(lv_event_t *)
     lv_display_t *display = lv_obj_get_display(s_screen);
     if (!display) return;
 
-    // Removing the object avoids copying stale pixels from a direct/double
-    // buffered display where hiding alone may not repaint the old button
-    // before the active buffer is sampled.
+    // Remove the floating button so the capture shows only the page beneath.
     const int32_t button_x = lv_obj_get_x(s_screenshot_button);
     const int32_t button_y = lv_obj_get_y(s_screenshot_button);
     lv_obj_delete(s_screenshot_button);
     s_screenshot_button = nullptr;
-    lv_obj_invalidate(lv_layer_top());
-    lv_obj_invalidate(s_screen);
-    lv_refr_now(display);
 
-    // In direct double-buffer mode LVGL swaps buffers after the flush. The
-    // buffer returned as active after the first refresh is therefore the
-    // previously displayed buffer, which can still contain the button. A
-    // second full refresh updates that buffer too before it is sampled.
-    lv_obj_invalidate(lv_layer_top());
-    lv_obj_invalidate(s_screen);
-    lv_refr_now(display);
-
-    lv_draw_buf_t *active = lv_display_get_buf_active(display);
-    const bool valid_buffer = active && active->data &&
-                              active->header.w == kScreenWidth &&
-                              active->header.h == kScreenHeight &&
-                              active->header.stride >= kScreenWidth * 2u &&
-                              (active->header.cf == LV_COLOR_FORMAT_RGB565 ||
-                               active->header.cf == LV_COLOR_FORMAT_RGB565_SWAPPED);
-    const uint32_t captured_stride = valid_buffer ? active->header.stride : 0;
-    const uint32_t captured_width = valid_buffer ? active->header.w : 0;
-    const uint32_t captured_height = valid_buffer ? active->header.h : 0;
-    const lv_color_format_t captured_format = valid_buffer ?
-        static_cast<lv_color_format_t>(active->header.cf) : LV_COLOR_FORMAT_RGB565;
-    uint8_t *copy = nullptr;
-    if (valid_buffer) {
-        const size_t bytes = static_cast<size_t>(active->header.stride) * active->header.h;
-        copy = static_cast<uint8_t *>(heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-        if (!copy) copy = static_cast<uint8_t *>(heap_caps_malloc(bytes, MALLOC_CAP_8BIT));
-        if (copy) std::memcpy(copy, active->data, bytes);
+    // The board redraws one complete frame and keeps a copy. The streamed
+    // display pipeline has no persistent framebuffer to sample.
+    constexpr uint32_t kCaptureStride = kScreenWidth * 2u;
+    constexpr size_t kCaptureBytes = static_cast<size_t>(kCaptureStride) * kScreenHeight;
+    auto *copy = static_cast<uint8_t *>(heap_caps_malloc(kCaptureBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (copy && lyra_board_display_capture(display, copy, kCaptureBytes) != ESP_OK) {
+        heap_caps_free(copy);
+        copy = nullptr;
     }
 
     create_screenshot_button(button_x, button_y);
     lv_obj_invalidate(lv_layer_top());
     lv_refr_now(display);
-    const bool saved = copy && save_screenshot_bmp(copy, captured_stride, captured_width,
-                                                   captured_height, captured_format);
+    const bool saved = copy && save_screenshot_bmp(copy, kCaptureStride, kScreenWidth,
+                                                   kScreenHeight, LV_COLOR_FORMAT_RGB565);
     heap_caps_free(copy);
     show_notice(saved ? tr(lyra::i18n::StringId::ScreenshotSaved) :
                        tr(lyra::i18n::StringId::ScreenshotFailed),

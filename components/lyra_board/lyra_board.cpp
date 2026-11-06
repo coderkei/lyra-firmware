@@ -33,15 +33,26 @@ namespace {
 using namespace lyra::board::jc3248w535en;
 
 constexpr spi_host_device_t kDisplaySpiHost = SPI2_HOST;
-constexpr uint32_t kPixelClockHz = 50 * 1000 * 1000;
+// The vendor register sequence is always written at the proven rate; only
+// pixel data uses the configurable transport clock.
+constexpr uint32_t kRegisterClockHz = 40 * 1000 * 1000;
+constexpr uint32_t kPixelClockHz = CONFIG_LYRA_LCD_QSPI_CLOCK_MHZ * 1000 * 1000;
+constexpr size_t kRowBytes = LYRA_BOARD_DISPLAY_WIDTH * sizeof(uint16_t);
+constexpr size_t kFrameBytes = kRowBytes * LYRA_BOARD_DISPLAY_HEIGHT;
+static_assert(kRowBytes % 64 == 0);
+constexpr size_t kDisplayQueueDepth = 2;
+#if CONFIG_LYRA_DISPLAY_STREAMED_BANDS
+// Two internal DMA bands: LVGL renders one while the other is on the bus.
+constexpr size_t kBandLines = CONFIG_LYRA_DISPLAY_BAND_LINES;
+constexpr size_t kMinimumBandLines = 8;
+constexpr size_t kMaxTransferBytes = kRowBytes * kBandLines;
+#else
 // PSRAM DMA underruns at this QSPI rate. Reserve two small strips at boot
 // so playback can never fragment or exhaust the LCD's DMA workspace.
 constexpr size_t kTransportBufferLines = 4;
-constexpr size_t kDisplayQueueDepth = 2;
-constexpr size_t kRowBytes = LYRA_BOARD_DISPLAY_WIDTH * sizeof(uint16_t);
 constexpr size_t kStripBytes = kRowBytes * kTransportBufferLines;
-constexpr size_t kFrameBytes = kRowBytes * LYRA_BOARD_DISPLAY_HEIGHT;
-static_assert(kRowBytes % 64 == 0);
+constexpr size_t kMaxTransferBytes = kStripBytes;
+#endif
 constexpr uint32_t kDisplayRefreshMs = 16;
 constexpr int kGuiCore = 1;
 // LVGL's bounded TinyJPEG decoder performs its header probe on the caller's
@@ -64,19 +75,41 @@ constexpr uint32_t kBacklightFrequencyHz = 20000;
 constexpr uint32_t kBacklightMaximumDuty = (1u << 10) - 1u;
 
 static bool s_lvgl_task_started;
+static bool s_transport_ready;
 static spi_device_handle_t s_lcd_spi;
+static esp_err_t s_frame_result = ESP_ERR_INVALID_STATE;
+static std::atomic<bool> s_retry_frame{false};
+static int64_t s_next_error_log_us;
+#ifdef CONFIG_LYRA_GUI_FRAME_TIMING
+static int64_t s_render_started_us;
+#endif
+#if CONFIG_LYRA_DISPLAY_LEGACY_FRAMEBUFFER
 static TaskHandle_t s_lcd_task;
 static SemaphoreHandle_t s_lcd_done;
 static uint32_t *s_dma_strips[kDisplayQueueDepth];
+static uint8_t *s_framebuffer;
 static const uint8_t *s_frame_pixels;
 static size_t s_frame_rows;
 static size_t s_dirty_rows;
 static bool s_frame_pending;
-static esp_err_t s_frame_result = ESP_ERR_INVALID_STATE;
-static std::atomic<bool> s_retry_frame{false};
 #ifdef CONFIG_LYRA_GUI_FRAME_TIMING
-static int64_t s_render_started_us;
 static uint32_t s_render_us;
+#endif
+#else
+// One panel write per LVGL refresh: rows arrive top-down from row zero and
+// stay inside a single CS-held RAMWR. All fields belong to the GUI task.
+struct BandStream {
+    bool open;
+    bool failed;
+    bool in_flight;
+    size_t next_row;
+    spi_transaction_t transaction;
+};
+static BandStream s_stream;
+static uint8_t *s_band_buffers[2];
+static size_t s_band_lines;
+static uint8_t *s_capture_pixels;
+static size_t s_capture_rows;
 #endif
 static i2c_master_bus_handle_t s_touch_bus;
 static i2c_master_dev_handle_t s_touch_device;
@@ -90,13 +123,27 @@ static bool s_backlight_initialized;
 static bool s_backlight_enabled;
 static uint8_t s_backlight_brightness_percent = 72;
 
-static esp_err_t send_frame(const uint8_t *pixels, size_t rows)
+// Ends an interrupted stream with a NOP so CS is released, then frees the bus.
+// Every queued transaction must already be complete.
+static void abort_stream()
+{
+    spi_transaction_t end{};
+    end.flags = SPI_TRANS_USE_TXDATA;
+    end.length = 32;
+    end.tx_data[0] = 0x02;
+    spi_device_polling_transmit(s_lcd_spi, &end);
+    spi_device_release_bus(s_lcd_spi);
+}
+
+// Preserve the board's CASET + RAMWR sequence and keep CS asserted from the
+// RAMWR header through the last quad-data transaction. Never send RASET: the
+// controller continues each write from row zero. On success the bus stays
+// acquired for the pixel transactions that follow.
+static esp_err_t begin_stream()
 {
     esp_err_t result = spi_device_acquire_bus(s_lcd_spi, portMAX_DELAY);
     if (result != ESP_OK) return result;
 
-    // Preserve the board's CASET + RAMWR sequence and keep CS asserted from
-    // the RAMWR header through the last quad-data strip. Never send RASET.
     constexpr int last_column = LYRA_BOARD_DISPLAY_WIDTH - 1;
     spi_transaction_t window{};
     window.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_CS_KEEP_ACTIVE;
@@ -118,6 +165,69 @@ static esp_err_t send_frame(const uint8_t *pixels, size_t rows)
     ram_write.tx_data[2] = LCD_CMD_RAMWR;
     if (result == ESP_OK) result = spi_device_polling_transmit(s_lcd_spi, &ram_write);
 
+    if (result != ESP_OK) abort_stream();
+    return result;
+}
+
+static void report_transfer_error(esp_err_t result)
+{
+    const int64_t now = esp_timer_get_time();
+    if (now >= s_next_error_log_us) {
+        ESP_LOGE(kTag, "LCD transfer failed: %s", esp_err_to_name(result));
+        s_next_error_log_us = now + 1'000'000;
+    }
+    s_retry_frame.store(true, std::memory_order_release);
+}
+
+#ifdef CONFIG_LYRA_GUI_FRAME_TIMING
+// Summarizes presentation intervals so the over-budget count tracks visible
+// stutter. Intervals over 100 ms are idle gaps, not dropped frames.
+// `wait_us` is the time spent blocked on the panel: the whole transfer for
+// the framebuffer pipeline, only the final band for streamed bands.
+static void record_frame_timing(uint32_t frame_us, uint32_t wait_us, size_t rows)
+{
+    const int64_t now = esp_timer_get_time();
+    static int64_t previous_us = 0;
+    static uint32_t frames = 0, samples = 0, over_budget = 0, worst_us = 0;
+    static uint32_t max_frame_us = 0, max_wait_us = 0;
+    static uint64_t total_frame_us = 0, total_rows = 0;
+    const int64_t interval = now - previous_us;
+    if (previous_us && interval <= 100'000) {
+        ++samples;
+        if (interval > 33'333) ++over_budget;
+        worst_us = std::max(worst_us, static_cast<uint32_t>(interval));
+    }
+    previous_us = now;
+    max_frame_us = std::max(max_frame_us, frame_us);
+    max_wait_us = std::max(max_wait_us, wait_us);
+    total_frame_us += frame_us;
+    total_rows += rows;
+    if (++frames == 120) {
+        ESP_LOGI(kTag, "LCD 120 frames: intervals=%lu over_33ms=%lu max_gap=%lu us "
+                 "max_frame=%lu us avg_frame=%lu us max_wait=%lu us avg_rows=%lu",
+                 static_cast<unsigned long>(samples), static_cast<unsigned long>(over_budget),
+                 static_cast<unsigned long>(worst_us), static_cast<unsigned long>(max_frame_us),
+                 static_cast<unsigned long>(total_frame_us / frames),
+                 static_cast<unsigned long>(max_wait_us),
+                 static_cast<unsigned long>(total_rows / frames));
+        frames = samples = over_budget = worst_us = max_frame_us = max_wait_us = 0;
+        total_frame_us = total_rows = 0;
+    }
+}
+
+static void lvgl_refresh_started(lv_event_t *)
+{
+    s_render_started_us = esp_timer_get_time();
+}
+#endif
+
+#if CONFIG_LYRA_DISPLAY_LEGACY_FRAMEBUFFER
+
+static esp_err_t send_frame(const uint8_t *pixels, size_t rows)
+{
+    esp_err_t result = begin_stream();
+    if (result != ESP_OK) return result;
+
     spi_transaction_t strips[kDisplayQueueDepth]{};
     size_t submitted = 0;
     size_t completed = 0;
@@ -130,21 +240,21 @@ static esp_err_t send_frame(const uint8_t *pixels, size_t rows)
         }
         const size_t index = submitted % kDisplayQueueDepth;
         const size_t lines = std::min(kTransportBufferLines, rows - y);
-        const size_t bytes = lines * kRowBytes;
-        const uint8_t *source = pixels + y * kRowBytes;
+        const size_t words = lines * kRowBytes / sizeof(uint32_t);
+        // The framebuffer is 64-byte aligned and rows are a multiple of 64
+        // bytes, so whole-word loads are safe; byte loads from PSRAM are not
+        // needed. Swap both pixels in each word while staging for DMA.
+        const auto *source = reinterpret_cast<const uint32_t *>(pixels + y * kRowBytes);
         uint32_t *destination = s_dma_strips[index];
-        // Draw in native RGB565 so LVGL can use its native blend and image
-        // copy paths. Swap both pixels in each word while staging for DMA.
-        for (size_t word = 0; word < bytes / sizeof(uint32_t); ++word) {
-            uint32_t value;
-            std::memcpy(&value, source + word * sizeof(value), sizeof(value));
+        for (size_t word = 0; word < words; ++word) {
+            const uint32_t value = source[word];
             destination[word] = ((value & 0x00ff00ffU) << 8) | ((value & 0xff00ff00U) >> 8);
         }
         auto &strip = strips[index];
         strip = {};
         strip.flags = SPI_TRANS_MODE_QIO | SPI_TRANS_DMA_BUFFER_ALIGN_MANUAL;
         if (y + lines < rows) strip.flags |= SPI_TRANS_CS_KEEP_ACTIVE;
-        strip.length = bytes * 8;
+        strip.length = lines * kRowBytes * 8;
         strip.tx_buffer = destination;
         result = spi_device_queue_trans(s_lcd_spi, &strip, portMAX_DELAY);
         if (result == ESP_OK) ++submitted;
@@ -155,21 +265,16 @@ static esp_err_t send_frame(const uint8_t *pixels, size_t rows)
         if (spi_device_get_trans_result(s_lcd_spi, &done, portMAX_DELAY) == ESP_OK) ++completed;
     }
     if (result != ESP_OK) {
-        // End an interrupted stream with a NOP so CS is released before retry.
-        spi_transaction_t end{};
-        end.flags = SPI_TRANS_USE_TXDATA;
-        end.length = 32;
-        end.tx_data[0] = 0x02;
-        spi_device_polling_transmit(s_lcd_spi, &end);
+        abort_stream();
+    } else {
+        spi_device_release_bus(s_lcd_spi);
     }
-    spi_device_release_bus(s_lcd_spi);
     return result;
 }
 
 static void lcd_task(void *)
 {
     bool full_frame = true;
-    int64_t next_error_log_us = 0;
     while (true) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         const size_t rows = full_frame ? LYRA_BOARD_DISPLAY_HEIGHT : s_frame_rows;
@@ -179,38 +284,12 @@ static void lcd_task(void *)
 #endif
         s_frame_result = send_frame(s_frame_pixels, rows);
         full_frame = s_frame_result != ESP_OK;
-        if (full_frame) {
-            const int64_t now = esp_timer_get_time();
-            if (now >= next_error_log_us) {
-                ESP_LOGE(kTag, "LCD transfer failed: %s", esp_err_to_name(s_frame_result));
-                next_error_log_us = now + 1'000'000;
-            }
-            s_retry_frame.store(true, std::memory_order_release);
-        }
+        if (full_frame) report_transfer_error(s_frame_result);
         xSemaphoreGive(s_lcd_done);
 #ifdef CONFIG_LYRA_GUI_FRAME_TIMING
         if (!full_frame) {
-            const int64_t now = esp_timer_get_time();
-            static int64_t previous_us = 0;
-            static uint32_t frames = 0, samples = 0, over_budget = 0, worst_us = 0;
-            static uint32_t max_render_us = 0, max_transfer_us = 0;
-            const int64_t interval = now - previous_us;
-            if (previous_us && interval <= 100'000) {
-                ++samples;
-                if (interval > 33'333) ++over_budget;
-                worst_us = std::max(worst_us, static_cast<uint32_t>(interval));
-            }
-            previous_us = now;
-            max_render_us = std::max(max_render_us, render_us);
-            max_transfer_us = std::max(max_transfer_us, static_cast<uint32_t>(now - started_us));
-            if (++frames == 120) {
-                ESP_LOGI(kTag, "LCD 120 frames: intervals=%lu over_33ms=%lu max_gap=%lu us "
-                         "max_render=%lu us max_transfer=%lu us",
-                         static_cast<unsigned long>(samples), static_cast<unsigned long>(over_budget),
-                         static_cast<unsigned long>(worst_us), static_cast<unsigned long>(max_render_us),
-                         static_cast<unsigned long>(max_transfer_us));
-                frames = samples = over_budget = worst_us = max_render_us = max_transfer_us = 0;
-            }
+            const uint32_t transfer_us = static_cast<uint32_t>(esp_timer_get_time() - started_us);
+            record_frame_timing(render_us + transfer_us, transfer_us, rows);
         }
 #endif
     }
@@ -242,17 +321,152 @@ static void lvgl_flush(lv_display_t *display, const lv_area_t *area, uint8_t *px
     xTaskNotifyGive(s_lcd_task);
 }
 
+#else // CONFIG_LYRA_DISPLAY_STREAMED_BANDS
+
+// Collects the band on the bus, if any. LVGL calls flush-wait before it hands
+// over the next band, so at most one transaction is queued at a time.
+static void collect_band()
+{
+    if (!s_stream.in_flight) return;
+    spi_transaction_t *done = nullptr;
+    const esp_err_t result = spi_device_get_trans_result(s_lcd_spi, &done, portMAX_DELAY);
+    s_stream.in_flight = false;
+    if (result != ESP_OK) {
+        s_stream.failed = true;
+        s_frame_result = result;
+    }
+}
+
+// `cs_held` is true when the last queued band kept CS asserted, which the
+// terminating NOP must release. A completed final band has already done so.
+static void finish_stream(bool cs_held)
+{
+#ifdef CONFIG_LYRA_GUI_FRAME_TIMING
+    const int64_t transfer_started_us = esp_timer_get_time();
+#endif
+    collect_band();
+    if (s_stream.open) {
+        if (s_stream.failed || cs_held) {
+            abort_stream();
+        } else {
+            spi_device_release_bus(s_lcd_spi);
+        }
+    }
+    if (s_stream.failed) {
+        if (s_frame_result == ESP_OK) s_frame_result = ESP_FAIL;
+        report_transfer_error(s_frame_result);
+    } else {
+        s_frame_result = ESP_OK;
+    }
+#ifdef CONFIG_LYRA_GUI_FRAME_TIMING
+    if (!s_stream.failed) {
+        const int64_t now = esp_timer_get_time();
+        record_frame_timing(static_cast<uint32_t>(now - s_render_started_us),
+                            static_cast<uint32_t>(now - transfer_started_us), s_stream.next_row);
+    }
+#endif
+    s_stream.open = false;
+    s_stream.failed = false;
+    s_stream.next_row = 0;
+}
+
+static void lvgl_wait_for_flush(lv_display_t *)
+{
+    collect_band();
+}
+
+static void lvgl_flush(lv_display_t *display, const lv_area_t *area, uint8_t *px_map)
+{
+    collect_band();
+    const bool last = lv_display_flush_is_last(display);
+    const size_t first_row = static_cast<size_t>(area->y1);
+    const size_t rows = static_cast<size_t>(area->y2 - area->y1 + 1);
+    const bool full_width = area->x1 == 0 && area->x2 == LYRA_BOARD_DISPLAY_WIDTH - 1;
+
+    if (s_capture_pixels && full_width && first_row + rows <= LYRA_BOARD_DISPLAY_HEIGHT) {
+        // Screenshots keep native RGB565, so copy before the panel swap.
+        std::memcpy(s_capture_pixels + first_row * kRowBytes, px_map, rows * kRowBytes);
+        s_capture_rows += rows;
+    }
+
+    if (first_row == 0) {
+        // The stream normally closes on the refresh's final band. If LVGL
+        // renders a second area, end the CS-held write; the new RAMWR below
+        // restarts at row zero, which every rounded area does.
+        if (s_stream.open) finish_stream(true);
+        const esp_err_t result = begin_stream();
+        s_stream.open = result == ESP_OK;
+        s_stream.failed = !s_stream.open;
+        s_stream.next_row = 0;
+        if (!s_stream.open) s_frame_result = result;
+    }
+    // Invalidated areas are rounded to full rows from row zero, so a frame
+    // is always consecutive full-width bands. Anything else cannot continue
+    // the RAMWR stream and is repaired by the full-screen retry.
+    if (!s_stream.open || !full_width || first_row != s_stream.next_row) s_stream.failed = true;
+
+    if (!s_stream.failed) {
+        lv_draw_sw_rgb565_swap(px_map, static_cast<uint32_t>(rows * LYRA_BOARD_DISPLAY_WIDTH));
+        spi_transaction_t &band = s_stream.transaction;
+        band = {};
+        band.flags = SPI_TRANS_MODE_QIO | SPI_TRANS_DMA_BUFFER_ALIGN_MANUAL;
+        if (!last) band.flags |= SPI_TRANS_CS_KEEP_ACTIVE;
+        band.length = rows * kRowBytes * 8;
+        band.tx_buffer = px_map;
+        const esp_err_t result = spi_device_queue_trans(s_lcd_spi, &band, portMAX_DELAY);
+        if (result == ESP_OK) {
+            s_stream.in_flight = true;
+            s_stream.next_row = first_row + rows;
+        } else {
+            s_stream.failed = true;
+            s_frame_result = result;
+        }
+    }
+
+    // The final band is waited for here, so every refresh leaves the panel
+    // complete and the bus released. Earlier bands transfer while LVGL renders
+    // the next one into the other buffer.
+    if (last) finish_stream(false);
+    if (!s_stream.in_flight) lv_display_flush_ready(display);
+}
+
+static void round_invalidated_area(lv_event_t *event)
+{
+    // The AXS15231B accepts writes only as a continuation from row zero, so
+    // redraw every row above a change and send it as one stream. Nested
+    // full-width areas then join into a single top-down refresh.
+    auto *area = static_cast<lv_area_t *>(lv_event_get_param(event));
+    area->x1 = 0;
+    area->x2 = LYRA_BOARD_DISPLAY_WIDTH - 1;
+    area->y1 = 0;
+}
+
+static esp_err_t allocate_band_buffers()
+{
+    for (size_t lines = kBandLines; lines >= kMinimumBandLines; lines /= 2) {
+        const size_t bytes = lines * kRowBytes;
+        for (auto &buffer : s_band_buffers) {
+            buffer = static_cast<uint8_t *>(heap_caps_aligned_alloc(
+                64, bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
+        }
+        if (s_band_buffers[0] && s_band_buffers[1]) {
+            s_band_lines = lines;
+            return ESP_OK;
+        }
+        for (auto &buffer : s_band_buffers) {
+            heap_caps_free(buffer);
+            buffer = nullptr;
+        }
+    }
+    return ESP_ERR_NO_MEM;
+}
+
+#endif
+
 static uint32_t lvgl_time_ms()
 {
     return static_cast<uint32_t>(esp_timer_get_time() / 1000);
 }
-
-#ifdef CONFIG_LYRA_GUI_FRAME_TIMING
-static void lvgl_refresh_started(lv_event_t *)
-{
-    s_render_started_us = esp_timer_get_time();
-}
-#endif
 
 static void lvgl_task(void *)
 {
@@ -262,7 +476,7 @@ static void lvgl_task(void *)
         }
         uint32_t delay_ms = lv_timer_handler();
         // Keep touch-to-frame latency low even when LVGL has no animation
-        // timer pending; the display task remains isolated on APP_CPU.
+        // timer pending.
         vTaskDelay(pdMS_TO_TICKS(std::clamp<uint32_t>(delay_ms, 1, kTouchReadMs)));
     }
 }
@@ -424,7 +638,7 @@ static esp_err_t init_panel_registers()
     io_config.cs_gpio_num = static_cast<gpio_num_t>(kDisplayChipSelectGpio);
     io_config.dc_gpio_num = GPIO_NUM_NC;
     io_config.spi_mode = 3;
-    io_config.pclk_hz = kPixelClockHz;
+    io_config.pclk_hz = kRegisterClockHz;
     io_config.trans_queue_depth = 1;
     io_config.lcd_cmd_bits = 32;
     io_config.lcd_param_bits = 8;
@@ -465,6 +679,7 @@ static esp_err_t init_lcd_transport()
         ESP_LOGI(kTag, "LCD QSPI clock: %d kHz", actual_khz);
     }
 
+#if CONFIG_LYRA_DISPLAY_LEGACY_FRAMEBUFFER
     s_lcd_done = xSemaphoreCreateBinary();
     if (!s_lcd_done) return ESP_ERR_NO_MEM;
     for (auto &strip : s_dma_strips) {
@@ -474,6 +689,36 @@ static esp_err_t init_lcd_transport()
     }
     if (xTaskCreatePinnedToCore(lcd_task, "lyra_lcd", 3072, nullptr, 6,
                                 &s_lcd_task, kGuiCore) != pdPASS) return ESP_ERR_NO_MEM;
+#else
+    ESP_RETURN_ON_ERROR(allocate_band_buffers(), kTag, "LCD band buffers unavailable");
+#endif
+    s_transport_ready = true;
+    return ESP_OK;
+}
+
+static esp_err_t attach_display_buffers(lv_display_t *display)
+{
+    lv_display_set_color_format(display, LV_COLOR_FORMAT_RGB565);
+#if CONFIG_LYRA_DISPLAY_LEGACY_FRAMEBUFFER
+    // LVGL direct mode waits for the previous flush before rendering even
+    // with two buffers, then copies the old damage across buffers. One
+    // persistent framebuffer avoids that copy and frees 300 KiB of PSRAM.
+    s_framebuffer = static_cast<uint8_t *>(heap_caps_aligned_calloc(64, 1, kFrameBytes, MALLOC_CAP_SPIRAM));
+    if (!s_framebuffer) return ESP_ERR_NO_MEM;
+    lv_display_set_buffers(display, s_framebuffer, nullptr, kFrameBytes,
+                           LV_DISPLAY_RENDER_MODE_DIRECT);
+#else
+    lv_display_set_buffers(display, s_band_buffers[0], s_band_buffers[1],
+                           static_cast<uint32_t>(s_band_lines * kRowBytes),
+                           LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_add_event_cb(display, round_invalidated_area, LV_EVENT_INVALIDATE_AREA, nullptr);
+#endif
+    lv_timer_set_period(lv_display_get_refr_timer(display), kDisplayRefreshMs);
+    lv_display_set_flush_cb(display, lvgl_flush);
+    lv_display_set_flush_wait_cb(display, lvgl_wait_for_flush);
+#ifdef CONFIG_LYRA_GUI_FRAME_TIMING
+    lv_display_add_event_cb(display, lvgl_refresh_started, LV_EVENT_REFR_START, nullptr);
+#endif
     return ESP_OK;
 }
 
@@ -494,7 +739,7 @@ extern "C" esp_err_t lyra_board_display_init(lyra_board_display_t *board)
     bus_config.data1_io_num = kDisplayData1Gpio;
     bus_config.data2_io_num = kDisplayData2Gpio;
     bus_config.data3_io_num = kDisplayData3Gpio;
-    bus_config.max_transfer_sz = kStripBytes;
+    bus_config.max_transfer_sz = kMaxTransferBytes;
     bus_config.flags = SPICOMMON_BUSFLAG_QUAD;
     // Display completions stay off the audio/mixer core.
     bus_config.isr_cpu_id = ESP_INTR_CPU_AFFINITY_1;
@@ -510,21 +755,8 @@ extern "C" esp_err_t lyra_board_display_init(lyra_board_display_t *board)
     if (board->display == nullptr) {
         return ESP_ERR_NO_MEM;
     }
+    ESP_RETURN_ON_ERROR(attach_display_buffers(board->display), kTag, "display buffers unavailable");
 
-    // LVGL direct mode waits for the previous flush before rendering even
-    // with two buffers, then copies the old damage across buffers. One
-    // persistent framebuffer avoids that copy and frees 300 KiB of PSRAM.
-    void *framebuffer = heap_caps_aligned_calloc(64, 1, kFrameBytes, MALLOC_CAP_SPIRAM);
-    if (!framebuffer) return ESP_ERR_NO_MEM;
-    lv_display_set_color_format(board->display, LV_COLOR_FORMAT_RGB565);
-    lv_display_set_buffers(board->display, framebuffer, nullptr, kFrameBytes,
-                           LV_DISPLAY_RENDER_MODE_DIRECT);
-    lv_timer_set_period(lv_display_get_refr_timer(board->display), kDisplayRefreshMs);
-    lv_display_set_flush_cb(board->display, lvgl_flush);
-    lv_display_set_flush_wait_cb(board->display, lvgl_wait_for_flush);
-#ifdef CONFIG_LYRA_GUI_FRAME_TIMING
-    lv_display_add_event_cb(board->display, lvgl_refresh_started, LV_EVENT_REFR_START, nullptr);
-#endif
     const esp_err_t touch_ret = init_touch();
     if (touch_ret == ESP_OK) {
         const esp_err_t touch_task_ret = start_touch_polling();
@@ -548,8 +780,17 @@ extern "C" esp_err_t lyra_board_display_init(lyra_board_display_t *board)
         }
     }
 
-    ESP_LOGI(kTag, "GUI display ready: %dx%d, PSRAM free=%u", LYRA_BOARD_DISPLAY_WIDTH,
-             LYRA_BOARD_DISPLAY_HEIGHT, static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
+#if CONFIG_LYRA_DISPLAY_LEGACY_FRAMEBUFFER
+    ESP_LOGI(kTag, "GUI display ready: %dx%d PSRAM framebuffer, PSRAM free=%u",
+             LYRA_BOARD_DISPLAY_WIDTH, LYRA_BOARD_DISPLAY_HEIGHT,
+             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
+#else
+    ESP_LOGI(kTag, "GUI display ready: %dx%d streamed in %u-row bands, internal free=%u largest=%u",
+             LYRA_BOARD_DISPLAY_WIDTH, LYRA_BOARD_DISPLAY_HEIGHT,
+             static_cast<unsigned>(s_band_lines),
+             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+             static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+#endif
     return ESP_OK;
 }
 
@@ -567,7 +808,7 @@ extern "C" esp_err_t lyra_board_display_set_brightness(uint8_t brightness_percen
 
 extern "C" esp_err_t lyra_board_display_start(void)
 {
-    if (s_lcd_task == nullptr) {
+    if (!s_transport_ready) {
         return ESP_ERR_INVALID_STATE;
     }
     if (s_lvgl_task_started) {
@@ -592,7 +833,31 @@ extern "C" esp_err_t lyra_board_display_start(void)
 
 extern "C" esp_err_t lyra_board_display_finish_boot_frame(lv_display_t *display)
 {
+#if CONFIG_LYRA_DISPLAY_LEGACY_FRAMEBUFFER
     lvgl_wait_for_flush(display);
     lv_display_flush_ready(display);
+#else
+    // Streamed refreshes wait for their final band before returning.
+    (void)display;
+#endif
     return s_frame_result;
+}
+
+extern "C" esp_err_t lyra_board_display_capture(lv_display_t *display, uint8_t *pixels, size_t size)
+{
+    if (display == nullptr || pixels == nullptr || size < kFrameBytes) return ESP_ERR_INVALID_ARG;
+    lv_obj_invalidate(lv_display_get_screen_active(display));
+#if CONFIG_LYRA_DISPLAY_LEGACY_FRAMEBUFFER
+    lv_refr_now(display);
+    std::memcpy(pixels, s_framebuffer, kFrameBytes);
+    return ESP_OK;
+#else
+    // The streamed pipeline keeps no framebuffer: render one complete frame
+    // and keep a copy of each band as it passes.
+    s_capture_pixels = pixels;
+    s_capture_rows = 0;
+    lv_refr_now(display);
+    s_capture_pixels = nullptr;
+    return s_capture_rows == LYRA_BOARD_DISPLAY_HEIGHT ? ESP_OK : ESP_FAIL;
+#endif
 }

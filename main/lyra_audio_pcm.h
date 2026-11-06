@@ -48,6 +48,9 @@ struct PcmOutput {
     StaticStreamBuffer_t stream_storage;
     SemaphoreHandle_t done;
     TaskHandle_t task;
+    // Set when the output task had to fall back to a PSRAM stack; it must
+    // then be deleted with vTaskDeleteWithCaps().
+    bool psram_stack = false;
     std::atomic<bool> stop_requested{false};
     std::atomic<bool> drain_on_stop{false};
     std::atomic<bool> finished{false};
