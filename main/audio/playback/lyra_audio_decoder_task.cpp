@@ -167,19 +167,24 @@ esp_err_t decode_file(DecoderStream *track)
 
     uint32_t duration_ms = 0;
     if (!streaming) {
+        const auto *stop_requested = &track->pcm.stop_requested;
         switch (format) {
-        case AudioFormat::kMp3: duration_ms = read_mp3_duration_ms(file); break;
+        case AudioFormat::kMp3: duration_ms = read_mp3_duration_ms(file, stop_requested); break;
         case AudioFormat::kFlac: duration_ms = read_flac_duration_ms(file); break;
-        case AudioFormat::kAac: duration_ms = read_aac_duration_ms(file); break;
+        case AudioFormat::kAac: duration_ms = read_aac_duration_ms(file, stop_requested); break;
         case AudioFormat::kM4a: duration_ms = read_m4a_duration_ms(file); break;
         case AudioFormat::kWav: duration_ms = read_wav_duration_ms(file); break;
-        case AudioFormat::kOgg: duration_ms = read_ogg_duration_ms(file); break;
+        case AudioFormat::kOgg: duration_ms = read_ogg_duration_ms(file, stop_requested); break;
         case AudioFormat::kOpus: duration_ms = read_ogg_tail_duration_ms(
             file, ogg_opus_reader.sample_rate, ogg_opus_reader.pre_skip); break;
         case AudioFormat::kAiff: duration_ms = read_aiff_duration_ms(aiff_info); break;
         }
+        if (!decoder_is_current(track)) {
+            lyra::sd::close(file, lyra::sd::Client::Audio);
+            return ESP_OK;
+        }
+        audio_seek(file, 0, SEEK_SET);
     }
-    if (file) audio_seek(file, 0, SEEK_SET);
 
     if (duration_ms > 0 && start_position_ms > duration_ms) start_position_ms = duration_ms;
     M4aAacReader m4a_aac_reader(file);

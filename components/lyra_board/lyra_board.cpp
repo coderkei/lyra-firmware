@@ -199,7 +199,9 @@ static esp_err_t start_touch_polling()
     if (s_touch_device == nullptr) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (xTaskCreatePinnedToCore(touch_poll_task, "lyra_touch", 3072, nullptr, 4, &s_touch_task, 0) != pdPASS) {
+    // Keep polling off the audio core. The short I2C poll can preempt LVGL
+    // rendering so contact changes are still sampled during a long frame.
+    if (xTaskCreatePinnedToCore(touch_poll_task, "lyra_touch", 3072, nullptr, 6, &s_touch_task, 1) != pdPASS) {
         s_touch_task = nullptr;
         return ESP_ERR_NO_MEM;
     }

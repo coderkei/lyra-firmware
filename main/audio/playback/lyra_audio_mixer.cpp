@@ -647,7 +647,7 @@ void audio_task(void *)
                                 static_cast<uint64_t>(remaining_ms) * output_rate / 1000u);
                         }
                         xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-                        s_status.transitioning = true;
+                        if (generation == s_request_generation) s_status.transitioning = true;
                         xSemaphoreGive(s_state_mutex);
                     }
                 }
@@ -690,8 +690,10 @@ void audio_task(void *)
                         // original track finish at full gain.
                         fading = false;
                         xSemaphoreTake(s_state_mutex, portMAX_DELAY);
-                        ++s_diagnostics.preload_failures;
-                        s_status.transitioning = false;
+                        if (generation == s_request_generation) {
+                            ++s_diagnostics.preload_failures;
+                            s_status.transitioning = false;
+                        }
                         xSemaphoreGive(s_state_mutex);
                         retired = next;
                     }

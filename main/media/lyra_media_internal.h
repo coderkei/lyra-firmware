@@ -236,6 +236,7 @@ extern Playlist s_playlists[kMaxPlaylists];
 extern size_t s_track_count;
 extern size_t s_playlist_count;
 extern SemaphoreHandle_t s_mutex;
+extern SemaphoreHandle_t s_playback_stats_file_mutex;
 extern sdmmc_card_t *s_card;
 extern Status s_status;
 extern bool s_shutdown_requested;
@@ -265,8 +266,14 @@ bool file_access_active_locked();
 
 class Lock {
 public:
-    Lock() { if (s_mutex) xSemaphoreTake(s_mutex, portMAX_DELAY); }
-    ~Lock() { if (s_mutex) xSemaphoreGive(s_mutex); }
+    explicit Lock(SemaphoreHandle_t mutex = s_mutex) : mutex_(mutex)
+    {
+        if (mutex_) xSemaphoreTake(mutex_, portMAX_DELAY);
+    }
+    ~Lock() { if (mutex_) xSemaphoreGive(mutex_); }
+
+private:
+    SemaphoreHandle_t mutex_;
 };
 
 void refresh_capacity();
@@ -373,7 +380,8 @@ void load_playback_stats();
 esp_err_t clear_playback_stats_locked();
 void clear_smart_playlist_cache_locked();
 const PlaybackStat *playback_stat_locked(uint64_t path_hash);
-bool save_playback_stats_locked();
+bool playback_stats_save_active_locked();
+esp_err_t start_playback_stats_save_locked();
 esp_err_t publish_catalog();
 bool duration_sort_requested_locked();
 void duration_task(void *);

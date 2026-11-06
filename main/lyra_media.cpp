@@ -13,6 +13,10 @@ esp_err_t init()
     if (!lyra::sd::init()) return ESP_ERR_NO_MEM;
     if (!s_mutex) s_mutex = xSemaphoreCreateMutex();
     if (!s_mutex) return ESP_ERR_NO_MEM;
+    static StaticSemaphore_t stats_file_mutex_storage;
+    if (!s_playback_stats_file_mutex) {
+        s_playback_stats_file_mutex = xSemaphoreCreateMutexStatic(&stats_file_mutex_storage);
+    }
     if (!s_track_cache) s_track_cache = static_cast<CachedTrack *>(
         heap_caps_calloc(kTrackCacheSize, sizeof(CachedTrack), MALLOC_CAP_SPIRAM));
     if (!s_track_cache) return ESP_ERR_NO_MEM;
@@ -89,6 +93,8 @@ esp_err_t clear_artwork_cache()
 
 esp_err_t clear_all_databases()
 {
+    // Serialize reset with publication of the background stats snapshot.
+    Lock stats_file_lock(s_playback_stats_file_mutex);
     Lock lock;
     if (!s_status.mounted || s_status.scanning || s_status.duration_indexing ||
         s_status.sorting_indexing ||
@@ -282,6 +288,11 @@ esp_err_t shutdown(uint32_t timeout_ms)
         s_artwork_queue_count = 0;
         s_search_cancel_requested = true;
         s_sort_cancel_requested = true;
+        const esp_err_t stats_result = start_playback_stats_save_locked();
+        if (stats_result != ESP_OK) {
+            ESP_LOGW(kTag, "could not start playback statistics save: %s",
+                     esp_err_to_name(stats_result));
+        }
     }
 
     const TickType_t started = xTaskGetTickCount();
@@ -291,7 +302,8 @@ esp_err_t shutdown(uint32_t timeout_ms)
             Lock lock;
             storage_busy = s_status.scanning || s_status.duration_indexing ||
                            s_status.sorting_indexing ||
-                           s_status.artwork_busy || s_search_status.running || file_access_active_locked();
+                           s_status.artwork_busy || s_search_status.running ||
+                           file_access_active_locked() || playback_stats_save_active_locked();
         }
         if (!storage_busy) break;
         if ((xTaskGetTickCount() - started) * portTICK_PERIOD_MS >= timeout_ms) {

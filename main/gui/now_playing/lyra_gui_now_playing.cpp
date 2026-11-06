@@ -38,6 +38,7 @@ int s_player_lyrics_width;
 int s_player_lyrics_height;
 lv_obj_t *s_player_flip_window;
 lv_obj_t *s_player_flip_content;
+lv_obj_t *s_player_cover_image;
 lv_obj_t *s_player_lyrics_scroll;
 lv_obj_t *s_player_lyrics_loading_spinner;
 lv_timer_t *s_player_lyrics_rows_timer;
@@ -246,6 +247,7 @@ void build_player_lyrics_face()
     if (!window) return;
     if (s_player_flip_content && !is_zeno_theme()) {
         lv_obj_remove_event_cb(s_player_flip_content, player_art_click_cb);
+        s_player_cover_image = nullptr;
     }
     lv_obj_clean(window);
     lv_obj_set_style_bg_color(window, kArtworkSurface, 0);
@@ -506,8 +508,8 @@ void restore_player_art_face()
     s_player_flip_content = make_box(window, 0, 0, s_player_art_size,
                                      s_player_art_size, kArtworkSurface, 13);
     lv_obj_set_style_border_width(s_player_flip_content, 0, 0);
-    make_artwork_contents(s_player_flip_content, s_player_art_size, s_player_art_size,
-                          s_player_lyrics_track, 13);
+    s_player_cover_image = make_artwork_contents(
+        s_player_flip_content, s_player_art_size, s_player_art_size, s_player_lyrics_track, 13);
     lv_obj_add_event_cb(s_player_flip_content, player_art_click_cb,
                         LV_EVENT_CLICKED, nullptr);
     s_player_lyrics_scroll = nullptr;
@@ -629,6 +631,16 @@ void player_lyrics_close_cb(lv_event_t *)
 
 } // namespace
 
+void refresh_player_artwork()
+{
+    if (!s_player_cover_image || lv_image_get_src(s_player_cover_image)) return;
+    if (load_player_art(s_player_lyrics_track)) {
+        lv_image_set_src(s_player_cover_image, &s_player_art_descriptor);
+    } else {
+        lyra::media::request_artwork(s_player_lyrics_track, lyra::media::ArtworkSize::Player);
+    }
+}
+
 void reset_player_lyrics_state()
 {
     ++s_player_lyrics_generation;
@@ -641,6 +653,7 @@ void reset_player_lyrics_state()
     s_player_lyrics_width = s_player_lyrics_height = 0;
     s_player_flip_window = nullptr;
     s_player_flip_content = nullptr;
+    s_player_cover_image = nullptr;
     s_player_lyrics_scroll = nullptr;
     s_player_lyrics_loading_spinner = nullptr;
     s_player_lyrics_source = lyra::media::LyricsSource::None;
@@ -961,7 +974,7 @@ void render_player()
     s_player_flip_content = make_box(s_player_flip_window, 0, 0, art_size, art_size,
                                      kArtworkSurface, 13);
     lv_obj_set_style_border_width(s_player_flip_content, 0, 0);
-    make_artwork_contents(s_player_flip_content, art_size, art_size, track, 13);
+    s_player_cover_image = make_artwork_contents(s_player_flip_content, art_size, art_size, track, 13);
     lv_obj_add_event_cb(s_player_flip_content, player_art_click_cb,
                         LV_EVENT_CLICKED, nullptr);
     add_hud_brackets(art_face);

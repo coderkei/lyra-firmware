@@ -295,14 +295,6 @@ size_t playback_queue_count()
             return lyra::media::playlist_at(s_playback_playlist, &playlist) ?
                    playlist.track_count : 0;
         }
-        case PlaybackScope::SmartPlaylist:
-            return lyra::media::smart_playlist_track_count(s_playback_smart_playlist);
-        case PlaybackScope::Folder: {
-            size_t first = 0;
-            size_t total = 0;
-            lyra::media::folder_tracks(s_playback_folder_path, 0, &first, 1, &total);
-            return total;
-        }
         case PlaybackScope::Search: {
             const lyra::media::SearchStatus search = lyra::media::search_status();
             return search.ready ? search.result_count : 0;
@@ -327,12 +319,6 @@ bool playback_queue_track_at(size_t position, size_t *track_index)
         case PlaybackScope::Playlist:
             return lyra::media::playlist_tracks(s_playback_playlist, position,
                                                  track_index, 1) == 1;
-        case PlaybackScope::SmartPlaylist:
-            return lyra::media::smart_playlist_tracks(s_playback_smart_playlist, position,
-                                                      track_index, 1) == 1;
-        case PlaybackScope::Folder:
-            return lyra::media::folder_tracks(s_playback_folder_path, position,
-                                               track_index, 1) == 1;
         case PlaybackScope::Search:
         {
             lyra::media::SearchResult result{};
@@ -786,7 +772,8 @@ bool begin_manual_crossfade(int direction)
     if (is_player_ab_mode_active() || s_crossfade_seconds == 0 || s_crossfade_pause_pending ||
         !can_move_in_playback_queue(direction)) return false;
     const lyra::audio::Status audio_status = lyra::audio::status();
-    if (!audio_status.playing || audio_status.paused || audio_status.eof) return false;
+    if (!audio_status.playing || audio_status.paused || audio_status.eof ||
+        audio_status.sample_rate == 0) return false;
     const size_t count = playback_queue_count();
     size_t position = 0;
     if (!current_queue_position(&position) || !count) return false;

@@ -188,26 +188,41 @@ void show_queue_add_picker_for_folder(const char *folder_path)
 
 void play_track_from_row(size_t track_index, bool force_single)
 {
-    // Freeze a filesystem folder into a queue before playback. Later directory
-    // changes must not shift the current entry, shuffle order, or saved queue.
-    size_t *folder_queue = nullptr;
-    size_t folder_count = 0;
-    if (!force_single && (s_view == View::Folders || s_view == View::FolderDetail)) {
-        folder_queue = static_cast<size_t *>(heap_caps_malloc(
+    // Capture the queue before starting audio. Folder edits and play-history
+    // updates can change the source list while the queue is playing.
+    const bool from_folder = s_view == View::Folders || s_view == View::FolderDetail;
+    const bool from_smart_playlist = s_view == View::PlaylistDetail && s_selected_playlist_is_smart;
+    size_t *session_queue = nullptr;
+    size_t session_count = 0;
+    if (!force_single && (from_folder || from_smart_playlist)) {
+        session_queue = static_cast<size_t *>(heap_caps_malloc(
             lyra::media::kMaxTracks * sizeof(size_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-        size_t total = 0;
-        if (folder_queue) folder_count = lyra::media::folder_tracks(
-            s_folder_path, 0, folder_queue, lyra::media::kMaxTracks, &total);
-        if (!folder_queue || !folder_count || folder_count != total ||
-            std::find(folder_queue, folder_queue + folder_count, track_index) == folder_queue + folder_count) {
-            heap_caps_free(folder_queue);
+        if (session_queue) {
+            if (from_folder) {
+                size_t total = 0;
+                session_count = lyra::media::folder_tracks(
+                    s_folder_path, 0, session_queue, lyra::media::kMaxTracks, &total);
+                if (session_count != total) session_count = 0;
+            } else {
+                session_count = lyra::media::smart_playlist_tracks(
+                    s_selected_smart_playlist, 0, session_queue, lyra::media::kMaxTracks);
+            }
+        }
+        if (session_count == 0 ||
+            std::find(session_queue, session_queue + session_count, track_index) ==
+                session_queue + session_count) {
+            heap_caps_free(session_queue);
             show_notice(tr(lyra::i18n::StringId::Queue), tr(lyra::i18n::StringId::QueueAddFailed));
             return;
         }
     }
     discard_pending_saved_queue();
     s_has_active_queue = true;
-    if (force_single) {
+    if (session_queue) {
+        s_saved_queue = session_queue;
+        s_saved_queue_count = session_count;
+        s_playback_scope = PlaybackScope::SavedQueue;
+    } else if (force_single) {
         s_playback_scope = PlaybackScope::Single;
     } else if (s_view == View::LibrarySongs) {
         s_playback_scope = PlaybackScope::AllSongs;
@@ -218,26 +233,12 @@ void play_track_from_row(size_t track_index, bool force_single)
             lyra::media::GroupKind::Album : s_selected_group_kind;
         s_playback_group = s_selected_group;
     } else if (s_view == View::PlaylistDetail) {
-        if (s_selected_playlist_is_smart) {
-            s_playback_scope = PlaybackScope::SmartPlaylist;
-            s_playback_smart_playlist = s_selected_smart_playlist;
-        } else {
-            s_playback_scope = PlaybackScope::Playlist;
-            s_playback_playlist = s_selected_playlist;
-        }
-    } else if (s_view == View::Folders || s_view == View::FolderDetail) {
-        s_playback_scope = PlaybackScope::Folder;
-        copy_ui_text(s_playback_folder_path, sizeof(s_playback_folder_path), s_folder_path);
+        s_playback_scope = PlaybackScope::Playlist;
+        s_playback_playlist = s_selected_playlist;
     } else if (s_view == View::Search) {
         s_playback_scope = PlaybackScope::Search;
     } else {
         s_playback_scope = PlaybackScope::Single;
-    }
-    if (folder_queue) {
-        clear_saved_queue();
-        s_saved_queue = folder_queue;
-        s_saved_queue_count = folder_count;
-        s_playback_scope = PlaybackScope::SavedQueue;
     }
     s_current_track = track_index;
     reset_shuffle_queue();

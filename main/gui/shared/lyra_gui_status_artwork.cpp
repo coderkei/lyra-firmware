@@ -4,6 +4,7 @@
  */
 
 #include "../lyra_gui_internal.h"
+#include "src/misc/cache/instance/lv_image_cache.h"
 
 namespace lyra::gui::internal {
 
@@ -646,6 +647,7 @@ bool load_player_art(const lyra::media::Track &track)
         return false;
     }
 
+    if (s_player_art_pixels) lv_image_cache_drop(&s_player_art_descriptor);
     heap_caps_free(s_player_art_pixels);
     s_player_art_pixels = reinterpret_cast<uint8_t *>(pixels);
     copy_ui_text(s_player_art_path, sizeof(s_player_art_path), track.path);
@@ -662,11 +664,11 @@ bool load_player_art(const lyra::media::Track &track)
     return true;
 }
 
-void make_artwork_contents(lv_obj_t *art, int width, int height,
-                           const lyra::media::Track &track, int radius,
-                           bool preserve_aspect)
+lv_obj_t *make_artwork_contents(lv_obj_t *art, int width, int height,
+                                const lyra::media::Track &track, int radius,
+                                bool preserve_aspect)
 {
-    if (!art) return;
+    if (!art) return nullptr;
     make_artwork_placeholder(art, width, height);
     lv_obj_t *image = lv_image_create(art);
     lv_obj_set_pos(image, 0, 0);
@@ -678,6 +680,7 @@ void make_artwork_contents(lv_obj_t *art, int width, int height,
     } else {
         lyra::media::request_artwork(track, lyra::media::ArtworkSize::Player);
     }
+    return image;
 }
 
 lv_obj_t *make_artwork(lv_obj_t *parent, int x, int y, int width, int height,

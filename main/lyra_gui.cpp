@@ -88,7 +88,6 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     s_has_active_queue = false;
     s_queue_position = 0;
     s_queue_position_valid = false;
-    copy_ui_text(s_playback_folder_path, sizeof(s_playback_folder_path), "/sdcard");
     reset_shuffle_queue();
     s_audio_eof_seen = false;
     s_gapless = true;

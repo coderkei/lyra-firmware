@@ -254,6 +254,7 @@ size_t smart_playlist_track_count(SmartPlaylistKind kind);
 size_t smart_playlist_tracks(SmartPlaylistKind kind, size_t offset,
                              size_t *track_indices, size_t capacity);
 uint32_t track_play_count(size_t track_index);
+// Updates the in-memory counts and schedules a background save.
 esp_err_t record_track_play(size_t track_index);
 
 // The active queue is kept separately from portable user playlists. Entries

@@ -286,13 +286,20 @@ bool parse_aac_frame_header(const uint8_t *header, AacFrameInfo *info)
     return true;
 }
 
-bool find_first_aac_frame(FILE *file, long start, long *frame_offset, AacFrameInfo *info)
+static bool probe_cancelled(const std::atomic<bool> *stop_requested)
+{
+    return stop_requested && stop_requested->load(std::memory_order_relaxed);
+}
+
+bool find_first_aac_frame(FILE *file, long start, long *frame_offset, AacFrameInfo *info,
+                          const std::atomic<bool> *stop_requested)
 {
     if (!file || !frame_offset || !info || start < 0 || audio_seek(file, start, SEEK_SET) != 0) {
         return false;
     }
     uint8_t header[7]{};
-    while (audio_read(file, header, sizeof(header)) == sizeof(header)) {
+    while (!probe_cancelled(stop_requested) &&
+           audio_read(file, header, sizeof(header)) == sizeof(header)) {
         const long candidate = std::ftell(file) - static_cast<long>(sizeof(header));
         if (candidate < 0) return false;
         if (parse_aac_frame_header(header, info)) {
@@ -304,7 +311,7 @@ bool find_first_aac_frame(FILE *file, long start, long *frame_offset, AacFrameIn
     return false;
 }
 
-uint32_t read_aac_duration_ms(FILE *file)
+uint32_t read_aac_duration_ms(FILE *file, const std::atomic<bool> *stop_requested)
 {
     if (!file) return 0;
     long file_end = -1;
@@ -322,7 +329,7 @@ uint32_t read_aac_duration_ms(FILE *file)
 
     long first_frame = 0;
     AacFrameInfo first_info{};
-    if (!find_first_aac_frame(file, audio_start, &first_frame, &first_info)) {
+    if (!find_first_aac_frame(file, audio_start, &first_frame, &first_info, stop_requested)) {
         audio_seek(file, 0, SEEK_SET);
         return 0;
     }
@@ -330,7 +337,7 @@ uint32_t read_aac_duration_ms(FILE *file)
     uint64_t total_samples = 0;
     long position = first_frame;
     uint32_t frame_count = 0;
-    while (position >= 0 && position + 7 <= file_end) {
+    while (!probe_cancelled(stop_requested) && position >= 0 && position + 7 <= file_end) {
         uint8_t header[7]{};
         AacFrameInfo info{};
         if (audio_seek(file, position, SEEK_SET) != 0 ||
@@ -466,7 +473,7 @@ uint32_t read_m4a_duration_ms(FILE *file)
     return candidates.movie_ms != 0 ? candidates.movie_ms : candidates.track_ms;
 }
 
-uint32_t read_ogg_duration_ms(FILE *file)
+uint32_t read_ogg_duration_ms(FILE *file, const std::atomic<bool> *stop_requested)
 {
     if (!file || audio_seek(file, 0, SEEK_SET) != 0) return 0;
     uint8_t page_header[27]{};
@@ -479,7 +486,8 @@ uint32_t read_ogg_duration_ms(FILE *file)
     uint32_t pre_skip = 0;
     bool failed = false;
     uint32_t page_count = 0;
-    while (audio_read(file, page_header, sizeof(page_header)) == sizeof(page_header)) {
+    while (!probe_cancelled(stop_requested) &&
+           audio_read(file, page_header, sizeof(page_header)) == sizeof(page_header)) {
         if (std::memcmp(page_header, "OggS", 4) != 0 || page_header[4] != 0) break;
         const size_t segment_count = page_header[26];
         if (audio_read(file, lacing, segment_count) != segment_count) {
@@ -490,7 +498,8 @@ uint32_t read_ogg_duration_ms(FILE *file)
             size_t remaining = lacing[segment];
             while (remaining > 0) {
                 const size_t chunk = std::min(remaining, kDurationScanBufferBytes);
-                if (audio_read(file, s_duration_scan_buffer, chunk) != chunk) {
+                if (probe_cancelled(stop_requested) ||
+                    audio_read(file, s_duration_scan_buffer, chunk) != chunk) {
                     failed = true;
                     break;
                 }
@@ -645,7 +654,7 @@ bool parse_mp3_frame_header(const uint8_t *header, Mp3FrameInfo *info)
 }
 
 bool find_first_mp3_frame(FILE *file, long audio_start, long *frame_offset,
-                          Mp3FrameInfo *frame_info)
+                          Mp3FrameInfo *frame_info, const std::atomic<bool> *stop_requested)
 {
     if (!file || !frame_offset || !frame_info || audio_start < 0 ||
         audio_seek(file, audio_start, SEEK_SET) != 0) {
@@ -653,7 +662,8 @@ bool find_first_mp3_frame(FILE *file, long audio_start, long *frame_offset,
     }
 
     uint8_t header[4];
-    while (audio_read(file, header, sizeof(header)) == sizeof(header)) {
+    while (!probe_cancelled(stop_requested) &&
+           audio_read(file, header, sizeof(header)) == sizeof(header)) {
         const long candidate = std::ftell(file) - static_cast<long>(sizeof(header));
         if (candidate < 0) return false;
         if (parse_mp3_frame_header(header, frame_info)) {
@@ -742,7 +752,7 @@ bool looks_like_constant_bitrate(FILE *file, long frame_offset,
     return true;
 }
 
-uint32_t read_mp3_duration_ms(FILE *file)
+uint32_t read_mp3_duration_ms(FILE *file, const std::atomic<bool> *stop_requested)
 {
     if (!file) return 0;
 
@@ -759,7 +769,7 @@ uint32_t read_mp3_duration_ms(FILE *file)
 
     long first_frame_offset = 0;
     Mp3FrameInfo first_frame{};
-    if (!find_first_mp3_frame(file, audio_start, &first_frame_offset, &first_frame)) {
+    if (!find_first_mp3_frame(file, audio_start, &first_frame_offset, &first_frame, stop_requested)) {
         audio_seek(file, 0, SEEK_SET);
         return 0;
     }
@@ -792,7 +802,7 @@ uint32_t read_mp3_duration_ms(FILE *file)
         audio_seek(file, 0, SEEK_SET);
         return 0;
     }
-    while (frame_offset >= 0 &&
+    while (!probe_cancelled(stop_requested) && frame_offset >= 0 &&
            (file_end < 0 || frame_offset + 4 <= file_end)) {
         uint8_t header[4];
         Mp3FrameInfo frame{};

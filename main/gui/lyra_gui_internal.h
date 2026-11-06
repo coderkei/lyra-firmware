@@ -110,7 +110,7 @@ enum class ArtistDetailTab : uint8_t { Songs, Albums };
 enum class TrackInfoTab : uint8_t { Song, Media };
 enum class DebugTab : uint8_t { Info, Debug };
 enum class PlaybackScope : uint8_t {
-    Single, AllSongs, Group, Playlist, SmartPlaylist, Folder, Search, SavedQueue,
+    Single, AllSongs, Group, Playlist, Search, SavedQueue,
 };
 enum class RepeatMode : uint8_t { Off, All, Song };
 enum class EqualizerPreset : uint8_t {
@@ -280,7 +280,6 @@ extern char s_playlist_name[lyra::media::kMaxName];
 extern char s_radio_url[lyra::media::kMaxPath];
 extern char s_track_list_title[lyra::media::kMaxName];
 extern char s_folder_path[lyra::media::kMaxPath];
-extern char s_playback_folder_path[lyra::media::kMaxPath];
 extern uint32_t s_seen_catalog_generation;
 extern uint32_t s_seen_artwork_generation;
 extern uint32_t s_seen_duration_generation;
@@ -293,7 +292,6 @@ extern PlaybackScope s_playback_scope;
 extern lyra::media::GroupKind s_playback_group_kind;
 extern size_t s_playback_group;
 extern size_t s_playback_playlist;
-extern lyra::media::SmartPlaylistKind s_playback_smart_playlist;
 extern size_t *s_saved_queue;
 extern size_t s_saved_queue_count;
 extern bool s_saved_queue_pending;
@@ -497,7 +495,7 @@ void release_boot_image();
 bool load_brand_logo();
 bool load_player_art(const lyra::media::Track &track);
 lv_obj_t *make_artwork(lv_obj_t *parent, int x, int y, int width, int height, const lyra::media::Track &track, int radius, bool preserve_aspect = false);
-void make_artwork_contents(lv_obj_t *art, int width, int height, const lyra::media::Track &track, int radius, bool preserve_aspect = false);
+lv_obj_t *make_artwork_contents(lv_obj_t *art, int width, int height, const lyra::media::Track &track, int radius, bool preserve_aspect = false);
 void make_artwork_placeholder(lv_obj_t *art, int width, int height);
 void play_track_from_row(size_t track_index, bool force_single);
 void track_route_cb(lv_event_t *event);
@@ -707,6 +705,7 @@ void player_progress_touch_cb(lv_event_t *event);
 lv_obj_t *make_player_progress_touch(lv_obj_t *parent, int x, int y, int width, int height);
 void update_player_progress_seek_preview(uint32_t position_ms, uint32_t duration_ms, bool active);
 void update_player_progress();
+void refresh_player_artwork();
 void reset_player_lyrics_state();
 void render_player();
 void update_equalizer_gain_label(lv_obj_t *label, int16_t gain_tenths_db, lv_color_t color);

@@ -139,7 +139,6 @@ char s_playlist_name[lyra::media::kMaxName] = "";
 char s_radio_url[lyra::media::kMaxPath] = "";
 char s_track_list_title[lyra::media::kMaxName] = "";
 char s_folder_path[lyra::media::kMaxPath] = "/sdcard";
-char s_playback_folder_path[lyra::media::kMaxPath] = "/sdcard";
 uint32_t s_seen_catalog_generation = 0;
 uint32_t s_seen_artwork_generation = 0;
 uint32_t s_seen_duration_generation = 0;
@@ -152,8 +151,6 @@ PlaybackScope s_playback_scope = PlaybackScope::Single;
 lyra::media::GroupKind s_playback_group_kind = lyra::media::GroupKind::Artist;
 size_t s_playback_group = 0;
 size_t s_playback_playlist = 0;
-lyra::media::SmartPlaylistKind s_playback_smart_playlist =
-    lyra::media::SmartPlaylistKind::RecentlyAdded;
 size_t *s_saved_queue = nullptr;
 size_t s_saved_queue_count = 0;
 bool s_saved_queue_pending = false;

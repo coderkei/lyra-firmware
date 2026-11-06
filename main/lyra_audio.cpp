@@ -300,11 +300,11 @@ esp_err_t prepare_next(const char *path, uint32_t playback_serial,
         xSemaphoreGive(s_state_mutex);
         return ESP_ERR_INVALID_STATE;
     }
-    // Once overlap begins both streams belong to that transition. A later
-    // queue edit is applied to the successor after promotion.
+    // Queue edits wait for promotion once overlap starts. Let an explicit
+    // skip fall back to a direct play request so the tap still takes effect.
     if (s_status.transitioning) {
         xSemaphoreGive(s_state_mutex);
-        return ESP_OK;
+        return immediate ? ESP_ERR_INVALID_STATE : ESP_OK;
     }
     // A manual skip has priority over the periodic automatic prefetch poll.
     if (!immediate && s_next_track.immediate &&

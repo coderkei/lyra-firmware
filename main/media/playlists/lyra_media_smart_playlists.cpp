@@ -6,10 +6,16 @@
 #include "../lyra_media_internal.h"
 
 namespace lyra::media::internal {
+
+SemaphoreHandle_t s_playback_stats_file_mutex;
+
 namespace {
 
 constexpr char kPlaybackStatsMagic[8] = {'L', 'Y', 'R', 'A', 'P', 'L', 'A', 'Y'};
 constexpr uint32_t kPlaybackStatsVersion = 1;
+constexpr auto kStatsSdClient = lyra::sd::Client::Filesystem;
+bool s_playback_stats_dirty;
+bool s_playback_stats_save_active;
 
 struct PlaybackStatsHeader {
     char magic[8];
@@ -39,8 +45,7 @@ PlaybackStat *allocate_playback_stats()
 
 bool remove_optional_file(const char *path)
 {
-    if (std::remove(path) == 0 || errno == ENOENT) return true;
-    return false;
+    return lyra::sd::remove(path, kStatsSdClient) == 0 || errno == ENOENT;
 }
 
 bool read_playback_stats_file(const char *path)
@@ -130,40 +135,38 @@ bool append_playback_stat_locked(uint64_t path_hash, PlaybackStat **out)
     return true;
 }
 
-bool write_playback_stats_locked()
+bool write_playback_stats(const PlaybackStatsHeader &header, const PlaybackStat *stats)
 {
-    if (!s_playback_stats || !ensure_directory(kDataDir)) return false;
+    if (!ensure_directory(kDataDir)) return false;
     remove_optional_file(kPlaybackStatsTempPath);
-    FILE *file = std::fopen(kPlaybackStatsTempPath, "wb");
+    FILE *file = lyra::sd::open(kPlaybackStatsTempPath, "wb", kStatsSdClient);
     if (!file) return false;
 
-    PlaybackStatsHeader header{};
-    std::memcpy(header.magic, kPlaybackStatsMagic, sizeof(header.magic));
-    header.version = kPlaybackStatsVersion;
-    header.record_size = sizeof(PlaybackStat);
-    header.record_count = static_cast<uint32_t>(s_playback_stats_count);
-    header.sequence = s_playback_sequence;
-    const bool written = std::fwrite(&header, sizeof(header), 1, file) == 1 &&
-                         (s_playback_stats_count == 0 ||
-                          std::fwrite(s_playback_stats, sizeof(PlaybackStat),
-                                      s_playback_stats_count, file) ==
-                              s_playback_stats_count) &&
-                         std::fflush(file) == 0 && fsync(fileno(file)) == 0;
-    const bool closed = std::fclose(file) == 0;
+    bool written = lyra::sd::write(file, &header, sizeof(header), kStatsSdClient) == sizeof(header) &&
+                   lyra::sd::write_exact(file, stats, header.record_count * sizeof(PlaybackStat),
+                                         kStatsSdClient);
+    if (written && lyra::sd::acquire(kStatsSdClient)) {
+        written = std::fflush(file) == 0 && fsync(fileno(file)) == 0;
+        lyra::sd::release(kStatsSdClient);
+    } else {
+        written = false;
+    }
+    const bool closed = lyra::sd::close(file, kStatsSdClient) == 0;
     if (!written || !closed) {
         remove_optional_file(kPlaybackStatsTempPath);
         return false;
     }
 
-    remove_optional_file(kPlaybackStatsBackupPath);
     struct stat existing{};
-    if (stat(kPlaybackStatsPath, &existing) == 0 &&
-        std::rename(kPlaybackStatsPath, kPlaybackStatsBackupPath) != 0) {
-        remove_optional_file(kPlaybackStatsTempPath);
-        return false;
+    if (stat(kPlaybackStatsPath, &existing) == 0) {
+        remove_optional_file(kPlaybackStatsBackupPath);
+        if (lyra::sd::rename(kPlaybackStatsPath, kPlaybackStatsBackupPath, kStatsSdClient) != 0) {
+            remove_optional_file(kPlaybackStatsTempPath);
+            return false;
+        }
     }
-    if (std::rename(kPlaybackStatsTempPath, kPlaybackStatsPath) != 0) {
-        std::rename(kPlaybackStatsBackupPath, kPlaybackStatsPath);
+    if (lyra::sd::rename(kPlaybackStatsTempPath, kPlaybackStatsPath, kStatsSdClient) != 0) {
+        lyra::sd::rename(kPlaybackStatsBackupPath, kPlaybackStatsPath, kStatsSdClient);
         remove_optional_file(kPlaybackStatsTempPath);
         return false;
     }
@@ -183,6 +186,51 @@ bool include_smart_track(SmartPlaylistKind kind, const PlaybackStat *stat)
     return false;
 }
 
+esp_err_t flush_playback_stats()
+{
+    Lock file_lock(s_playback_stats_file_mutex);
+    PlaybackStatsHeader header{};
+    PlaybackStat *snapshot;
+    {
+        Lock lock;
+        if (!s_status.mounted || !s_playback_stats_dirty) return ESP_OK;
+        // Copy under the media lock so play counts stay live while the card
+        // writes and syncs a consistent snapshot on the worker.
+        const size_t bytes = s_playback_stats_count * sizeof(PlaybackStat);
+        snapshot = static_cast<PlaybackStat *>(heap_caps_malloc(
+            bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (!snapshot) return ESP_ERR_NO_MEM;
+        std::memcpy(snapshot, s_playback_stats, bytes);
+        std::memcpy(header.magic, kPlaybackStatsMagic, sizeof(header.magic));
+        header.version = kPlaybackStatsVersion;
+        header.record_size = sizeof(PlaybackStat);
+        header.record_count = static_cast<uint32_t>(s_playback_stats_count);
+        header.sequence = s_playback_sequence;
+    }
+    const bool saved = write_playback_stats(header, snapshot);
+    heap_caps_free(snapshot);
+    if (!saved) return ESP_FAIL;
+    Lock lock;
+    if (s_playback_sequence == header.sequence) s_playback_stats_dirty = false;
+    return ESP_OK;
+}
+
+void playback_stats_save_task(void *)
+{
+    while (true) {
+        const esp_err_t result = flush_playback_stats();
+        if (result != ESP_OK) {
+            ESP_LOGW(kTag, "could not save playback statistics: %s", esp_err_to_name(result));
+        }
+        Lock lock;
+        if (result != ESP_OK || !s_playback_stats_dirty) {
+            s_playback_stats_save_active = false;
+            break;
+        }
+    }
+    vTaskDeleteWithCaps(nullptr);
+}
+
 } // namespace
 
 const PlaybackStat *playback_stat_locked(uint64_t path_hash)
@@ -190,9 +238,20 @@ const PlaybackStat *playback_stat_locked(uint64_t path_hash)
     return mutable_playback_stat_locked(path_hash);
 }
 
-bool save_playback_stats_locked()
+bool playback_stats_save_active_locked()
 {
-    return write_playback_stats_locked();
+    return s_playback_stats_save_active;
+}
+
+esp_err_t start_playback_stats_save_locked()
+{
+    if (!s_status.mounted || !s_playback_stats_dirty || s_playback_stats_save_active) return ESP_OK;
+    if (xTaskCreatePinnedToCoreWithCaps(playback_stats_save_task, "lyra_play_stats", 6144,
+            nullptr, 1, nullptr, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+    s_playback_stats_save_active = true;
+    return ESP_OK;
 }
 
 void clear_smart_playlist_cache_locked()
@@ -213,6 +272,7 @@ void load_playback_stats()
     s_playback_stats = allocate_playback_stats();
     s_playback_stats_count = 0;
     s_playback_sequence = 0;
+    s_playback_stats_dirty = false;
     if (!s_playback_stats) {
         ESP_LOGW(kTag, "could not allocate playback statistics");
         return;
@@ -232,6 +292,7 @@ esp_err_t clear_playback_stats_locked()
     s_playback_stats = nullptr;
     s_playback_stats_count = 0;
     s_playback_sequence = 0;
+    s_playback_stats_dirty = false;
     clear_smart_playlist_cache_locked();
     return removed ? ESP_OK : ESP_FAIL;
 }
@@ -405,7 +466,8 @@ esp_err_t record_track_play(size_t track_index)
     ++s_playback_sequence;
     if (stat->play_count != UINT32_MAX) ++stat->play_count;
     stat->last_played = s_playback_sequence;
-    return save_playback_stats_locked() ? ESP_OK : ESP_FAIL;
+    s_playback_stats_dirty = true;
+    return start_playback_stats_save_locked();
 }
 
 } // namespace lyra::media
