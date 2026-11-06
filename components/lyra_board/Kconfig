@@ -28,13 +28,16 @@ config LYRA_DISPLAY_BAND_LINES
     int "Rows per streamed band"
     depends on LYRA_DISPLAY_STREAMED_BANDS
     range 8 48
-    default 24
+    default 16
     help
         Height of each of the two internal DMA render buffers. Each row costs
-        640 bytes per buffer, so 24 rows use 30 KiB of internal RAM in total.
+        640 bytes per buffer, so 16 rows use 20 KiB of internal RAM in total.
         Taller bands reduce per-band LVGL overhead; shorter bands leave more
-        internal RAM for audio and Wi-Fi. If the buffers cannot be allocated
-        at boot, the firmware halves the height until they fit.
+        internal RAM for audio and Wi-Fi. With 24 rows and Wi-Fi initialized,
+        the largest free internal block stayed under the I2S output task's
+        8 KiB stack, so that task ran from PSRAM on every track. If the buffers
+        cannot be allocated at boot, the firmware halves the height until they
+        fit.
 
 choice LYRA_LCD_QSPI_CLOCK
     prompt "LCD QSPI pixel clock"

@@ -165,7 +165,7 @@ and light trails, Zeno's logo tile) and blit the cached pixels on redraw.
 **Display performance.** The AXS15231B accepts pixel writes only as one
 stream that starts at row zero, so every invalidated area is rounded to full
 rows from the top of the panel. LVGL renders that range in horizontal bands
-into two internal-RAM DMA buffers (24 rows each by default,
+into two internal-RAM DMA buffers (16 rows each by default,
 `CONFIG_LYRA_DISPLAY_BAND_LINES`). Each band is byte-swapped in place and sent
 inside a single CS-held RAMWR while LVGL renders the next band into the other
 buffer, so drawing and the QSPI transfer overlap. The refresh waits only for
