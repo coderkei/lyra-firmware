@@ -329,15 +329,19 @@ void render_radio_files()
                        total, page_size);
 }
 
-void render_radio_playing()
+bool is_radio_stream(const char *path)
 {
-    stop_radio_status_timer();
-    const lyra::audio::Status status = lyra::audio::status();
-    if (!s_current_station_name[0]) {
+    return path && (::strncasecmp(path, "http://", 7) == 0 ||
+                    ::strncasecmp(path, "https://", 8) == 0);
+}
+
+const char *radio_station_name(const char *url)
+{
+    if (!s_current_station_name[0] && url) {
         for (size_t index = 0; index < lyra::radio::station_count(); ++index) {
             lyra::radio::Station station{};
             if (lyra::radio::station_at(index, &station) &&
-                std::strcmp(status.path, station.url) == 0) {
+                std::strcmp(url, station.url) == 0) {
                 copy_ui_text(s_current_station_name, sizeof(s_current_station_name),
                              station.name);
                 break;
@@ -345,8 +349,16 @@ void render_radio_playing()
         }
     }
     if (!s_current_station_name[0]) {
-        copy_ui_text(s_current_station_name, sizeof(s_current_station_name), status.path);
+        copy_ui_text(s_current_station_name, sizeof(s_current_station_name), url);
     }
+    return s_current_station_name;
+}
+
+void render_radio_playing()
+{
+    stop_radio_status_timer();
+    const lyra::audio::Status status = lyra::audio::status();
+    radio_station_name(status.path);
     make_header(s_current_station_name[0] ? s_current_station_name :
                 tr(lyra::i18n::StringId::InternetRadio), View::InternetRadio, true);
     lv_obj_t *body = make_box(s_screen, 0, 72, kScreenWidth,

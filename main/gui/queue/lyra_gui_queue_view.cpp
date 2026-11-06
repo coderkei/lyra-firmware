@@ -307,16 +307,23 @@ void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int hei
 
     lyra::media::Track track{};
     const lyra::audio::Status playback = lyra::audio::status();
-    const bool has_track = (s_has_active_queue || playback.playing) &&
+    // A radio stream leaves s_current_track on the last MicroSD song. Show
+    // the station instead of that song's title, album and cover.
+    const bool radio = playback.playing && is_radio_stream(playback.path);
+    const bool has_track = !radio && (s_has_active_queue || playback.playing) &&
                            lyra::media::track_at(s_current_track, &track) && track.title[0];
-    const char *title_text = has_track ? track.title : tr(lyra::i18n::StringId::NowPlaying);
+    const char *title_text = radio ? radio_station_name(playback.path) :
+                             has_track ? track.title : tr(lyra::i18n::StringId::NowPlaying);
     const lyra::i18n::StringId state_id = !playback.playing ?
         lyra::i18n::StringId::PlaybackIdle : playback.paused ?
         lyra::i18n::StringId::PlaybackPaused : lyra::i18n::StringId::PlaybackPlaying;
     const char *state_text = tr(state_id);
     const bool detailed_overview = height >= 96;
     const bool show_album = detailed_overview && has_track && track.album[0];
-    const bool show_artist = detailed_overview && has_track && track.artist[0];
+    // The card is not refreshed while a station plays, so name the source
+    // rather than a stream title that would go stale.
+    const char *artist_text = radio ? tr(lyra::i18n::StringId::InternetRadio) : track.artist;
+    const bool show_artist = detailed_overview && (has_track || radio) && artist_text[0];
     const bool accent_fill = lv_color_eq(fill, kAccentSurface) && !is_cute_theme();
     const lv_color_t title_color = accent_fill ? kTextOnAccent : kTextPrimary;
     const lv_color_t state_color = accent_fill ? kTextOnAccent :
@@ -332,6 +339,12 @@ void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int hei
     if (has_track) {
         make_artwork_contents(artwork, artwork_size, artwork_size, track,
                               artwork_radius, true);
+    } else if (radio) {
+        // Matches the station artwork on the Internet radio screen.
+        lv_obj_t *icon = make_label(artwork, LV_SYMBOL_WIFI, kAccent);
+        lv_obj_set_style_text_font(icon, detailed_overview ? &lv_font_montserrat_28 :
+                                         lyra::font::ui(), 0);
+        lv_obj_center(icon);
     } else {
         make_artwork_placeholder(artwork, artwork_size, artwork_size);
     }
@@ -357,7 +370,7 @@ void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int hei
             line_y += kOverviewLineHeight;
         }
         if (show_artist) {
-            lv_obj_t *artist = make_label(entry, track.artist,
+            lv_obj_t *artist = make_label(entry, artist_text,
                 accent_fill ? kTextOnAccent : kTextSecondary);
             make_marquee(artist, text_width, MarqueeMode::Focus);
             lv_obj_align(artist, LV_ALIGN_TOP_LEFT, text_x, line_y);

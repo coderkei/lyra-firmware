@@ -612,6 +612,11 @@ void render_radio_stations();
 void render_radio_add();
 void render_radio_files();
 void render_radio_playing();
+// True for an internet radio stream address (http/https) in audio::Status::path.
+bool is_radio_stream(const char *path);
+// The station shown for a playing stream: the station last started, else the
+// saved station with this URL, else the URL itself.
+const char *radio_station_name(const char *url);
 void save_radio_address();
 void leave_radio_add();
 void stop_radio_status_timer();
