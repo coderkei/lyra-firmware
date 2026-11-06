@@ -123,7 +123,7 @@ uint32_t checksum_update(uint32_t hash, const void *data, size_t length)
     return hash;
 }
 
-bool checksum_file_payload(FILE *file, uint32_t start, uint32_t end, uint32_t *out)
+bool checksum_file_payload(FILE *file, uint32_t start, uint32_t end, uint32_t *out, uint32_t seed)
 {
     if (!file || !out || end < start) return false;
     if (std::fseek(file, start, SEEK_SET) != 0) {
@@ -145,7 +145,7 @@ bool checksum_file_payload(FILE *file, uint32_t start, uint32_t end, uint32_t *o
         ESP_LOGW(kTag, "catalog checksum scratch allocation failed");
         return false;
     }
-    uint32_t hash = 2166136261u;
+    uint32_t hash = seed;
     uint32_t remaining = end - start;
     while (remaining) {
         const size_t wanted = std::min<size_t>(buffer_size, remaining);

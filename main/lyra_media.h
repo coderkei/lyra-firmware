@@ -206,6 +206,7 @@ struct TrackSummary {
 };
 bool track_summary_at(size_t index, TrackSummary *out);
 bool sorted_track_at(size_t index, size_t *track_index);
+size_t sorted_tracks(size_t offset, size_t *track_indices, size_t capacity);
 esp_err_t start_search(SearchCategory category, const char *query);
 SearchStatus search_status();
 size_t search_results(size_t offset, SearchResult *results, size_t capacity,

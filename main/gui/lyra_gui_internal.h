@@ -442,6 +442,7 @@ bool playback_queue_track_at(size_t position, size_t *track_index);
 bool playback_queue_position(size_t track_index, size_t *position);
 bool build_shuffle_queue();
 bool queue_track_at(size_t queue_position, size_t *track_index);
+bool copy_queue_tracks(size_t *indices, size_t count);
 bool current_queue_position(size_t *queue_position);
 bool add_tracks_to_queue(const size_t *track_indices, size_t count, QueueInsertMode mode);
 bool move_queue_entry(size_t queue_position, int direction);
@@ -542,8 +543,16 @@ struct VirtualRow {
 };
 // Runs on the prefetch task (and once on the GUI thread for the first screen).
 using VirtualFetch = bool (*)(size_t position, VirtualRow *row);
-// Builds one row inside slot at y = 0, using only the cached text.
-using VirtualBuild = void (*)(lv_obj_t *slot, size_t position, const VirtualRow &row, int width);
+struct VirtualRowWidgets {
+    lv_obj_t *button;
+    lv_obj_t *title;
+    lv_obj_t *subtitle;
+    unsigned variant;
+    lv_obj_t *number = nullptr;
+};
+// Builds the widgets on first use and rebinds them to subsequent rows.
+using VirtualBuild = void (*)(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t position,
+                              const VirtualRow &row, int width);
 struct VirtualListSpec {
     size_t count;
     int top;
@@ -556,6 +565,7 @@ struct VirtualListSpec {
     bool jump_button;                        // Opens the page-jump screen.
 };
 void make_virtual_list(lv_obj_t *body, const VirtualListSpec &spec);
+void rebind_virtual_row(VirtualRowWidgets &widgets, const VirtualRow &row);
 int virtual_list_row_width();
 void render_page_jump();
 void open_queue_cb(lv_event_t *);
@@ -729,6 +739,7 @@ void make_library_keyboard(lv_obj_t *keyboard, const char *action);
 void render_search();
 void render_playlist_create();
 void add_playlist_track_cb(lv_event_t *event);
+void add_playlist_track(size_t track_index);
 void render_playlist_add();
 void toggle_bool_cb(lv_event_t *event);
 void make_setting_toggle(lv_obj_t *parent, int y, const char *title, const char *subtitle,

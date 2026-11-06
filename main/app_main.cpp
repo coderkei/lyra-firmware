@@ -24,7 +24,8 @@ TaskHandle_t s_splash_waiter;
 void render_splash_task(void *context)
 {
     lv_refr_now(static_cast<lv_display_t *>(context));
-    xTaskNotifyGive(s_splash_waiter);
+    const esp_err_t result = lyra_board_display_finish_boot_frame(static_cast<lv_display_t *>(context));
+    xTaskNotify(s_splash_waiter, result == ESP_OK ? 1 : 0, eSetValueWithOverwrite);
     vTaskDelete(nullptr);
 }
 
@@ -37,7 +38,8 @@ bool render_splash_with_safe_stack(lv_display_t *display)
     const BaseType_t created = xTaskCreatePinnedToCore(
         render_splash_task, "lyra_splash", 12288, display, 5, nullptr, 1);
     if (created != pdPASS) return false;
-    return ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000)) != 0;
+    uint32_t rendered = 0;
+    return xTaskNotifyWait(0, UINT32_MAX, &rendered, portMAX_DELAY) == pdTRUE && rendered != 0;
 }
 
 void initialize_wifi_task(void *)
@@ -93,10 +95,6 @@ extern "C" void app_main(void)
         ESP_LOGE(kTag, "boot screen creation failed: %s", esp_err_to_name(splash_ret));
     } else if (!render_splash_with_safe_stack(board.display)) {
         ESP_LOGE(kTag, "boot screen transfer did not complete");
-    } else {
-        // The panel transfer is asynchronous. Allow its final queued chunk to
-        // complete before revealing the LCD.
-        vTaskDelay(pdMS_TO_TICKS(100));
     }
     const esp_err_t backlight_ret = lyra_board_display_set_backlight(true);
     if (backlight_ret != ESP_OK) {

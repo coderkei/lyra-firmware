@@ -371,6 +371,19 @@ bool track_summary_at(size_t index, TrackSummary *out)
 {
     if (!out) return false;
     Lock lock;
+    if (index < kMaxTracks) {
+        if (!s_catalog || index >= s_track_count) return false;
+        const uint32_t physical = s_title_order[index];
+        if (copy_resident_track_summary(physical, out)) return true;
+        for (size_t i = 0; i < kTrackCacheSize; ++i) {
+            const CachedTrack &entry = s_track_cache[i];
+            if (entry.generation == s_status.catalog_generation && entry.physical_index == physical) {
+                copy_text(out->title, sizeof(out->title), entry.track.title);
+                copy_text(out->artist, sizeof(out->artist), entry.track.artist);
+                return true;
+            }
+        }
+    }
     // Guarded by the media lock; kept in PSRAM so list rows cost no internal RAM.
     static Track *scratch_buffer = static_cast<Track *>(
         heap_caps_malloc(sizeof(Track), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -379,15 +392,7 @@ bool track_summary_at(size_t index, TrackSummary *out)
     if (index >= kMaxTracks) {
         if (!transient_track_at_locked(index, &scratch)) return false;
     } else {
-        if (!s_catalog || index >= s_track_count) return false;
-        const uint32_t physical = s_title_order[index];
-        const Track *cached = nullptr;
-        for (size_t i = 0; i < kTrackCacheSize && !cached; ++i) {
-            if (s_track_cache[i].generation == s_status.catalog_generation &&
-                s_track_cache[i].physical_index == physical) cached = &s_track_cache[i].track;
-        }
-        if (cached) scratch = *cached;
-        else if (!read_physical(s_catalog, s_catalog_header, physical, &scratch)) return false;
+        if (!read_physical(s_catalog, s_catalog_header, s_title_order[index], &scratch)) return false;
     }
     copy_text(out->title, sizeof(out->title), scratch.title);
     copy_text(out->artist, sizeof(out->artist), scratch.artist);
@@ -396,22 +401,26 @@ bool track_summary_at(size_t index, TrackSummary *out)
 
 bool sorted_track_at(size_t index, size_t *track_index)
 {
-    if (!track_index) return false;
+    return sorted_tracks(index, track_index, 1) == 1;
+}
+
+size_t sorted_tracks(size_t offset, size_t *track_indices, size_t capacity)
+{
+    if (!track_indices || !capacity) return 0;
     Lock lock;
-    if (index >= s_track_count) return false;
+    if (offset >= s_track_count) return 0;
+    const size_t count = std::min(capacity, s_track_count - offset);
     const SortSetting setting = current_sort_setting(SortSection::Songs);
-    if (setting.field == SortField::Title && setting.direction == SortDirection::Ascending) {
-        *track_index = index;
-        return true;
+    const bool title_order = setting.field == SortField::Title && setting.direction == SortDirection::Ascending;
+    const uint32_t *order = nullptr;
+    if (!title_order) {
+        if (prepare_song_sort_order_locked()) order = s_song_sort_order;
+        else start_sort_cache_indexing_locked(SortSection::Songs);
     }
-    if (!prepare_song_sort_order_locked()) {
-        start_sort_cache_indexing_locked(SortSection::Songs);
-        if (!s_title_order || !s_physical_to_logical) return false;
-        *track_index = s_physical_to_logical[s_title_order[index]];
-        return true;
-    }
-    *track_index = s_song_sort_order[index];
-    return true;
+    // The logical indices already are in title order, including while a
+    // different order is being prepared by the background indexer.
+    for (size_t i = 0; i < count; ++i) track_indices[i] = order ? order[offset + i] : offset + i;
+    return count;
 }
 
 bool copy_artwork(const Track &track, uint16_t *pixels, size_t pixel_count)
@@ -496,17 +505,26 @@ size_t group_count(GroupKind kind)
     return count;
 }
 
+static bool group_record_locked(GroupKind kind, size_t index, GroupRecord *out)
+{
+    uint32_t offset = 0;
+    uint32_t count = 0;
+    group_location(kind, &offset, &count);
+    if (!s_catalog || index >= count) return false;
+    if (const GroupRecord *record = resident_group_record(kind, index)) {
+        *out = *record;
+        return true;
+    }
+    return std::fseek(s_catalog, offset + index * sizeof(GroupRecord), SEEK_SET) == 0 &&
+           std::fread(out, sizeof(*out), 1, s_catalog) == 1;
+}
+
 bool group_at(GroupKind kind, size_t index, Group *out)
 {
     if (!out) return false;
     Lock lock;
-    uint32_t offset = 0;
-    uint32_t count = 0;
-    group_location(kind, &offset, &count);
-    if (!s_catalog || index >= count ||
-        std::fseek(s_catalog, offset + index * sizeof(GroupRecord), SEEK_SET) != 0) return false;
-    GroupRecord record{};
-    if (std::fread(&record, sizeof(record), 1, s_catalog) != 1) return false;
+    GroupRecord record;
+    if (!group_record_locked(kind, index, &record)) return false;
     copy_text(out->name, sizeof(out->name), record.name);
     out->track_count = record.track_count;
     out->representative_track = record.representative_track;
@@ -543,21 +561,13 @@ size_t group_tracks(GroupKind kind, size_t group_index, size_t offset,
 {
     if (!track_indices || capacity == 0) return 0;
     Lock lock;
-    uint32_t groups_offset = 0;
-    uint32_t groups_count = 0;
-    group_location(kind, &groups_offset, &groups_count);
-    if (!s_catalog || group_index >= groups_count ||
-        std::fseek(s_catalog, groups_offset + group_index * sizeof(GroupRecord), SEEK_SET) != 0) return 0;
-    GroupRecord group{};
-    if (std::fread(&group, sizeof(group), 1, s_catalog) != 1 || offset >= group.track_count) return 0;
+    GroupRecord group;
+    if (!group_record_locked(kind, group_index, &group) || offset >= group.track_count) return 0;
     const size_t wanted = std::min(capacity, static_cast<size_t>(group.track_count) - offset);
     if (kind == GroupKind::Album || kind == GroupKind::Artist) {
-        GroupTrackEntry *entries = nullptr;
-        if (!build_group_track_order_locked(kind, group, &entries)) return 0;
-        for (size_t index = 0; index < wanted; ++index) {
-            track_indices[index] = entries[offset + index].logical_index;
-        }
-        heap_caps_free(entries);
+        const uint32_t *order = group_track_order_locked(kind, group);
+        if (!order) return 0;
+        std::copy_n(order + offset, wanted, track_indices);
         return wanted;
     }
     if (std::fseek(s_catalog, group.members_offset + offset * sizeof(uint32_t), SEEK_SET) != 0) return 0;
@@ -569,38 +579,24 @@ bool group_adjacent_track(GroupKind kind, size_t group_index, size_t current_tra
 {
     if (!track_index || direction == 0) return false;
     Lock lock;
-    uint32_t groups_offset = 0;
-    uint32_t groups_count = 0;
-    group_location(kind, &groups_offset, &groups_count);
-    if (!s_catalog || group_index >= groups_count ||
-        std::fseek(s_catalog, groups_offset + group_index * sizeof(GroupRecord), SEEK_SET) != 0) return false;
-    GroupRecord group{};
-    if (std::fread(&group, sizeof(group), 1, s_catalog) != 1 || group.track_count == 0 ||
-        std::fseek(s_catalog, group.members_offset, SEEK_SET) != 0) return false;
+    GroupRecord group;
+    if (!group_record_locked(kind, group_index, &group) || group.track_count == 0) return false;
 
     if (kind == GroupKind::Album || kind == GroupKind::Artist) {
-        GroupTrackEntry *entries = nullptr;
-        if (!build_group_track_order_locked(kind, group, &entries)) return false;
-        size_t current_position = SIZE_MAX;
-        for (size_t index = 0; index < group.track_count; ++index) {
-            if (entries[index].logical_index == current_track) {
-                current_position = index;
-                break;
-            }
-        }
-        if (current_position == SIZE_MAX) {
-            heap_caps_free(entries);
-            return false;
-        }
-        const int64_t next = static_cast<int64_t>(current_position) + direction;
+        const uint32_t *order = group_track_order_locked(kind, group);
+        if (!order) return false;
+        const uint32_t *end = order + group.track_count;
+        const uint32_t *current = std::find(order, end, current_track);
+        if (current == end) return false;
+        const int64_t next = (current - order) + direction;
         const size_t target = next < 0 ? group.track_count - 1 :
                               next >= static_cast<int64_t>(group.track_count) ? 0 :
                               static_cast<size_t>(next);
-        *track_index = entries[target].logical_index;
-        heap_caps_free(entries);
+        *track_index = order[target];
         return true;
     }
 
+    if (std::fseek(s_catalog, group.members_offset, SEEK_SET) != 0) return false;
     uint32_t first = 0;
     uint32_t previous = 0;
     uint32_t member = 0;

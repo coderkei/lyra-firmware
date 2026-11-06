@@ -23,7 +23,7 @@ constexpr size_t kCacheSize = 128;
 constexpr size_t kMaxSlots = 16;
 constexpr size_t kPrefetchBehind = 16;
 constexpr size_t kPrefetchAhead = 48;
-constexpr uint32_t kTickMs = 40;
+constexpr uint32_t kTickMs = 16;
 constexpr int64_t kBubbleHoldUs = 700 * 1000;
 constexpr int kStripWidth = 28;
 constexpr int kStripGap = 3;
@@ -44,16 +44,21 @@ SemaphoreHandle_t s_mutex;
 TaskHandle_t s_worker;
 uint32_t s_generation;
 VirtualFetch s_request_fetch;
-size_t s_request_first;
-size_t s_request_last;
-size_t s_request_center;
-bool s_request_forward = true;
+struct PrefetchRange {
+    size_t first;
+    size_t last;
+    bool backward;
+};
+PrefetchRange s_request_ranges[3];
+size_t s_requested_first;
+size_t s_requested_last;
 std::atomic<bool> s_rows_ready{false};
 
 struct ListState {
     lv_obj_t *body;
     VirtualListSpec spec;
     lv_obj_t *slots[kMaxSlots];
+    VirtualRowWidgets widgets[kMaxSlots];
     size_t slot_position[kMaxSlots];
     bool slot_filled[kMaxSlots];
     size_t slot_count;
@@ -62,15 +67,19 @@ struct ListState {
     bool forward;
     bool needs_update;
     lv_timer_t *timer;
+    lv_indev_t *drag_device;
+    lv_obj_t *drag_slot;
     lv_obj_t *bubble;
     lv_obj_t *bubble_label;
     int64_t bubble_hide_us;
+    const lyra::media::SortLocation *bubble_mark;
     lv_obj_t *strip;
     int strip_top;
     int strip_height;
     lyra::media::SortLocation *letters;
     size_t letter_count;
     bool letters_pending;
+    uint32_t next_letters_ms;
 };
 
 ListState s_list{};
@@ -91,7 +100,7 @@ bool cached_row(size_t position, VirtualRow *row)
     return true;
 }
 
-void store_row(uint32_t generation, size_t position, const VirtualRow &row)
+void store_row(uint32_t generation, size_t position, const VirtualRow &row, bool from_worker)
 {
     Lock lock;
     if (generation != s_generation) return;
@@ -100,25 +109,22 @@ void store_row(uint32_t generation, size_t position, const VirtualRow &row)
     entry.generation = generation;
     entry.ready = true;
     entry.row = row;
+    if (from_worker && position >= s_requested_first && position < s_requested_last) {
+        s_rows_ready.store(true, std::memory_order_release);
+    }
 }
 
-// Next uncached position in the requested window, nearest first and leaning
-// into the direction of travel.
+// Walk each requested position once, prioritizing displayed rows, then the
+// direction of travel. A new viewport can supersede this at any time.
 bool next_request(uint32_t *generation, VirtualFetch *fetch, size_t *position)
 {
     Lock lock;
-    if (!s_request_fetch || s_request_first >= s_request_last) return false;
-    const auto missing = [](size_t candidate) {
-        const CacheEntry &entry = s_cache[candidate % kCacheSize];
-        return !entry.ready || entry.generation != s_generation || entry.position != candidate;
-    };
-    const size_t center = std::clamp(s_request_center, s_request_first, s_request_last - 1);
-    const size_t span = s_request_last - s_request_first;
-    for (size_t step = 0; step < span; ++step) {
-        const size_t ahead = s_request_forward ? center + step : center - std::min(step, center);
-        const size_t behind = s_request_forward ? center - std::min(step, center) : center + step;
-        for (size_t candidate : {ahead, behind}) {
-            if (candidate < s_request_first || candidate >= s_request_last || !missing(candidate)) continue;
+    if (!s_request_fetch) return false;
+    for (auto &range : s_request_ranges) {
+        while (range.first < range.last) {
+            const size_t candidate = range.backward ? --range.last : range.first++;
+            const CacheEntry &entry = s_cache[candidate % kCacheSize];
+            if (entry.ready && entry.generation == s_generation && entry.position == candidate) continue;
             *generation = s_generation;
             *fetch = s_request_fetch;
             *position = candidate;
@@ -140,8 +146,7 @@ void prefetch_task(void *)
             // A failed lookup is cached as an empty row so it is not retried
             // in a tight loop; the next catalog change starts a new list.
             if (!fetch(position, &row)) row = {};
-            store_row(generation, position, row);
-            s_rows_ready.store(true, std::memory_order_release);
+            store_row(generation, position, row, true);
         }
     }
 }
@@ -159,23 +164,25 @@ bool ensure_prefetch()
         xTaskCreatePinnedToCoreWithCaps(prefetch_task, "lyra_rows", 8 * 1024, nullptr, 2,
                                         &s_worker, tskNO_AFFINITY, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     }
-    return s_mutex && s_cache && s_worker;
+    return s_mutex && s_cache;
 }
 
-void request_window(size_t first_visible)
+void request_window(size_t first, size_t last)
 {
+    if (!s_worker) return;
     const size_t count = s_list.spec.count;
-    const size_t first = s_list.forward ? first_visible - std::min(first_visible, kPrefetchBehind / 2) :
-                                          first_visible - std::min(first_visible, kPrefetchAhead);
-    const size_t last = std::min(count, s_list.forward ? first_visible + kPrefetchAhead :
-                                                         first_visible + kPrefetchBehind + s_list.slot_count);
+    const size_t before = s_list.forward ? kPrefetchBehind : kPrefetchAhead;
+    const size_t after = s_list.forward ? kPrefetchAhead : kPrefetchBehind;
+    const PrefetchRange behind{first - std::min(first, before), first, true};
+    const PrefetchRange ahead{last, std::min(count, last + after), false};
     {
         Lock lock;
         s_request_fetch = s_list.spec.fetch;
-        s_request_first = first;
-        s_request_last = last;
-        s_request_center = s_list.forward ? first_visible : first_visible + s_list.slot_count - 1;
-        s_request_forward = s_list.forward;
+        s_requested_first = first;
+        s_requested_last = last;
+        s_request_ranges[0] = {first, last, !s_list.forward};
+        s_request_ranges[1] = s_list.forward ? ahead : behind;
+        s_request_ranges[2] = s_list.forward ? behind : ahead;
     }
     xTaskNotifyGive(s_worker);
 }
@@ -184,6 +191,8 @@ bool slot_holds_input(lv_obj_t *slot)
 {
     // Deleting the pressed object resets the input device and would abort a
     // drag that started on a row's button; such a slot is rebound later.
+    if (s_list.drag_slot == slot &&
+        lv_indev_get_state(s_list.drag_device) == LV_INDEV_STATE_PRESSED) return true;
     for (lv_obj_t *object = lv_indev_get_active_obj(); object; object = lv_obj_get_parent(object)) {
         if (object == slot) return lv_indev_get_active_obj() != slot;
     }
@@ -193,26 +202,35 @@ bool slot_holds_input(lv_obj_t *slot)
 void bind_slot(size_t slot_index, size_t position)
 {
     lv_obj_t *slot = s_list.slots[slot_index];
-    if (slot_holds_input(slot)) return;
-    VirtualRow row;
-    const bool ready = cached_row(position, &row);
+    if (slot_holds_input(slot)) {
+        s_list.needs_update = true;
+        return;
+    }
+    VirtualRow row{};
+    bool ready = cached_row(position, &row);
+    if (!ready && !s_worker) {
+        // The list still works if the optional worker could not be created.
+        if (!s_list.spec.fetch(position, &row)) row = {};
+        store_row(s_generation, position, row, false);
+        ready = true;
+    }
     const bool same_position = s_list.slot_position[slot_index] == position;
     if (same_position && (s_list.slot_filled[slot_index] || !ready)) return;
     if (!same_position) {
         lv_obj_set_y(slot, s_list.spec.top + static_cast<int>(position) * s_list.spec.pitch);
     }
-    lv_obj_remove_flag(slot, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clean(slot);
     s_list.slot_position[slot_index] = position;
     s_list.slot_filled[slot_index] = ready;
-    if (!ready) return;
-    s_list.spec.build(slot, position, row, s_list.width);
+    if (!ready || !row.title[0]) {
+        lv_obj_add_flag(slot, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    auto &widgets = s_list.widgets[slot_index];
+    s_list.spec.build(slot, widgets, position, row, s_list.width);
+    lv_obj_remove_flag(slot, LV_OBJ_FLAG_HIDDEN);
     // The slot receives the touch, so the row itself is never the pressed
     // object when it is recycled. Nested action buttons stay clickable.
-    const uint32_t children = lv_obj_get_child_count(slot);
-    for (uint32_t i = 0; i < children; ++i) {
-        lv_obj_remove_flag(lv_obj_get_child(slot, i), LV_OBJ_FLAG_CLICKABLE);
-    }
+    lv_obj_remove_flag(widgets.button, LV_OBJ_FLAG_CLICKABLE);
 }
 
 size_t first_visible_position()
@@ -226,7 +244,8 @@ void update_slots()
 {
     if (!s_list.body || !s_list.spec.count) return;
     const size_t visible = first_visible_position();
-    if (visible != s_list.last_first) s_list.forward = visible > s_list.last_first;
+    const bool moved = visible != s_list.last_first;
+    if (moved && s_list.last_first != SIZE_MAX) s_list.forward = visible > s_list.last_first;
     s_list.last_first = visible;
     const size_t first = visible ? visible - 1 : 0;
     const size_t last = std::min(s_list.spec.count, first + s_list.slot_count);
@@ -235,7 +254,7 @@ void update_slots()
         if (s_list.slot_position[slot] == position && s_list.slot_filled[slot]) continue;
         bind_slot(slot, position);
     }
-    request_window(visible);
+    if (moved) request_window(first, last);
 }
 
 const lyra::media::SortLocation *mark_at(size_t position)
@@ -250,13 +269,15 @@ const lyra::media::SortLocation *mark_at(size_t position)
 void show_bubble(const lyra::media::SortLocation *mark)
 {
     if (!mark || !s_list.bubble) return;
+    s_list.bubble_hide_us = esp_timer_get_time() + kBubbleHoldUs;
+    if (mark == s_list.bubble_mark) return;
     // The bubble has room for the full value (a date, 3:45) the strip abbreviates.
     char text[lyra::media::kMaxName];
     format_jump_label(*mark, text, sizeof(text));
     if (!text[0]) return;
     set_label_text_if_changed(s_list.bubble_label, text);
     lv_obj_remove_flag(s_list.bubble, LV_OBJ_FLAG_HIDDEN);
-    s_list.bubble_hide_us = esp_timer_get_time() + kBubbleHoldUs;
+    s_list.bubble_mark = mark;
 }
 
 void scroll_to_position(size_t position)
@@ -323,14 +344,19 @@ void load_letters()
 void tick_cb(lv_timer_t *)
 {
     if (!s_list.body) return;
-    if (s_list.needs_update || s_rows_ready.exchange(false, std::memory_order_acq_rel)) {
+    const bool rows_ready = s_rows_ready.exchange(false, std::memory_order_acq_rel);
+    if (s_list.needs_update || rows_ready) {
         s_list.needs_update = false;
         update_slots();
     }
-    if (s_list.letters_pending) load_letters();
+    if (s_list.letters_pending && lv_tick_elaps(s_list.next_letters_ms) >= 100) {
+        s_list.next_letters_ms = lv_tick_get();
+        load_letters();
+    }
     if (s_list.bubble && s_list.bubble_hide_us && esp_timer_get_time() >= s_list.bubble_hide_us &&
         !lv_obj_is_scrolling(s_list.body)) {
         s_list.bubble_hide_us = 0;
+        s_list.bubble_mark = nullptr;
         lv_obj_add_flag(s_list.bubble, LV_OBJ_FLAG_HIDDEN);
     }
 }
@@ -339,17 +365,25 @@ void body_event_cb(lv_event_t *event)
 {
     switch (lv_event_get_code(event)) {
         case LV_EVENT_SCROLL:
-            update_slots();
+            if (first_visible_position() != s_list.last_first) update_slots();
             if (s_list.letter_count && lv_obj_is_scrolling(s_list.body)) {
                 show_bubble(mark_at(first_visible_position()));
             }
             break;
         case LV_EVENT_SCROLL_BEGIN:
             for (size_t i = 0; i < s_list.slot_count; ++i) {
+                if (lv_indev_active() && slot_holds_input(s_list.slots[i])) {
+                    s_list.drag_device = lv_indev_active();
+                    s_list.drag_slot = s_list.slots[i];
+                }
                 if (lv_obj_get_child_count(s_list.slots[i])) {
                     lv_obj_remove_state(lv_obj_get_child(s_list.slots[i], 0), LV_STATE_PRESSED);
                 }
             }
+            break;
+        case LV_EVENT_SCROLL_END:
+            s_list.drag_slot = nullptr;
+            s_list.drag_device = nullptr;
             break;
         case LV_EVENT_DELETE:
             if (s_list.timer) lv_timer_delete(s_list.timer);
@@ -409,6 +443,7 @@ void make_virtual_list(lv_obj_t *body, const VirtualListSpec &spec)
     lv_obj_update_layout(body);
     s_list.body = body;
     s_list.spec = spec;
+    s_list.last_first = SIZE_MAX;
     s_list.width = spec.letter_strip ? 306 - kStripWidth - kStripGap : 306;
     s_list.forward = true;
     const int viewport = lv_obj_get_height(body);
@@ -427,7 +462,7 @@ void make_virtual_list(lv_obj_t *body, const VirtualListSpec &spec)
          position < std::min(spec.count, start + s_list.slot_count); ++position) {
         VirtualRow row{};
         if (!spec.fetch(position, &row)) row = {};
-        store_row(generation, position, row);
+        store_row(generation, position, row, false);
     }
 
     for (size_t i = 0; i < s_list.slot_count; ++i) {
@@ -447,7 +482,8 @@ void make_virtual_list(lv_obj_t *body, const VirtualListSpec &spec)
     lv_obj_set_size(extent, 1, 1);
     lv_obj_set_pos(extent, 0, spec.top + static_cast<int>(spec.count) * spec.pitch + 8);
 
-    for (lv_event_code_t code : {LV_EVENT_SCROLL, LV_EVENT_SCROLL_BEGIN, LV_EVENT_DELETE}) {
+    for (lv_event_code_t code : {LV_EVENT_SCROLL, LV_EVENT_SCROLL_BEGIN, LV_EVENT_SCROLL_END,
+                                 LV_EVENT_DELETE}) {
         lv_obj_add_event_cb(body, body_event_cb, code, nullptr);
     }
     s_list.timer = lv_timer_create(tick_cb, kTickMs, nullptr);

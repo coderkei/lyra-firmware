@@ -9,8 +9,6 @@
 #include <stdint.h>
 
 #include "esp_err.h"
-#include "esp_lcd_panel_io.h"
-#include "esp_lcd_panel_ops.h"
 #include "lvgl.h"
 
 #ifdef __cplusplus
@@ -22,12 +20,14 @@ extern "C" {
 
 typedef struct {
     lv_display_t *display;
-    esp_lcd_panel_handle_t panel;
-    esp_lcd_panel_io_handle_t panel_io;
     bool touch_available;
 } lyra_board_display_t;
 
 esp_err_t lyra_board_display_init(lyra_board_display_t *board);
+
+// Wait for the splash transfer before turning on the backlight. Call only
+// from the splash renderer, before the regular LVGL task takes ownership.
+esp_err_t lyra_board_display_finish_boot_frame(lv_display_t *display);
 
 // The panel is initialized with its backlight off so uninitialized LCD RAM is
 // never exposed. Enable it only after the application has transferred its

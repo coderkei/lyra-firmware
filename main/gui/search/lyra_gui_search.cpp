@@ -1373,7 +1373,11 @@ void render_file_name_input()
 
 void add_playlist_track_cb(lv_event_t *event)
 {
-    const size_t track_index = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
+    add_playlist_track(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+}
+
+void add_playlist_track(size_t track_index)
+{
     if (lyra::media::add_to_playlist(s_selected_playlist, track_index) == ESP_OK) {
         while (s_navigation_depth) {
             const NavigationState state = s_navigation[--s_navigation_depth];

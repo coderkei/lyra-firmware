@@ -6,6 +6,7 @@
 #include "../lyra_media_internal.h"
 
 #include <ctime>
+#include <iterator>
 
 #include "freertos/idf_additions.h"
 
@@ -635,6 +636,8 @@ bool prepare_song_sort_order_locked()
     const uint8_t code = sort_setting_code(setting);
     if (s_song_sort_generation == s_status.catalog_generation &&
         s_song_sort_code == code && (!s_track_count || s_song_sort_order)) return true;
+    if (s_status.sorting_indexing && s_status.sorting_section == static_cast<uint8_t>(SortSection::Songs))
+        return false;
 
     heap_caps_free(s_song_sort_order);
     s_song_sort_order = nullptr;
@@ -708,6 +711,8 @@ bool prepare_group_sort_order_locked(SortSection section)
     const uint8_t code = sort_setting_code(setting);
     if (generation == s_status.catalog_generation && sort_code == code &&
         (!groups_count || order)) return true;
+    if (s_status.sorting_indexing && s_status.sorting_section == static_cast<uint8_t>(section))
+        return false;
 
     heap_caps_free(order);
     order = nullptr;
@@ -1112,28 +1117,29 @@ void start_sort_cache_indexing_locked(SortSection section)
     }
 }
 
-bool build_group_track_order_locked(GroupKind kind, const GroupRecord &group,
-                                    GroupTrackEntry **entries_out)
+namespace {
+
+struct GroupTrackOrder {
+    GroupKind kind;
+    uint32_t members_offset;
+    uint32_t *indices;
+};
+GroupTrackOrder s_group_track_orders[2]{};
+
+bool read_group_track_entry_locked(uint32_t logical, GroupTrackEntry *entry);
+
+bool build_group_track_order_locked(GroupKind kind, const GroupRecord &group, uint32_t *indices)
 {
-    if (!entries_out) return false;
-    *entries_out = nullptr;
-    if (group.track_count == 0) return true;
+    if (std::fseek(s_catalog, group.members_offset, SEEK_SET) != 0 ||
+        std::fread(indices, sizeof(uint32_t), group.track_count, s_catalog) != group.track_count) return false;
     auto *entries = static_cast<GroupTrackEntry *>(heap_caps_calloc(
         group.track_count, sizeof(GroupTrackEntry), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!entries) return false;
     for (uint32_t index = 0; index < group.track_count; ++index) {
-        uint32_t logical_index = 0;
-        Track track{};
-        if (std::fseek(s_catalog, group.members_offset + index * sizeof(uint32_t), SEEK_SET) != 0 ||
-            std::fread(&logical_index, sizeof(logical_index), 1, s_catalog) != 1 ||
-            !read_logical_track_locked(logical_index, &track, false)) {
+        if (!read_group_track_entry_locked(indices[index], &entries[index])) {
             heap_caps_free(entries);
             return false;
         }
-        entries[index].logical_index = logical_index;
-        entries[index].disc_number = track.disc_number ? track.disc_number : 1;
-        entries[index].track_number = track.track_number ? track.track_number : UINT32_MAX;
-        copy_text(entries[index].title, sizeof(entries[index].title), track.title);
     }
     if (kind == GroupKind::Album) {
         std::sort(entries, entries + group.track_count,
@@ -1161,8 +1167,37 @@ bool build_group_track_order_locked(GroupKind kind, const GroupRecord &group,
                       return left.logical_index < right.logical_index;
                   });
     }
-    *entries_out = entries;
+    for (uint32_t index = 0; index < group.track_count; ++index) {
+        indices[index] = entries[index].logical_index;
+    }
+    heap_caps_free(entries);
     return true;
+}
+
+} // namespace
+
+const uint32_t *group_track_order_locked(GroupKind kind, const GroupRecord &group)
+{
+    if (group.track_count == 0 || group.track_count > s_track_count) return nullptr;
+    for (auto &cached : s_group_track_orders) {
+        if (cached.indices && cached.kind == kind && cached.members_offset == group.members_offset) {
+            std::swap(cached, s_group_track_orders[0]);
+            return s_group_track_orders[0].indices;
+        }
+    }
+    auto &oldest = s_group_track_orders[1];
+    heap_caps_free(oldest.indices);
+    oldest = {};
+    auto *indices = static_cast<uint32_t *>(heap_caps_malloc(
+        group.track_count * sizeof(uint32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!indices) return nullptr;
+    if (!build_group_track_order_locked(kind, group, indices)) {
+        heap_caps_free(indices);
+        return nullptr;
+    }
+    oldest = s_group_track_orders[0];
+    s_group_track_orders[0] = {kind, group.members_offset, indices};
+    return indices;
 }
 
 bool populate_sort_keys(FILE *file, const CatalogHeader &header, SortKey *keys,
@@ -1299,7 +1334,153 @@ bool finish_catalog(FILE *file, CatalogHeader *header, SortKey *keys, bool capac
     return std::fflush(file) == 0;
 }
 
-bool validate_catalog(FILE *file, CatalogHeader *header, bool verify_checksum, const char *path)
+namespace {
+
+// Only menu text is resident. Paths, playback metadata, and group members
+// stay in the existing catalog, and artwork/audio retain their PSRAM headroom.
+constexpr size_t kSummaryTextBudget = 512 * 1024;
+constexpr size_t kGroupRecordBudget = 256 * 1024;
+constexpr size_t kPlaybackAndArtworkReserve = 4 * 1024 * 1024;
+struct SummaryEntry {
+    uint32_t text_offset;
+    uint32_t disc_number;
+    uint32_t track_number;
+};
+struct SummaryIndex {
+    SummaryEntry *entries = nullptr;
+    char *text = nullptr;
+    uint32_t count = 0;
+
+    void clear()
+    {
+        heap_caps_free(entries);
+        heap_caps_free(text);
+        *this = {};
+    }
+};
+SummaryIndex s_summaries;
+GroupRecord *s_resident_groups[static_cast<size_t>(GroupKind::Year) + 1]{};
+
+size_t catalog_cache_headroom()
+{
+    const size_t free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    return free > kPlaybackAndArtworkReserve ? free - kPlaybackAndArtworkReserve : 0;
+}
+
+bool read_group_track_entry_locked(uint32_t logical, GroupTrackEntry *entry)
+{
+    if (logical >= s_track_count) return false;
+    entry->logical_index = logical;
+    const uint32_t physical = s_title_order[logical];
+    if (physical < s_summaries.count) {
+        const SummaryEntry &summary = s_summaries.entries[physical];
+        entry->disc_number = summary.disc_number;
+        entry->track_number = summary.track_number;
+        copy_text(entry->title, sizeof(entry->title), s_summaries.text + summary.text_offset);
+        return true;
+    }
+    Track track{};
+    if (!read_logical_track_locked(logical, &track, false)) return false;
+    entry->disc_number = track.disc_number ? track.disc_number : 1;
+    entry->track_number = track.track_number ? track.track_number : UINT32_MAX;
+    copy_text(entry->title, sizeof(entry->title), track.title);
+    return true;
+}
+
+bool checksum_and_collect_summaries(FILE *file, const CatalogHeader &header,
+                                   SummaryIndex *index, uint32_t *checksum)
+{
+    const size_t entry_bytes = header.track_count * sizeof(SummaryEntry);
+    const size_t headroom = catalog_cache_headroom();
+    if (headroom <= entry_bytes || !header.track_count) {
+        return checksum_file_payload(file, header.records_offset, header.file_size, checksum);
+    }
+    const size_t capacity = std::min<size_t>({kSummaryTextBudget, headroom - entry_bytes,
+                                             header.track_count * sizeof(TrackSummary)});
+    index->entries = static_cast<SummaryEntry *>(heap_caps_malloc(entry_bytes, MALLOC_CAP_SPIRAM));
+    index->text = static_cast<char *>(heap_caps_malloc(capacity, MALLOC_CAP_SPIRAM));
+    constexpr size_t kBatchSize = 8;
+    auto *batch = static_cast<Track *>(heap_caps_malloc(kBatchSize * sizeof(Track), MALLOC_CAP_SPIRAM));
+    if (!index->entries || !index->text || !batch) {
+        index->clear();
+        heap_caps_free(batch);
+        return checksum_file_payload(file, header.records_offset, header.file_size, checksum);
+    }
+
+    bool ok = std::fseek(file, header.records_offset, SEEK_SET) == 0;
+    uint32_t hash = kCatalogChecksumSeed;
+    size_t used = 0;
+    uint32_t physical = 0;
+    // The catalog already needs one sequential checksum pass. Collect display
+    // fields during that pass, retaining a prefix if the text budget fills up.
+    while (ok && physical < header.track_count && index->count == physical) {
+        const size_t count = std::min<size_t>(kBatchSize, header.track_count - physical);
+        ok = std::fread(batch, sizeof(Track), count, file) == count;
+        if (!ok) break;
+        hash = checksum_update(hash, batch, count * sizeof(Track));
+        for (size_t i = 0; i < count; ++i) {
+            const Track &track = batch[i];
+            const size_t title = strnlen(track.title, sizeof(track.title) - 1);
+            const size_t artist = strnlen(track.artist, sizeof(track.artist) - 1);
+            if (title + artist + 2 > capacity - used) break;
+            index->entries[index->count++] = {static_cast<uint32_t>(used),
+                track.disc_number ? track.disc_number : 1,
+                track.track_number ? track.track_number : UINT32_MAX};
+            std::memcpy(index->text + used, track.title, title);
+            index->text[used + title] = '\0';
+            used += title + 1;
+            std::memcpy(index->text + used, track.artist, artist);
+            index->text[used + artist] = '\0';
+            used += artist + 1;
+        }
+        physical += count;
+    }
+    heap_caps_free(batch);
+    if (!index->count) index->clear();
+    if (used < capacity && used) {
+        if (void *text = heap_caps_realloc(index->text, used, MALLOC_CAP_SPIRAM)) {
+            index->text = static_cast<char *>(text);
+        }
+    }
+    if (index->count && index->count < header.track_count) {
+        if (void *entries = heap_caps_realloc(index->entries, index->count * sizeof(SummaryEntry),
+                                              MALLOC_CAP_SPIRAM)) {
+            index->entries = static_cast<SummaryEntry *>(entries);
+        }
+    }
+    return ok && checksum_file_payload(file, header.records_offset + physical * sizeof(Track),
+                                       header.file_size, checksum, hash);
+}
+
+void keep_group_records(FILE *file, const CatalogHeader &header, GroupRecord *albums)
+{
+    size_t remaining = kGroupRecordBudget;
+    const auto keep = [&](GroupKind kind, uint32_t offset, uint32_t count, GroupRecord *records) {
+        const size_t bytes = count * sizeof(GroupRecord);
+        if (bytes == 0 || bytes > remaining || !catalog_cache_headroom()) {
+            heap_caps_free(records);
+            return;
+        }
+        if (!records) {
+            if (bytes > catalog_cache_headroom()) return;
+            records = static_cast<GroupRecord *>(heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM));
+            if (!records) return;
+            if (std::fseek(file, offset, SEEK_SET) != 0 ||
+                std::fread(records, sizeof(GroupRecord), count, file) != count) {
+                heap_caps_free(records);
+                return;
+            }
+        }
+        s_resident_groups[static_cast<size_t>(kind)] = records;
+        remaining -= bytes;
+    };
+    keep(GroupKind::Album, header.album_group_offset, header.album_group_count, albums);
+    keep(GroupKind::Artist, header.artist_group_offset, header.artist_group_count, nullptr);
+    keep(GroupKind::Genre, header.genre_group_offset, header.genre_group_count, nullptr);
+    keep(GroupKind::Year, header.year_group_offset, header.year_group_count, nullptr);
+}
+
+bool validate_catalog_layout(FILE *file, CatalogHeader *header, const char *path)
 {
     const auto reject = [path](const char *reason) {
         ESP_LOGW(kTag, "catalog rejected (%s): %s", path, reason);
@@ -1340,16 +1521,26 @@ bool validate_catalog(FILE *file, CatalogHeader *header, bool verify_checksum, c
         static_cast<uint64_t>(header->genre_group_offset) + header->genre_group_count * sizeof(GroupRecord) > header->file_size ||
         static_cast<uint64_t>(header->year_group_offset) + header->year_group_count * sizeof(GroupRecord) > header->file_size)
         return reject("index ranges exceed file bounds");
-    if (!verify_checksum) return true;
-    uint32_t checksum = 0;
-    if (!checksum_file_payload(file, header->records_offset, header->file_size, &checksum))
-        return reject("could not compute checksum (read or allocation failure)");
-    if (checksum != header->checksum) {
-        ESP_LOGW(kTag, "catalog checksum: actual=%08lx expected=%08lx",
-                 static_cast<unsigned long>(checksum), static_cast<unsigned long>(header->checksum));
-        return reject("payload checksum mismatch");
-    }
     return true;
+}
+
+} // namespace
+
+bool copy_resident_track_summary(uint32_t physical, TrackSummary *out)
+{
+    if (physical >= s_summaries.count) return false;
+    const char *title = s_summaries.text + s_summaries.entries[physical].text_offset;
+    copy_text(out->title, sizeof(out->title), title);
+    copy_text(out->artist, sizeof(out->artist), title + std::strlen(title) + 1);
+    return true;
+}
+
+const GroupRecord *resident_group_record(GroupKind kind, size_t index)
+{
+    const size_t table = static_cast<size_t>(kind);
+    if (table >= std::size(s_resident_groups)) return nullptr;
+    const GroupRecord *records = s_resident_groups[table];
+    return records ? &records[index] : nullptr;
 }
 
 void clear_runtime_catalog()
@@ -1364,6 +1555,15 @@ void clear_runtime_catalog()
     if (s_catalog) std::fclose(s_catalog);
     s_catalog = nullptr;
     s_catalog_path[0] = '\0';
+    s_summaries.clear();
+    for (auto &records : s_resident_groups) {
+        heap_caps_free(records);
+        records = nullptr;
+    }
+    for (auto &order : s_group_track_orders) {
+        heap_caps_free(order.indices);
+        order = {};
+    }
     heap_caps_free(s_title_order);
     heap_caps_free(s_physical_to_logical);
     heap_caps_free(s_path_index);
@@ -1483,7 +1683,7 @@ bool load_catalog_file(const char *path, bool verify_checksum)
         ESP_LOGW(kTag, "catalog open failed (%s): %s", path, std::strerror(errno));
         return false;
     }
-    if (!validate_catalog(file, &header, verify_checksum, path)) {
+    if (!validate_catalog_layout(file, &header, path)) {
         std::fclose(file);
         return false;
     }
@@ -1565,6 +1765,22 @@ bool load_catalog_file(const char *path, bool verify_checksum)
             }
         }
     }
+    // Build optional display caches only after the authoritative indexes
+    // have their allocations. A valid catalog must open under memory pressure.
+    SummaryIndex summaries;
+    if (read && verify_checksum) {
+        read_stage = "payload checksum";
+        uint32_t checksum = 0;
+        if (!checksum_and_collect_summaries(file, header, &summaries, &checksum)) {
+            summaries.clear();
+            read = checksum_file_payload(file, header.records_offset, header.file_size, &checksum);
+        }
+        if (read && checksum != header.checksum) {
+            ESP_LOGW(kTag, "catalog checksum: actual=%08lx expected=%08lx",
+                     static_cast<unsigned long>(checksum), static_cast<unsigned long>(header.checksum));
+            read = false;
+        }
+    }
     if (!read) {
         ESP_LOGW(kTag, "catalog load failed (%s): %s; tracks=%lu PSRAM free=%u largest=%u",
                  path, read_stage, static_cast<unsigned long>(header.track_count),
@@ -1577,11 +1793,13 @@ bool load_catalog_file(const char *path, bool verify_checksum)
         heap_caps_free(duration_ready);
         heap_caps_free(album_for_logical);
         heap_caps_free(album_groups);
+        summaries.clear();
         std::fclose(file);
         return false;
     }
-    heap_caps_free(album_groups);
     clear_runtime_catalog();
+    s_summaries = summaries;
+    keep_group_records(file, header, album_groups);
     s_catalog = file;
     copy_text(s_catalog_path, sizeof(s_catalog_path), path);
     s_catalog_header = header;

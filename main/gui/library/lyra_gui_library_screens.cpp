@@ -24,9 +24,8 @@ const char *smart_playlist_title(lyra::media::SmartPlaylistKind kind)
     return tr(lyra::i18n::StringId::SmartPlaylists);
 }
 
-void open_track_list_cb(lv_event_t *event)
+static void open_track_list(size_t selected_group)
 {
-    const size_t selected_group = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
     const lyra::media::GroupKind selected_kind = group_kind(s_library_tab);
     lyra::media::Group selected{};
     if (!lyra::media::group_at(selected_kind, selected_group, &selected)) return;
@@ -45,9 +44,13 @@ void open_track_list_cb(lv_event_t *event)
     }
 }
 
-void open_album_detail_cb(lv_event_t *event)
+void open_track_list_cb(lv_event_t *event)
 {
-    const size_t selected_group = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
+    open_track_list(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+}
+
+static void open_album_detail(size_t selected_group)
+{
     lyra::media::Group selected{};
     if (!lyra::media::group_at(lyra::media::GroupKind::Album, selected_group, &selected)) return;
     push_navigation_state();
@@ -57,6 +60,11 @@ void open_album_detail_cb(lv_event_t *event)
     copy_ui_text(s_track_list_title, sizeof(s_track_list_title), selected.name);
     s_list_page = 0;
     render(View::AlbumDetail);
+}
+
+void open_album_detail_cb(lv_event_t *event)
+{
+    open_album_detail(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
 }
 
 void open_library_playlists_cb(lv_event_t *)
@@ -274,20 +282,29 @@ bool fetch_year(size_t position, VirtualRow *row)
     return fetch_group(lyra::media::GroupKind::Year, position, row);
 }
 
-void make_plus_button(lv_obj_t *row, int x, int y, lv_event_cb_t callback, size_t payload)
+size_t row_payload(lv_obj_t *row)
+{
+    return reinterpret_cast<uintptr_t>(lv_obj_get_user_data(row));
+}
+
+void make_plus_button(lv_obj_t *row, int x, int y, lv_event_cb_t callback)
 {
     lv_obj_t *button = make_button(row, x, y, 34, 36, kAccentDark, 5);
     lv_obj_t *icon = make_label(button, LV_SYMBOL_PLUS, kTextOnAccent);
     lv_obj_center(icon);
-    lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, reinterpret_cast<void *>(payload));
+    lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, row);
 }
 
-void build_song(lv_obj_t *slot, size_t, const VirtualRow &data, int width)
+void build_song(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t, const VirtualRow &data, int width)
 {
-    if (!data.title[0]) return;
     const size_t track = data.payload;
     // Matches make_song_row(); comparing indices avoids a per-row path read.
     const bool current = !is_standard_theme() && s_has_active_queue && track == s_current_track;
+    if (widgets.button && widgets.variant == current) {
+        rebind_virtual_row(widgets, data);
+        return;
+    }
+    if (widgets.button) lv_obj_delete(widgets.button);
     lv_obj_t *row = make_button(slot, 7, 0, width, 54, current ? kAccentSurface : kSurface, 5, true);
     const int text_x = is_zeno_theme() && current ? 34 : 12;
     const int text_width = width - text_x - (s_playlist_add_mode ? 50 : s_queue_add_mode ? 58 : 12);
@@ -298,6 +315,8 @@ void build_song(lv_obj_t *slot, size_t, const VirtualRow &data, int width)
     lv_obj_t *artist = make_label(row, data.subtitle, kTextSecondary);
     make_marquee(artist, text_width);
     lv_obj_align(artist, LV_ALIGN_LEFT_MID, text_x, 11);
+    widgets = {row, title, artist, current};
+    lv_obj_set_user_data(row, reinterpret_cast<void *>(track));
     if (is_zeno_theme() && current) {
         lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, kTextPrimary);
         lv_obj_align(playing, LV_ALIGN_LEFT_MID, 10, 0);
@@ -305,21 +324,28 @@ void build_song(lv_obj_t *slot, size_t, const VirtualRow &data, int width)
     if (s_playlist_add_mode) {
         lv_obj_t *add = make_label(row, LV_SYMBOL_PLUS, kAccent);
         lv_obj_align(add, LV_ALIGN_RIGHT_MID, -12, 0);
-        lv_obj_add_event_cb(row, add_playlist_track_cb, LV_EVENT_CLICKED, reinterpret_cast<void *>(track));
+        lv_obj_add_event_cb(row, [](lv_event_t *event) {
+            add_playlist_track(row_payload(lv_event_get_current_target_obj(event)));
+        }, LV_EVENT_CLICKED, nullptr);
         return;
     }
-    add_track_route(row, track);
+    lv_obj_add_event_cb(row, [](lv_event_t *event) {
+        play_track_from_row(row_payload(lv_event_get_current_target_obj(event)), false);
+    }, LV_EVENT_CLICKED, nullptr);
     if (s_queue_add_mode) {
         make_plus_button(row, width - 46, 9, [](lv_event_t *event) {
             lv_event_stop_bubbling(event);
-            show_queue_add_picker_for_track(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-        }, track);
+            show_queue_add_picker_for_track(row_payload(static_cast<lv_obj_t *>(lv_event_get_user_data(event))));
+        });
     }
 }
 
-void build_album(lv_obj_t *slot, size_t, const VirtualRow &data, int width)
+void build_album(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t, const VirtualRow &data, int width)
 {
-    if (!data.title[0]) return;
+    if (widgets.button) {
+        rebind_virtual_row(widgets, data);
+        return;
+    }
     lv_obj_t *row = make_button(slot, 7, 0, width, 60, kSurface, 5, true);
     const int text_width = width - (s_queue_add_mode ? 70 : 24);
     lv_obj_t *title = make_label(row, data.title, kTextPrimary);
@@ -328,18 +354,25 @@ void build_album(lv_obj_t *slot, size_t, const VirtualRow &data, int width)
     lv_obj_t *sub = make_label(row, data.subtitle, kTextSecondary);
     make_marquee(sub, text_width);
     lv_obj_align(sub, LV_ALIGN_LEFT_MID, 12, 12);
-    lv_obj_add_event_cb(row, open_album_detail_cb, LV_EVENT_CLICKED, reinterpret_cast<void *>(data.payload));
+    widgets = {row, title, sub, false};
+    lv_obj_set_user_data(row, reinterpret_cast<void *>(data.payload));
+    lv_obj_add_event_cb(row, [](lv_event_t *event) {
+        open_album_detail(row_payload(lv_event_get_current_target_obj(event)));
+    }, LV_EVENT_CLICKED, nullptr);
     if (s_queue_add_mode) {
         make_plus_button(row, width - 46, 12, [](lv_event_t *event) {
             lv_event_stop_bubbling(event);
-            show_queue_add_picker_for_album(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-        }, data.payload);
+            show_queue_add_picker_for_album(row_payload(static_cast<lv_obj_t *>(lv_event_get_user_data(event))));
+        });
     }
 }
 
-void build_group(lv_obj_t *slot, size_t, const VirtualRow &data, int width)
+void build_group(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t, const VirtualRow &data, int width)
 {
-    if (!data.title[0]) return;
+    if (widgets.button) {
+        rebind_virtual_row(widgets, data);
+        return;
+    }
     lv_obj_t *row = make_button(slot, 7, 0, width, 54, kSurface, 6, true);
     if (!is_aura_theme()) {
         lv_obj_set_style_bg_color(row, !is_standard_theme() ? kAccentSurface : kSurfaceRaised,
@@ -353,7 +386,11 @@ void build_group(lv_obj_t *slot, size_t, const VirtualRow &data, int width)
     lv_obj_align(sub, LV_ALIGN_LEFT_MID, 12, 11);
     lv_obj_t *chevron = make_label(row, LV_SYMBOL_RIGHT, kTextMuted);
     lv_obj_align(chevron, LV_ALIGN_RIGHT_MID, -12, 0);
-    lv_obj_add_event_cb(row, open_track_list_cb, LV_EVENT_CLICKED, reinterpret_cast<void *>(data.payload));
+    widgets = {row, title, sub, false};
+    lv_obj_set_user_data(row, reinterpret_cast<void *>(data.payload));
+    lv_obj_add_event_cb(row, [](lv_event_t *event) {
+        open_track_list(row_payload(lv_event_get_current_target_obj(event)));
+    }, LV_EVENT_CLICKED, nullptr);
 }
 
 } // namespace

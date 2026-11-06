@@ -100,9 +100,10 @@ void save_queue_as_playlist_cb(lv_event_t *)
 void queue_row_action_cb(lv_event_t *event)
 {
     lv_event_stop_bubbling(event);
-    const uintptr_t action_value = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
-    const size_t position = static_cast<size_t>(action_value >> 2);
-    const QueueRowAction action = static_cast<QueueRowAction>(action_value & 0x3u);
+    auto *row = static_cast<lv_obj_t *>(lv_event_get_user_data(event));
+    const size_t position = reinterpret_cast<uintptr_t>(lv_obj_get_user_data(row));
+    const auto action = static_cast<QueueRowAction>(
+        reinterpret_cast<uintptr_t>(lv_obj_get_user_data(lv_event_get_current_target_obj(event))));
     bool changed = false;
     if (action == QueueRowAction::MoveUp) changed = move_queue_entry(position, -1);
     else if (action == QueueRowAction::MoveDown) changed = move_queue_entry(position, 1);
@@ -113,17 +114,15 @@ void queue_row_action_cb(lv_event_t *event)
 }
 
 void add_queue_row_action(lv_obj_t *row, int x, const char *symbol, lv_color_t color,
-                          size_t position, QueueRowAction action)
+                          QueueRowAction action)
 {
     const bool remove = action == QueueRowAction::Remove;
     lv_obj_t *button = make_button(row, x, 10, 30, 34,
                                    remove ? kDanger : kSurfaceRaised, 5);
     lv_obj_t *icon = make_label(button, symbol, remove ? kTextOnAccent : color);
     lv_obj_center(icon);
-    const uintptr_t payload = (static_cast<uintptr_t>(position) << 2) |
-                              static_cast<uintptr_t>(action);
-    lv_obj_add_event_cb(button, queue_row_action_cb, LV_EVENT_CLICKED,
-                        reinterpret_cast<void *>(payload));
+    lv_obj_set_user_data(button, reinterpret_cast<void *>(static_cast<uintptr_t>(action)));
+    lv_obj_add_event_cb(button, queue_row_action_cb, LV_EVENT_CLICKED, row);
 }
 
 void add_queue_toolbar_button(lv_obj_t *parent, int x, const char *text,
@@ -641,12 +640,10 @@ void make_queue_song_row(lv_obj_t *parent, int y, size_t queue_position, bool cu
         const lv_color_t up_color = queue_position > 0 ? kTextSecondary : kTextMuted;
         const lv_color_t down_color = queue_position + 1 < playback_queue_count() ?
                                       kTextSecondary : kTextMuted;
-        add_queue_row_action(row, 188, LV_SYMBOL_UP, up_color, queue_position,
-                             QueueRowAction::MoveUp);
-        add_queue_row_action(row, 220, LV_SYMBOL_DOWN, down_color, queue_position,
-                             QueueRowAction::MoveDown);
-        add_queue_row_action(row, 252, LV_SYMBOL_TRASH, kDangerSurface, queue_position,
-                             QueueRowAction::Remove);
+        lv_obj_set_user_data(row, reinterpret_cast<void *>(queue_position));
+        add_queue_row_action(row, 188, LV_SYMBOL_UP, up_color, QueueRowAction::MoveUp);
+        add_queue_row_action(row, 220, LV_SYMBOL_DOWN, down_color, QueueRowAction::MoveDown);
+        add_queue_row_action(row, 252, LV_SYMBOL_TRASH, kDangerSurface, QueueRowAction::Remove);
     }
     lv_obj_add_event_cb(row, queue_track_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(queue_position));
@@ -657,12 +654,27 @@ namespace {
 // The queue is frozen into this snapshot for the prefetch task, which must
 // not read the live queue while the GUI edits it. Any edit re-renders.
 size_t *s_queue_snapshot;
+size_t s_queue_snapshot_count;
+portMUX_TYPE s_queue_snapshot_lock = portMUX_INITIALIZER_UNLOCKED;
 size_t s_queue_snapshot_current = SIZE_MAX;
+
+void release_queue_snapshot(lv_event_t *)
+{
+    portENTER_CRITICAL(&s_queue_snapshot_lock);
+    size_t *snapshot = s_queue_snapshot;
+    s_queue_snapshot = nullptr;
+    s_queue_snapshot_count = 0;
+    portEXIT_CRITICAL(&s_queue_snapshot_lock);
+    heap_caps_free(snapshot);
+}
 
 bool fetch_queue_row(size_t position, VirtualRow *row)
 {
+    portENTER_CRITICAL(&s_queue_snapshot_lock);
+    const size_t track = position < s_queue_snapshot_count ? s_queue_snapshot[position] : SIZE_MAX;
+    portEXIT_CRITICAL(&s_queue_snapshot_lock);
     lyra::media::TrackSummary summary{};
-    if (!s_queue_snapshot || !lyra::media::track_summary_at(s_queue_snapshot[position], &summary)) {
+    if (track == SIZE_MAX || !lyra::media::track_summary_at(track, &summary)) {
         return false;
     }
     row->payload = position;
@@ -671,15 +683,25 @@ bool fetch_queue_row(size_t position, VirtualRow *row)
     return true;
 }
 
-void build_queue_row(lv_obj_t *slot, size_t position, const VirtualRow &data, int width)
+void build_queue_row(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t position,
+                     const VirtualRow &data, int width)
 {
-    if (!data.title[0]) return;
     const bool current = position == s_queue_snapshot_current;
-    lv_obj_t *row = make_button(slot, 7, 0, width, 54,
-        current ? (!is_standard_theme() ? kAccentSurface : kAccentDark) : kSurface, 5);
+    const bool can_move_up = s_queue_edit_mode && position > 0;
+    const bool can_move_down = s_queue_edit_mode && position + 1 < playback_queue_count();
+    const unsigned variant = (current ? 1u : 0u) | (can_move_up ? 2u : 0u) | (can_move_down ? 4u : 0u);
     char queue_number_text[16];
     format_u32(lyra::i18n::StringId::QueueNumber, static_cast<uint32_t>(position + 1),
                queue_number_text, sizeof(queue_number_text));
+    if (widgets.button && widgets.variant == variant) {
+        rebind_virtual_row(widgets, data);
+        set_label_text_if_changed(widgets.number, queue_number_text);
+        return;
+    }
+    if (widgets.button) lv_obj_delete(widgets.button);
+    lv_obj_t *row = make_button(slot, 7, 0, width, 54,
+        current ? (!is_standard_theme() ? kAccentSurface : kAccentDark) : kSurface, 5);
+    lv_obj_set_user_data(row, reinterpret_cast<void *>(position));
     lv_obj_t *queue_number = make_label(row, queue_number_text, current ? kTextOnAccent : kTextMuted);
     lv_obj_set_width(queue_number, 40);
     lv_label_set_long_mode(queue_number, LV_LABEL_LONG_MODE_CLIP);
@@ -699,15 +721,18 @@ void build_queue_row(lv_obj_t *slot, size_t position, const VirtualRow &data, in
         current && is_standard_theme() ? kTextOnAccent : kTextSecondary);
     make_marquee(artist, text_width);
     lv_obj_align(artist, LV_ALIGN_LEFT_MID, 42, 11);
+    widgets = {row, title, artist, variant, queue_number};
     if (s_queue_edit_mode) {
-        const size_t count = s_has_active_queue ? playback_queue_count() : 0;
-        add_queue_row_action(row, 188, LV_SYMBOL_UP, position > 0 ? kTextSecondary : kTextMuted,
-                             position, QueueRowAction::MoveUp);
-        add_queue_row_action(row, 220, LV_SYMBOL_DOWN, position + 1 < count ? kTextSecondary : kTextMuted,
-                             position, QueueRowAction::MoveDown);
-        add_queue_row_action(row, 252, LV_SYMBOL_TRASH, kDangerSurface, position, QueueRowAction::Remove);
+        add_queue_row_action(row, 188, LV_SYMBOL_UP, can_move_up ? kTextSecondary : kTextMuted,
+                             QueueRowAction::MoveUp);
+        add_queue_row_action(row, 220, LV_SYMBOL_DOWN, can_move_down ? kTextSecondary : kTextMuted,
+                             QueueRowAction::MoveDown);
+        add_queue_row_action(row, 252, LV_SYMBOL_TRASH, kDangerSurface, QueueRowAction::Remove);
     }
-    lv_obj_add_event_cb(row, queue_track_cb, LV_EVENT_CLICKED, reinterpret_cast<void *>(position));
+    lv_obj_add_event_cb(row, [](lv_event_t *event) {
+        lv_obj_t *button = lv_event_get_current_target_obj(event);
+        play_queue_position(reinterpret_cast<uintptr_t>(lv_obj_get_user_data(button)), false);
+    }, LV_EVENT_CLICKED, nullptr);
 }
 
 } // namespace
@@ -730,18 +755,19 @@ void render_queue()
         lv_obj_set_pos(empty, 12, rows_top + 2);
         return;
     }
-    if (!s_queue_snapshot) {
-        s_queue_snapshot = static_cast<size_t *>(heap_caps_malloc(
-            lyra::media::kMaxTracks * sizeof(size_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    }
-    if (!s_queue_snapshot) {
+    const size_t snapshot_count = std::min(count, lyra::media::kMaxTracks);
+    auto *snapshot = static_cast<size_t *>(heap_caps_malloc(
+        snapshot_count * sizeof(size_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!snapshot) {
         make_label(list, tr(lyra::i18n::StringId::FileMemoryError), kTextMuted);
         return;
     }
-    const size_t snapshot_count = std::min(count, lyra::media::kMaxTracks);
-    for (size_t position = 0; position < snapshot_count; ++position) {
-        if (!queue_track_at(position, &s_queue_snapshot[position])) s_queue_snapshot[position] = SIZE_MAX;
-    }
+    copy_queue_tracks(snapshot, snapshot_count);
+    portENTER_CRITICAL(&s_queue_snapshot_lock);
+    s_queue_snapshot = snapshot;
+    s_queue_snapshot_count = snapshot_count;
+    portEXIT_CRITICAL(&s_queue_snapshot_lock);
+    lv_obj_add_event_cb(list, release_queue_snapshot, LV_EVENT_DELETE, nullptr);
     s_queue_snapshot_current = SIZE_MAX;
     current_queue_position(&s_queue_snapshot_current);
 

@@ -46,8 +46,9 @@ void refresh_status_wifi_signal()
     }
 }
 
-void status_wifi_signal_timer_cb(lv_timer_t *)
+void status_bar_timer_cb(lv_timer_t *)
 {
+    update_status_time_label();
     refresh_status_wifi_signal();
 }
 
@@ -315,7 +316,7 @@ void make_status_bar()
                           s_status_wifi_signal_bars);
     lv_obj_add_event_cb(bar, status_bar_delete_cb, LV_EVENT_DELETE, nullptr);
     if (!s_status_wifi_signal_timer) {
-        s_status_wifi_signal_timer = lv_timer_create(status_wifi_signal_timer_cb, 1000, nullptr);
+        s_status_wifi_signal_timer = lv_timer_create(status_bar_timer_cb, 1000, nullptr);
     }
     if (is_aura_theme()) {
         lv_obj_set_style_text_color(s_status_volume_label, kTextOnAccent, 0);

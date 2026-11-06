@@ -659,6 +659,20 @@ lv_obj_t *marquee_row(lv_obj_t *label)
 
 } // namespace
 
+void rebind_virtual_row(VirtualRowWidgets &widgets, const VirtualRow &row)
+{
+    lv_obj_set_user_data(widgets.button, reinterpret_cast<void *>(row.payload));
+    for (lv_obj_t *label : {widgets.title, widgets.subtitle}) {
+        if (lv_label_get_long_mode(label) != LV_LABEL_LONG_MODE_DOTS) {
+            // A long-press reveal belongs to the old row only.
+            lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
+            lv_obj_remove_style(label, &s_reveal_marquee_style, LV_STATE_DEFAULT);
+        }
+    }
+    set_label_text_if_changed(widgets.title, row.title);
+    set_label_text_if_changed(widgets.subtitle, row.subtitle);
+}
+
 void disable_marquee_reveal(lv_obj_t *row)
 {
     if (row) lv_obj_remove_event_cb(row, marquee_reveal_cb);

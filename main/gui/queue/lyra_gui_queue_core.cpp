@@ -402,6 +402,34 @@ bool queue_track_at(size_t queue_position, size_t *track_index)
     return playback_queue_track_at(s_shuffle_order[queue_position], track_index);
 }
 
+bool copy_queue_tracks(size_t *indices, size_t count)
+{
+    if (!s_shuffle) {
+        if (s_playback_scope == PlaybackScope::SavedQueue) {
+            std::copy_n(s_saved_queue, count, indices);
+            return true;
+        }
+        if (s_playback_scope == PlaybackScope::AllSongs) {
+            const size_t copied = lyra::media::sorted_tracks(0, indices, count);
+            std::fill(indices + copied, indices + count, SIZE_MAX);
+            return copied == count;
+        }
+        if (s_playback_scope == PlaybackScope::Group) {
+            const size_t copied = lyra::media::group_tracks(s_playback_group_kind, s_playback_group,
+                                                            0, indices, count);
+            std::fill(indices + copied, indices + count, SIZE_MAX);
+            return copied == count;
+        }
+    }
+    bool complete = true;
+    for (size_t i = 0; i < count; ++i) {
+        if (queue_track_at(i, &indices[i])) continue;
+        indices[i] = SIZE_MAX;
+        complete = false;
+    }
+    return complete;
+}
+
 bool current_queue_position(size_t *queue_position)
 {
     if (!queue_position) return false;
@@ -457,11 +485,9 @@ bool make_queue_editable()
     const bool have_current = count > 0 && current_queue_position(&current);
     size_t *queue = allocate_session_queue();
     if (!queue) return false;
-    for (size_t i = 0; i < count; ++i) {
-        if (!queue_track_at(i, &queue[i])) {
-            heap_caps_free(queue);
-            return false;
-        }
+    if (!copy_queue_tracks(queue, count)) {
+        heap_caps_free(queue);
+        return false;
     }
 
     clear_saved_queue();

@@ -198,7 +198,7 @@ void update_crossfade_gain(int64_t now_us)
 
 void crossfade_poll_cb(lv_timer_t *)
 {
-    if (s_crossfade_seconds == 0 && s_crossfade_fade_in_ends_us == 0 &&
+    if (s_crossfade_fade_in_ends_us == 0 &&
         s_crossfade_transition_direction == 0 && !s_crossfade_pause_pending) return;
     const int64_t now_us = esp_timer_get_time();
     if (s_crossfade_transition_direction != 0 || s_crossfade_pause_pending) {
@@ -231,7 +231,6 @@ void crossfade_poll_cb(lv_timer_t *)
 
 void player_progress_poll_cb(lv_timer_t *)
 {
-    update_status_time_label();
     lyra::audio::Status audio_status = lyra::audio::status();
     const int64_t now_us = esp_timer_get_time();
     const bool radio_stream = ::strncasecmp(audio_status.path, "http://", 7) == 0 ||

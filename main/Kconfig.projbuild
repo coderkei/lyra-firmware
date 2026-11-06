@@ -5,3 +5,10 @@ config LYRA_ZENO_FONTS
     default y
     select LV_FONT_MONTSERRAT_28
     select LV_FONT_MONTSERRAT_40
+
+config LYRA_GUI_FRAME_TIMING
+    bool "Log LCD frame timing"
+    default n
+    help
+        Report rendering and transfer times and the number of presentation
+        intervals above 33.3 ms. Intervals over 100 ms are treated as idle.

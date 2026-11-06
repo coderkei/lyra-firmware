@@ -298,7 +298,9 @@ bool equals_ci(const char *left, const char *right);
 bool contains_ci(const char *text, const char *query);
 uint64_t hash_path(const char *path);
 uint32_t checksum_update(uint32_t hash, const void *data, size_t length);
-bool checksum_file_payload(FILE *file, uint32_t start, uint32_t end, uint32_t *out);
+constexpr uint32_t kCatalogChecksumSeed = 2166136261u;
+bool checksum_file_payload(FILE *file, uint32_t start, uint32_t end, uint32_t *out,
+                           uint32_t seed = kCatalogChecksumSeed);
 const char *extension_of(const char *name);
 bool compatible_audio(const char *name);
 const char *base_name(const char *path);
@@ -362,12 +364,12 @@ bool read_logical_sort_snapshot(FILE *file, const CatalogHeader &header, const u
 void update_sort_task_progress(uint32_t token, size_t processed);
 void sort_cache_task(void *argument);
 void start_sort_cache_indexing_locked(SortSection section);
-bool build_group_track_order_locked(GroupKind kind, const GroupRecord &group, GroupTrackEntry **entries_out);
+const uint32_t *group_track_order_locked(GroupKind kind, const GroupRecord &group);
 bool populate_sort_keys(FILE *file, const CatalogHeader &header, SortKey *keys, const char *(*field)(const Track &));
 bool append_group_index(FILE *file, CatalogHeader *header, SortKey *keys, const uint32_t *physical_to_logical, const char *(*field)(const Track &), uint32_t *group_offset, uint32_t *group_count);
 bool finish_catalog(FILE *file, CatalogHeader *header, SortKey *keys, bool capacity_reached);
-bool validate_catalog(FILE *file, CatalogHeader *header, bool verify_checksum = true,
-                      const char *path = "catalog");
+bool copy_resident_track_summary(uint32_t physical, TrackSummary *out);
+const GroupRecord *resident_group_record(GroupKind kind, size_t index);
 void clear_runtime_catalog();
 bool remove_existing_file(const char *path);
 bool remove_directory_files(const char *directory_path);

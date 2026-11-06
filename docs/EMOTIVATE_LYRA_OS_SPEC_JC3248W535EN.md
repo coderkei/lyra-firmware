@@ -142,13 +142,14 @@ button reveals one route from it.
 
 **Large libraries.** Songs, Albums, Artists, Genres, Years, and the Queue
 scroll as one continuous list instead of pages. Each list keeps a fixed pool
-of about one screen of row slots and rebinds them by position, so the LVGL
-object count and per-frame work match a single page at any library size.
-Row text comes from a 128-entry cache filled by a low-priority prefetch task
-ahead of the scroll direction; the first screen is fetched synchronously so a
-list never opens blank, and list rows never read the SD card on the GUI
-thread (`track_summary_at()` skips the per-file `stat()` that `track_at()`
-performs). Songs, Albums, and Artists show a jump strip built from the sort
+of about one screen of row widgets. Crossing a row boundary rebinds the
+entering rows and leaves the other widgets in place. The prefetch task fills a
+128-entry text cache, prioritizing the visible rows and then the direction of
+travel. The first screen is fetched synchronously. The media service collects
+compact track summaries during catalog validation and retains group headers
+within a PSRAM budget. Entries outside that budget fall back to the catalog
+file. Recent album and artist track orders are also cached for playback and
+browsing. Songs, Albums, and Artists show a jump strip built from the sort
 jump index — initials for name sorts, two-digit years for date sorts, whole
 minutes for duration, and track numbers — with a bubble showing the full
 value while scrolling, and a jump button that
@@ -160,6 +161,25 @@ pauses and refreshes its results without rebuilding the keyboard.
 
 Themes with decorative wallpapers rasterize them once into PSRAM (Aura's sky
 and light trails, Zeno's logo tile) and blit the cached pixels on redraw.
+
+**Display performance.** LVGL draws damaged rectangles into one persistent
+RGB565 framebuffer. A display worker on the GUI core swaps byte order while filling two reserved
+four-row DMA buffers, so the next strip can be staged during the current
+transfer. The AXS15231B write starts at row zero and ends at the lowest dirty
+row. The first frame and recovery from a transfer failure write the full
+panel. Audio decode, mixing, and I2S output keep their existing core and
+priority assignments.
+
+For device validation, enable `CONFIG_LYRA_GUI_FRAME_TIMING` in menuconfig.
+The serial log reports the actual QSPI clock and summarizes rendering,
+transfer, and frame intervals above 33.3 ms. The interval summary omits gaps
+over 100 ms, so also watch for visible stalls during continuous gestures.
+Compare continuous drags and flings in Songs, Albums, and Queue with playback
+idle and with playback active. Include a track handoff with artwork and
+crossfade enabled, and compare the audio underrun counters against the
+previous firmware. Check the boot splash and small status-bar updates for
+color or row corruption, and exercise jump-strip navigation and queue edit
+buttons after scrolling.
 
 In Now Playing, tapping album art flips to a scrollable lyrics view. Lyrics
 are loaded from embedded metadata first, then a same-stem `.lrc` file, then a
