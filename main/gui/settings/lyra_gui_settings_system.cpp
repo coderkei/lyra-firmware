@@ -120,6 +120,11 @@ void toggle_bool_cb(lv_event_t *event)
         render(s_view);
         return;
     }
+    if (value == &s_list_artwork) {
+        save_user_settings();
+        // Lists build their rows with or without artwork; free the cache now.
+        if (!s_list_artwork) lyra::media::release_thumbnails();
+    }
     if (value == &s_dark_mode) {
         apply_theme_palette();
         save_user_settings();
@@ -1363,6 +1368,9 @@ void render_settings_page(View view)
         }
         make_setting_toggle(body, next_y, tr(lyra::i18n::StringId::VirtualControls),
                             tr(lyra::i18n::StringId::ShowBottomNavigation), &s_show_nav);
+        next_y += 66;
+        make_setting_toggle(body, next_y, tr(lyra::i18n::StringId::ListAlbumArt),
+                            tr(lyra::i18n::StringId::ListAlbumArtDescription), &s_list_artwork);
         make_brightness_control(body, next_y + 66);
         lv_obj_t *screen_timeout = make_row(body, next_y + 158, Icon::Timer,
                                              tr(lyra::i18n::StringId::ScreenTimeout),

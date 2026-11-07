@@ -325,34 +325,147 @@ void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height,
     }
 }
 
-void add_search_playlist_route(lv_obj_t *row, size_t track_index, size_t playlist_index)
+// ---- Scrolling track rows --------------------------------------------------------
+// Shared by Songs, playlist details and search. Builders run on the GUI thread
+// and read the track index from the row's user data, so recycled rows keep
+// working after a rebind.
+
+TrackRowMode s_track_row_mode = TrackRowMode::Library;
+
+namespace {
+
+size_t track_row_payload(lv_obj_t *row)
+{
+    return reinterpret_cast<uintptr_t>(lv_obj_get_user_data(row));
+}
+
+void add_track_row_button(lv_obj_t *row, int x, int y, lv_color_t color, const char *symbol,
+                          lv_event_cb_t callback)
+{
+    lv_obj_t *button = make_button(row, x, y, 34, 36, color, 5);
+    lv_obj_t *icon = make_label(button, symbol, kTextOnAccent);
+    lv_obj_center(icon);
+    lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, row);
+}
+
+} // namespace
+
+void build_track_row(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t, const VirtualRow &data,
+                     int width)
+{
+    constexpr int kHeight = 54;
+    const size_t track = data.payload;
+    const bool manage = s_track_row_mode == TrackRowMode::PlaylistManage;
+    // Matches make_song_row(); comparing indices avoids a per-row path read.
+    const bool current = !manage && !is_standard_theme() && s_has_active_queue &&
+                         track == s_current_track;
+    const unsigned variant = (current ? 1u : 0u) | (manage ? 2u : 0u);
+    if (widgets.button && widgets.variant == variant) {
+        rebind_virtual_row(widgets, data);
+        bind_row_thumbnail(widgets.art, lyra::media::ThumbnailSource::Track, track);
+        return;
+    }
+    if (widgets.button) lv_obj_delete(widgets.button);
+    lv_obj_t *row = make_button(slot, 7, 0, width, kHeight, current ? kAccentSurface : kSurface, 5, true);
+    lv_obj_t *art = s_list_artwork ?
+        make_row_thumbnail(row, kRowThumbnailInset, (kHeight - kRowThumbnailSize) / 2) : nullptr;
+    const int base_x = s_list_artwork ? kRowThumbnailTextX : 12;
+    const bool playing_marker = is_zeno_theme() && current;
+    const int text_x = base_x + (playing_marker ? 22 : 0);
+    const int trailing = manage ? 58 : s_playlist_add_mode ? 50 : s_queue_add_mode ? 58 : 12;
+    const int text_width = width - text_x - trailing;
+    lv_obj_t *title = make_label(row, data.title, current ? kAccent : kTextPrimary);
+    if (is_zeno_theme()) lv_obj_set_style_text_color(title, kTextPrimary, 0);
+    make_marquee(title, text_width);
+    lv_obj_align(title, LV_ALIGN_LEFT_MID, text_x, -9);
+    lv_obj_t *artist = make_label(row, data.subtitle, kTextSecondary);
+    make_marquee(artist, text_width);
+    lv_obj_align(artist, LV_ALIGN_LEFT_MID, text_x, 11);
+    widgets = {row, title, artist, variant};
+    widgets.art = art;
+    lv_obj_set_user_data(row, reinterpret_cast<void *>(track));
+    bind_row_thumbnail(art, lyra::media::ThumbnailSource::Track, track);
+    if (playing_marker) {
+        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, kTextPrimary);
+        lv_obj_align(playing, LV_ALIGN_LEFT_MID, base_x - 2, 0);
+    }
+    if (manage) {
+        add_track_row_button(row, width - 54, 9, kDanger, LV_SYMBOL_TRASH, [](lv_event_t *event) {
+            lv_event_stop_bubbling(event);
+            show_playlist_manage_confirmation(PlaylistManageAction::RemoveTrack, s_selected_playlist,
+                track_row_payload(static_cast<lv_obj_t *>(lv_event_get_user_data(event))));
+        });
+        return;
+    }
+    if (s_playlist_add_mode) {
+        lv_obj_t *add = make_label(row, LV_SYMBOL_PLUS, kAccent);
+        lv_obj_align(add, LV_ALIGN_RIGHT_MID, -12, 0);
+        lv_obj_add_event_cb(row, [](lv_event_t *event) {
+            add_playlist_track(track_row_payload(lv_event_get_current_target_obj(event)));
+        }, LV_EVENT_CLICKED, nullptr);
+        return;
+    }
+    lv_obj_add_event_cb(row, [](lv_event_t *event) {
+        play_track_from_row(track_row_payload(lv_event_get_current_target_obj(event)),
+                            s_track_row_mode == TrackRowMode::Single);
+    }, LV_EVENT_CLICKED, nullptr);
+    if (s_queue_add_mode) {
+        add_track_row_button(row, width - 46, 9, kAccentDark, LV_SYMBOL_PLUS, [](lv_event_t *event) {
+            lv_event_stop_bubbling(event);
+            show_queue_add_picker_for_track(
+                track_row_payload(static_cast<lv_obj_t *>(lv_event_get_user_data(event))));
+        });
+    }
+}
+
+void refresh_track_row_thumbnail(VirtualRowWidgets &widgets)
+{
+    bind_row_thumbnail(widgets.art, lyra::media::ThumbnailSource::Track,
+                       track_row_payload(widgets.button));
+}
+
+void request_track_row_thumbnails(const size_t *tracks, size_t count)
+{
+    request_row_thumbnails(lyra::media::ThumbnailSource::Track, tracks, count);
+}
+
+uintptr_t search_playlist_payload(size_t track_index, size_t playlist_index)
 {
     // kMaxTracks is the result-buffer ceiling, so this compact payload fits
     // safely on the 32-bit ESP32 event user-data field.
-    const uintptr_t payload = playlist_index * lyra::media::kMaxTracks + track_index;
-    lv_obj_add_event_cb(row, [](lv_event_t *event) {
-        const uintptr_t payload = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
-        const size_t playlist_index = payload / lyra::media::kMaxTracks;
-        const size_t track_index = payload % lyra::media::kMaxTracks;
-        if (playlist_index >= lyra::media::playlist_count()) return;
-        discard_pending_saved_queue();
-        s_has_active_queue = true;
-        s_playback_scope = PlaybackScope::Playlist;
-        s_playback_playlist = playlist_index;
-        s_current_track = track_index;
-        reset_shuffle_queue();
-        s_queue_position_valid = false;
-        current_queue_position(&s_queue_position);
-        s_audio_eof_seen = false;
-        lyra::media::Track track{};
-        if (lyra::media::track_at(s_current_track, &track)) {
-            const esp_err_t audio_ret = start_track_audio(track);
-            if (audio_ret != ESP_OK) {
-                ESP_LOGW(kTag, "cannot start %s: %s", track.path, esp_err_to_name(audio_ret));
-            }
+    return playlist_index * lyra::media::kMaxTracks + track_index;
+}
+
+void play_search_playlist_result(uintptr_t payload)
+{
+    const size_t playlist_index = payload / lyra::media::kMaxTracks;
+    const size_t track_index = payload % lyra::media::kMaxTracks;
+    if (playlist_index >= lyra::media::playlist_count()) return;
+    discard_pending_saved_queue();
+    s_has_active_queue = true;
+    s_playback_scope = PlaybackScope::Playlist;
+    s_playback_playlist = playlist_index;
+    s_current_track = track_index;
+    reset_shuffle_queue();
+    s_queue_position_valid = false;
+    current_queue_position(&s_queue_position);
+    s_audio_eof_seen = false;
+    lyra::media::Track track{};
+    if (lyra::media::track_at(s_current_track, &track)) {
+        const esp_err_t audio_ret = start_track_audio(track);
+        if (audio_ret != ESP_OK) {
+            ESP_LOGW(kTag, "cannot start %s: %s", track.path, esp_err_to_name(audio_ret));
         }
-        navigate_to(View::Player);
-    }, LV_EVENT_CLICKED, reinterpret_cast<void *>(payload));
+    }
+    navigate_to(View::Player);
+}
+
+void add_search_playlist_route(lv_obj_t *row, size_t track_index, size_t playlist_index)
+{
+    lv_obj_add_event_cb(row, [](lv_event_t *event) {
+        play_search_playlist_result(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    }, LV_EVENT_CLICKED,
+    reinterpret_cast<void *>(search_playlist_payload(track_index, playlist_index)));
 }
 
 void make_search_playlist_row(lv_obj_t *parent, int y,
@@ -374,7 +487,16 @@ void make_search_playlist_row(lv_obj_t *parent, int y,
 
 void search_album_result_cb(lv_event_t *event)
 {
-    const size_t group_index = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
+    open_search_album_result(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+}
+
+void search_artist_result_cb(lv_event_t *event)
+{
+    open_search_artist_result(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+}
+
+void open_search_album_result(size_t group_index)
+{
     lyra::media::Group group{};
     if (!lyra::media::group_at(lyra::media::GroupKind::Album, group_index, &group)) return;
     s_selected_group_kind = lyra::media::GroupKind::Album;
@@ -384,9 +506,8 @@ void search_album_result_cb(lv_event_t *event)
     navigate_to(View::AlbumDetail);
 }
 
-void search_artist_result_cb(lv_event_t *event)
+void open_search_artist_result(size_t group_index)
 {
-    const size_t group_index = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
     lyra::media::Group group{};
     if (!lyra::media::group_at(lyra::media::GroupKind::Artist, group_index, &group)) return;
     s_selected_group_kind = lyra::media::GroupKind::Artist;

@@ -3,19 +3,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-// Album-list thumbnails.
+// List thumbnails for albums and songs.
 //
 // Decoding a cover means opening the song, walking its tags and reading the
 // whole compressed picture, often hundreds of kilobytes, before the decoder
 // can throw most of it away. That cost is what made per-row artwork too slow,
 // so it is paid once per album: the 48x48 RGB565 result is appended to a
-// packed SD cache. The cache's small index lives in PSRAM, so a later visit
+// packed SD cache. Songs share their album's entry: the key is the song's
+// folder plus its album tag, or the song's own path when it has no album tag. The cache's small index lives in PSRAM, so a later visit
 // needs only one open and one 4.5 KB read. A PSRAM LRU holds the most
 // recently shown thumbnails for instant redisplay while scrolling back.
 //
 // Cache files (removed by Clear artwork cache):
-//   covers/thumbs-v1-48.idx     IndexEntry records, appended
-//   covers/thumbs-v1-48.rgb565  kThumbnailPixels RGB565 values per slot
+//   covers/thumbs-v2-48.idx     IndexEntry records, appended
+//   covers/thumbs-v2-48.rgb565  kThumbnailPixels RGB565 values per slot
 // The pixel slot is written before its index entry, so an interrupted write
 // leaves at most an unreferenced slot. A later entry for a key supersedes
 // earlier ones, and the files restart when the index fills.
@@ -30,8 +31,12 @@ using namespace internal;
 namespace {
 
 constexpr const char *kThumbTag = "lyra.media.thumbs";
-constexpr const char *kIndexPath = "/sdcard/.lyra/covers/thumbs-v1-48.idx";
-constexpr const char *kPixelsPath = "/sdcard/.lyra/covers/thumbs-v1-48.rgb565";
+constexpr const char *kIndexPath = "/sdcard/.lyra/covers/thumbs-v2-48.idx";
+constexpr const char *kPixelsPath = "/sdcard/.lyra/covers/thumbs-v2-48.rgb565";
+// Version 1 keyed entries by track path only; it is removed on first use.
+constexpr const char *kLegacyPaths[] = {
+    "/sdcard/.lyra/covers/thumbs-v1-48.idx", "/sdcard/.lyra/covers/thumbs-v1-48.rgb565",
+};
 constexpr size_t kThumbnailBytes = kThumbnailPixels * sizeof(uint16_t);
 constexpr size_t kMaxIndexEntries = 4096;
 constexpr uint32_t kNoSlot = UINT32_MAX;
@@ -42,8 +47,8 @@ constexpr uint32_t kWorkerStack = 24 * 1024;
 constexpr TickType_t kPlayerArtworkBackoff = pdMS_TO_TICKS(40);
 
 struct IndexEntry {
-    uint32_t key;    // artwork::key() of the album's representative track.
-    uint32_t stamp;  // That track's size and modification time.
+    uint32_t key;    // thumbnail_key() of the source track.
+    uint32_t stamp;  // thumbnail_stamp() of the source track.
     uint32_t slot;   // Pixel slot, or kNoSlot when the album has no artwork.
 };
 static_assert(sizeof(IndexEntry) == 12, "thumbnail index layout is persisted");
@@ -51,7 +56,7 @@ static_assert(sizeof(IndexEntry) == 12, "thumbnail index layout is persisted");
 struct RamEntry {
     bool used;
     uint32_t catalog_generation;
-    size_t group;
+    ThumbnailRequest request;
     ThumbnailState state;
     uint32_t last_used;
 };
@@ -61,7 +66,7 @@ SemaphoreHandle_t s_ram_mutex;
 RamEntry s_ram[kRamEntries];
 uint16_t *s_ram_pixels;  // kRamEntries * kThumbnailPixels, PSRAM.
 uint32_t s_ram_clock;
-size_t s_wanted[kMaxWanted];
+ThumbnailRequest s_wanted[kMaxWanted];
 size_t s_wanted_count;
 size_t s_wanted_cursor;
 uint32_t s_wanted_generation;
@@ -92,48 +97,75 @@ bool ensure_mutexes()
     return s_ram_mutex && s_disk_mutex;
 }
 
-uint32_t track_stamp(const Track &track)
+void mix_hash(uint32_t *hash, const void *data, size_t length)
 {
+    const auto *bytes = static_cast<const uint8_t *>(data);
+    for (size_t i = 0; i < length; ++i) *hash = (*hash ^ bytes[i]) * 16777619u;
+}
+
+bool same_request(const ThumbnailRequest &left, const ThumbnailRequest &right)
+{
+    return left.source == right.source && left.index == right.index;
+}
+
+// Songs in one folder with one album tag share a cover, so they share a key.
+// A song without an album tag is keyed by its own path.
+uint32_t thumbnail_key(const Track &track)
+{
+    if (!track.album[0]) return artwork::key(track);
     uint32_t hash = 2166136261u;
-    const auto mix = [&hash](const void *data, size_t length) {
-        const auto *bytes = static_cast<const uint8_t *>(data);
-        for (size_t i = 0; i < length; ++i) hash = (hash ^ bytes[i]) * 16777619u;
-    };
-    mix(&track.size_bytes, sizeof(track.size_bytes));
-    mix(&track.modified_time, sizeof(track.modified_time));
+    const char *separator = std::strrchr(track.path, '/');
+    const size_t directory = separator ? static_cast<size_t>(separator - track.path) : 0;
+    mix_hash(&hash, track.path, directory);
+    const uint8_t divider = 0;
+    mix_hash(&hash, &divider, 1);
+    mix_hash(&hash, track.album, std::strlen(track.album));
+    return hash;
+}
+
+// A shared album entry cannot follow one song's file changes; Clear artwork
+// cache refreshes it. A single song's entry follows its size and date.
+uint32_t thumbnail_stamp(const Track &track)
+{
+    if (track.album[0]) return 0;
+    uint32_t hash = 2166136261u;
+    mix_hash(&hash, &track.size_bytes, sizeof(track.size_bytes));
+    mix_hash(&hash, &track.modified_time, sizeof(track.modified_time));
     return hash;
 }
 
 // ---- RAM cache ---------------------------------------------------------------
 
-RamEntry *find_ram_locked(uint32_t generation, size_t group)
+RamEntry *find_ram_locked(uint32_t generation, const ThumbnailRequest &request)
 {
     for (RamEntry &entry : s_ram) {
-        if (entry.used && entry.catalog_generation == generation && entry.group == group) return &entry;
+        if (entry.used && entry.catalog_generation == generation &&
+            same_request(entry.request, request)) return &entry;
     }
     return nullptr;
 }
 
-bool wanted_locked(size_t group)
+bool wanted_locked(const ThumbnailRequest &request)
 {
     for (size_t i = 0; i < s_wanted_count; ++i) {
-        if (s_wanted[i] == group) return true;
+        if (same_request(s_wanted[i], request)) return true;
     }
     return false;
 }
 
-void store_ram(uint32_t generation, size_t group, ThumbnailState state, const uint16_t *pixels)
+void store_ram(uint32_t generation, const ThumbnailRequest &request, ThumbnailState state,
+               const uint16_t *pixels)
 {
     Mutex lock(s_ram_mutex);
     if (!s_ram_pixels) return;  // Released while this one was loading.
-    RamEntry *entry = find_ram_locked(generation, group);
+    RamEntry *entry = find_ram_locked(generation, request);
     if (!entry) {
         // Evict the least recently used entry, sparing ones still on screen.
         RamEntry *victim = nullptr;
         for (RamEntry &candidate : s_ram) {
             if (!candidate.used) { victim = &candidate; break; }
             const bool spare = candidate.catalog_generation == s_wanted_generation &&
-                               wanted_locked(candidate.group);
+                               wanted_locked(candidate.request);
             if (spare) continue;
             if (!victim || candidate.last_used < victim->last_used) victim = &candidate;
         }
@@ -141,37 +173,28 @@ void store_ram(uint32_t generation, size_t group, ThumbnailState state, const ui
         entry = victim;
     }
     const size_t index = static_cast<size_t>(entry - s_ram);
-    *entry = {true, generation, group, state, ++s_ram_clock};
+    *entry = {true, generation, request, state, ++s_ram_clock};
     if (state == ThumbnailState::Ready && pixels) {
         std::memcpy(s_ram_pixels + index * kThumbnailPixels, pixels, kThumbnailBytes);
     }
     s_ready_generation.fetch_add(1, std::memory_order_release);
 }
 
-// Returns the next wanted group without a RAM entry, in priority order.
-bool next_wanted(size_t *group, uint32_t *generation)
+// Returns the next wanted thumbnail without a RAM entry, in priority order.
+bool next_wanted(ThumbnailRequest *request, uint32_t *generation)
 {
     Mutex lock(s_ram_mutex);
     while (s_wanted_cursor < s_wanted_count) {
-        const size_t candidate = s_wanted[s_wanted_cursor];
+        const ThumbnailRequest &candidate = s_wanted[s_wanted_cursor];
         if (find_ram_locked(s_wanted_generation, candidate)) {
             ++s_wanted_cursor;
             continue;
         }
-        *group = candidate;
+        *request = candidate;
         *generation = s_wanted_generation;
         return true;
     }
     return false;
-}
-
-void skip_wanted(size_t group, uint32_t generation)
-{
-    Mutex lock(s_ram_mutex);
-    if (generation == s_wanted_generation && s_wanted_cursor < s_wanted_count &&
-        s_wanted[s_wanted_cursor] == group) {
-        ++s_wanted_cursor;
-    }
 }
 
 // ---- SD cache ----------------------------------------------------------------
@@ -203,6 +226,7 @@ bool load_index_locked(uint32_t generation)
     s_index_count = 0;
     s_pixel_slots = 0;
     s_index_loaded = true;
+    for (const char *legacy : kLegacyPaths) lyra::sd::remove(legacy, lyra::sd::Client::Artwork);
 
     struct stat info{};
     if (stat(kPixelsPath, &info) == 0 && S_ISREG(info.st_mode)) {
@@ -296,27 +320,36 @@ void write_cached(uint32_t generation, uint32_t key, uint32_t stamp, const uint1
 
 enum class LoadResult : uint8_t { Done, Retry, Abandon };
 
-LoadResult load_thumbnail(size_t group_index, uint32_t generation, uint16_t *scratch)
+bool source_track(const ThumbnailRequest &request, Track *track)
+{
+    size_t track_index = request.index;
+    if (request.source == ThumbnailSource::Album) {
+        Group group{};
+        if (!group_at(GroupKind::Album, request.index, &group)) return false;
+        track_index = group.representative_track;
+    }
+    return track_at(track_index, track) && track->path[0];
+}
+
+LoadResult load_thumbnail(const ThumbnailRequest &request, uint32_t generation, uint16_t *scratch)
 {
     const Status media = status();
     if (!media.mounted || media.scanning || media.catalog_generation != generation) {
         return LoadResult::Abandon;
     }
-    Group group{};
     Track track{};
-    if (!group_at(GroupKind::Album, group_index, &group) ||
-        !track_at(group.representative_track, &track) || !track.path[0]) {
-        store_ram(generation, group_index, ThumbnailState::None, nullptr);
+    if (!source_track(request, &track)) {
+        store_ram(generation, request, ThumbnailState::None, nullptr);
         return LoadResult::Done;
     }
-    const uint32_t key = artwork::key(track);
-    const uint32_t stamp = track_stamp(track);
+    const uint32_t key = thumbnail_key(track);
+    const uint32_t stamp = thumbnail_stamp(track);
     if (!begin_file_access()) return LoadResult::Abandon;
 
     ThumbnailState state = ThumbnailState::None;
     if (read_cached(generation, key, stamp, scratch, &state)) {
         end_file_access();
-        store_ram(generation, group_index, state, scratch);
+        store_ram(generation, request, state, scratch);
         return LoadResult::Done;
     }
     // The cover the player is waiting for goes first.
@@ -333,10 +366,12 @@ LoadResult load_thumbnail(size_t group_index, uint32_t generation, uint16_t *scr
                                                      &diagnostics, true, nullptr);
     write_cached(generation, key, stamp, decoded ? pixels : nullptr);
     end_file_access();
-    ESP_LOGD(kThumbTag, "album %u thumbnail %s in %u ms", static_cast<unsigned>(group_index),
+    ESP_LOGD(kThumbTag, "%s %u thumbnail %s in %u ms",
+             request.source == ThumbnailSource::Album ? "album" : "track",
+             static_cast<unsigned>(request.index),
              decoded ? "decoded" : "unavailable",
              static_cast<unsigned>((esp_timer_get_time() - started) / 1000));
-    store_ram(generation, group_index, decoded ? ThumbnailState::Ready : ThumbnailState::None,
+    store_ram(generation, request, decoded ? ThumbnailState::Ready : ThumbnailState::None,
               pixels);
     heap_caps_free(pixels);
     return LoadResult::Done;
@@ -348,15 +383,14 @@ void thumbnail_task(void *)
         kThumbnailBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     while (true) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        size_t group = 0;
+        ThumbnailRequest request{};
         uint32_t generation = 0;
-        while (scratch && next_wanted(&group, &generation)) {
-            const LoadResult result = load_thumbnail(group, generation, scratch);
+        while (scratch && next_wanted(&request, &generation)) {
+            const LoadResult result = load_thumbnail(request, generation, scratch);
             if (result == LoadResult::Retry) {
                 vTaskDelay(kPlayerArtworkBackoff);
             } else if (result == LoadResult::Abandon) {
                 // Nothing can load now; a new request will restart the walk.
-                skip_wanted(group, generation);
                 Mutex lock(s_ram_mutex);
                 s_wanted_count = 0;
                 s_wanted_cursor = 0;
@@ -367,11 +401,11 @@ void thumbnail_task(void *)
 
 } // namespace
 
-ThumbnailState album_thumbnail(size_t album_group, uint16_t *pixels)
+ThumbnailState thumbnail(ThumbnailSource source, size_t index, uint16_t *pixels)
 {
     if (!pixels || !ensure_mutexes()) return ThumbnailState::Pending;
     Mutex lock(s_ram_mutex);
-    RamEntry *entry = find_ram_locked(s_wanted_generation, album_group);
+    RamEntry *entry = find_ram_locked(s_wanted_generation, ThumbnailRequest{source, index});
     if (!entry || !s_ram_pixels) return ThumbnailState::Pending;
     entry->last_used = ++s_ram_clock;
     if (entry->state == ThumbnailState::Ready) {
@@ -381,12 +415,12 @@ ThumbnailState album_thumbnail(size_t album_group, uint16_t *pixels)
     return entry->state;
 }
 
-void request_album_thumbnails(const size_t *album_groups, size_t count)
+void request_thumbnails(const ThumbnailRequest *requests, size_t count)
 {
     if (!ensure_mutexes()) return;
     const Status media = status();
     if (!media.mounted || media.scanning) return;
-    count = album_groups ? std::min(count, kMaxWanted) : 0;
+    count = requests ? std::min(count, kMaxWanted) : 0;
     bool changed = false;
     {
         Mutex lock(s_ram_mutex);
@@ -397,9 +431,9 @@ void request_album_thumbnails(const size_t *album_groups, size_t count)
             for (RamEntry &entry : s_ram) entry = {};
         }
         changed = media.catalog_generation != s_wanted_generation || count != s_wanted_count ||
-                  !std::equal(album_groups, album_groups + count, s_wanted);
+                  !std::equal(requests, requests + count, s_wanted, same_request);
         if (changed) {
-            std::copy(album_groups, album_groups + count, s_wanted);
+            std::copy(requests, requests + count, s_wanted);
             s_wanted_count = count;
             s_wanted_cursor = 0;
             s_wanted_generation = media.catalog_generation;
@@ -422,7 +456,7 @@ uint32_t thumbnail_generation()
     return s_ready_generation.load(std::memory_order_acquire);
 }
 
-void release_album_thumbnails()
+void release_thumbnails()
 {
     if (!ensure_mutexes()) return;
     uint16_t *pixels = nullptr;

@@ -745,6 +745,36 @@ bool fetch_queue_row(size_t position, VirtualRow *row)
     return true;
 }
 
+size_t queue_snapshot_track(size_t position)
+{
+    portENTER_CRITICAL(&s_queue_snapshot_lock);
+    const size_t track = position < s_queue_snapshot_count ? s_queue_snapshot[position] : SIZE_MAX;
+    portEXIT_CRITICAL(&s_queue_snapshot_lock);
+    return track;
+}
+
+void bind_queue_thumbnail(lv_obj_t *art, size_t position)
+{
+    const size_t track = queue_snapshot_track(position);
+    if (track != SIZE_MAX) bind_row_thumbnail(art, lyra::media::ThumbnailSource::Track, track);
+}
+
+void refresh_queue_thumbnail(VirtualRowWidgets &widgets)
+{
+    bind_queue_thumbnail(widgets.art, reinterpret_cast<uintptr_t>(lv_obj_get_user_data(widgets.button)));
+}
+
+void request_queue_thumbnails(const size_t *positions, size_t count)
+{
+    size_t tracks[32];
+    size_t found = 0;
+    for (size_t i = 0; i < count && found < sizeof(tracks) / sizeof(tracks[0]); ++i) {
+        const size_t track = queue_snapshot_track(positions[i]);
+        if (track != SIZE_MAX) tracks[found++] = track;
+    }
+    request_row_thumbnails(lyra::media::ThumbnailSource::Track, tracks, found);
+}
+
 void build_queue_row(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t position,
                      const VirtualRow &data, int width)
 {
@@ -758,6 +788,7 @@ void build_queue_row(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t position
     if (widgets.button && widgets.variant == variant) {
         rebind_virtual_row(widgets, data);
         set_label_text_if_changed(widgets.number, queue_number_text);
+        bind_queue_thumbnail(widgets.art, position);
         return;
     }
     if (widgets.button) lv_obj_delete(widgets.button);
@@ -774,16 +805,25 @@ void build_queue_row(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t position
         lv_obj_align(playing, LV_ALIGN_LEFT_MID, 10, 0);
         lv_obj_add_flag(queue_number, LV_OBJ_FLAG_HIDDEN);
     }
-    const int text_width = s_queue_edit_mode ? 132 : width - 56;
+    // Queue number, then the optional cover, then the text.
+    constexpr int kNumberWidth = 42;
+    lv_obj_t *art = s_list_artwork ?
+        make_row_thumbnail(row, kNumberWidth, (54 - kRowThumbnailSize) / 2) : nullptr;
+    const int text_x = s_list_artwork ? kNumberWidth + kRowThumbnailSize + kRowThumbnailInset :
+                                        kNumberWidth;
+    // Edit mode keeps the move and remove buttons from x = 188.
+    const int text_width = s_queue_edit_mode ? 188 - 4 - text_x : width - text_x - 14;
     lv_obj_t *title = make_label(row, data.title,
         current ? (!is_standard_theme() ? kAccent : kTextOnAccent) : kTextPrimary);
     make_marquee(title, text_width);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 42, -9);
+    lv_obj_align(title, LV_ALIGN_LEFT_MID, text_x, -9);
     lv_obj_t *artist = make_label(row, data.subtitle,
         current && is_standard_theme() ? kTextOnAccent : kTextSecondary);
     make_marquee(artist, text_width);
-    lv_obj_align(artist, LV_ALIGN_LEFT_MID, 42, 11);
+    lv_obj_align(artist, LV_ALIGN_LEFT_MID, text_x, 11);
     widgets = {row, title, artist, variant, queue_number};
+    widgets.art = art;
+    bind_queue_thumbnail(art, position);
     if (s_queue_edit_mode) {
         add_queue_row_action(row, 188, LV_SYMBOL_UP, can_move_up ? kTextSecondary : kTextMuted,
                              QueueRowAction::MoveUp);
@@ -840,6 +880,7 @@ void render_queue()
     spec.row_height = 54;
     spec.fetch = fetch_queue_row;
     spec.build = build_queue_row;
+    enable_row_thumbnails(spec, request_queue_thumbnails, refresh_queue_thumbnail);
     make_virtual_list(list, spec);
 }
 View library_section_view(LibraryTab section)

@@ -88,16 +88,24 @@ while keeping its settings and recovery interface available.
   artwork can come from `cover.jpg`, `folder.jpg`, or `cover.png`. Lyra keeps
   the display image in memory and can retain selected decoded artwork in
   `/sdcard/.lyra/covers`.
-- The Albums list shows a 48x48 thumbnail beside each album, taken from the
-  album's representative track. Each cover is decoded once at thumbnail size
-  by a low-priority worker that serves on-screen rows first, then the rows
-  ahead of the scroll, and waits while the player cover is loading. Results,
-  including "no artwork", are appended to a packed cache
-  (`/sdcard/.lyra/covers/thumbs-v1-48.idx` and `.rgb565`) keyed by track path,
-  size and modification time, so later visits need one small read per row. A
-  32-entry PSRAM cache, freed when the list closes, covers scrolling back.
-  Clearing the artwork cache removes the thumbnails too; a changed folder
-  cover image is picked up only after that.
+- Albums, Songs, Queue, playlist details (including Favorites and the Smart
+  Playlists) and search results show a 48x48 thumbnail beside each row
+  (Settings > Display > Album art in lists, on by default). Each cover is
+  decoded once at thumbnail size by a low-priority worker that serves
+  on-screen rows first, then the rows ahead of the scroll, and waits while the
+  player cover is loading. Results, including "no artwork", are appended to a
+  packed cache (`/sdcard/.lyra/covers/thumbs-v2-48.idx` and `.rgb565`). Songs
+  share their album's entry, keyed by folder and album tag; a song without an
+  album tag is keyed by its path, size and modification time. Later visits
+  need one small read per row. A 32-entry PSRAM cache, freed when the list
+  closes, covers scrolling back. Clearing the artwork cache removes the
+  thumbnails too; changed cover art is picked up only after that.
+- Playlist details and search results are single scrolling lists. Search
+  starts only from the keyboard's Search key, which also hides the keyboard;
+  changing the category re-runs the current query.
+- Text fields show a blinking caret. Swiping along the space bar of any
+  keyboard moves the caret one character per 14 px; typing and backspace act
+  at the caret.
 - Track catalog records capture each file's filesystem modification timestamp
   and refresh the size/date when file metadata is read, so files created or
   changed by Lyra receive the active clock date.

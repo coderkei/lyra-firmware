@@ -296,159 +296,38 @@ void make_plus_button(lv_obj_t *row, int x, int y, lv_event_cb_t callback)
     lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, row);
 }
 
-void build_song(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t, const VirtualRow &data, int width)
+void refresh_album_thumbnail(VirtualRowWidgets &widgets)
 {
-    const size_t track = data.payload;
-    // Matches make_song_row(); comparing indices avoids a per-row path read.
-    const bool current = !is_standard_theme() && s_has_active_queue && track == s_current_track;
-    if (widgets.button && widgets.variant == current) {
-        rebind_virtual_row(widgets, data);
-        return;
-    }
-    if (widgets.button) lv_obj_delete(widgets.button);
-    lv_obj_t *row = make_button(slot, 7, 0, width, 54, current ? kAccentSurface : kSurface, 5, true);
-    const int text_x = is_zeno_theme() && current ? 34 : 12;
-    const int text_width = width - text_x - (s_playlist_add_mode ? 50 : s_queue_add_mode ? 58 : 12);
-    lv_obj_t *title = make_label(row, data.title, current ? kAccent : kTextPrimary);
-    if (is_zeno_theme()) lv_obj_set_style_text_color(title, kTextPrimary, 0);
-    make_marquee(title, text_width);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, text_x, -9);
-    lv_obj_t *artist = make_label(row, data.subtitle, kTextSecondary);
-    make_marquee(artist, text_width);
-    lv_obj_align(artist, LV_ALIGN_LEFT_MID, text_x, 11);
-    widgets = {row, title, artist, current};
-    lv_obj_set_user_data(row, reinterpret_cast<void *>(track));
-    if (is_zeno_theme() && current) {
-        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, kTextPrimary);
-        lv_obj_align(playing, LV_ALIGN_LEFT_MID, 10, 0);
-    }
-    if (s_playlist_add_mode) {
-        lv_obj_t *add = make_label(row, LV_SYMBOL_PLUS, kAccent);
-        lv_obj_align(add, LV_ALIGN_RIGHT_MID, -12, 0);
-        lv_obj_add_event_cb(row, [](lv_event_t *event) {
-            add_playlist_track(row_payload(lv_event_get_current_target_obj(event)));
-        }, LV_EVENT_CLICKED, nullptr);
-        return;
-    }
-    lv_obj_add_event_cb(row, [](lv_event_t *event) {
-        play_track_from_row(row_payload(lv_event_get_current_target_obj(event)), false);
-    }, LV_EVENT_CLICKED, nullptr);
-    if (s_queue_add_mode) {
-        make_plus_button(row, width - 46, 9, [](lv_event_t *event) {
-            lv_event_stop_bubbling(event);
-            show_queue_add_picker_for_track(row_payload(static_cast<lv_obj_t *>(lv_event_get_user_data(event))));
-        });
-    }
+    bind_row_thumbnail(widgets.art, lyra::media::ThumbnailSource::Album, row_payload(widgets.button));
 }
 
-// ---- Album thumbnails ----------------------------------------------------------
-// Each album row owns a thumbnail-sized RGB565 buffer. The media service loads
-// covers off the GUI thread, so binding a row only copies a ready image or
-// leaves the placeholder showing until thumbnail_generation() changes.
-
-constexpr int kAlbumThumbInset = 6;
-constexpr int kAlbumThumbRadius = 4;
-constexpr int kAlbumTextX = kAlbumThumbInset * 2 + lyra::media::kThumbnailSize;
-
-struct AlbumThumbView {
-    lv_image_dsc_t descriptor;
-    size_t group;
-    lyra::media::ThumbnailState state;
-    uint16_t pixels[lyra::media::kThumbnailPixels];
-};
-
-void make_unclickable_tree(lv_obj_t *object)
+void request_album_thumbnails(const size_t *groups, size_t count)
 {
-    // Touches must reach the virtual-list slot, which forwards them to the row.
-    lv_obj_remove_flag(object, LV_OBJ_FLAG_CLICKABLE);
-    const uint32_t children = lv_obj_get_child_count(object);
-    for (uint32_t i = 0; i < children; ++i) make_unclickable_tree(lv_obj_get_child(object, i));
-}
-
-lv_obj_t *make_album_thumb(lv_obj_t *row)
-{
-    constexpr int kSize = lyra::media::kThumbnailSize;
-    lv_obj_t *art = make_box(row, kAlbumThumbInset, kAlbumThumbInset, kSize, kSize,
-                             kArtworkSurface, kAlbumThumbRadius);
-    make_artwork_placeholder(art, kSize, kSize);
-    auto *view = static_cast<AlbumThumbView *>(heap_caps_calloc(
-        1, sizeof(AlbumThumbView), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    lv_obj_t *image = nullptr;
-    if (view) {
-        view->group = SIZE_MAX;
-        view->state = lyra::media::ThumbnailState::Pending;
-        view->descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
-        view->descriptor.header.cf = LV_COLOR_FORMAT_RGB565;
-        view->descriptor.header.w = kSize;
-        view->descriptor.header.h = kSize;
-        view->descriptor.header.stride = kSize * sizeof(uint16_t);
-        view->descriptor.data_size = sizeof(view->pixels);
-        view->descriptor.data = reinterpret_cast<const uint8_t *>(view->pixels);
-        image = lv_image_create(art);
-        lv_obj_set_pos(image, 0, 0);
-        lv_obj_set_size(image, kSize, kSize);
-        lv_obj_set_style_radius(image, s_neon_hud ? 0 : kAlbumThumbRadius, 0);
-        lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_user_data(image, view);
-        lv_obj_add_event_cb(image, [](lv_event_t *event) {
-            auto *owned = static_cast<AlbumThumbView *>(lv_event_get_user_data(event));
-            lv_image_cache_drop(&owned->descriptor);
-            heap_caps_free(owned);
-        }, LV_EVENT_DELETE, view);
-    }
-    make_unclickable_tree(art);
-    return image;
-}
-
-void bind_album_thumb(lv_obj_t *image, size_t group)
-{
-    if (!image) return;
-    auto *view = static_cast<AlbumThumbView *>(lv_obj_get_user_data(image));
-    if (view->group == group && view->state != lyra::media::ThumbnailState::Pending) return;
-    const lyra::media::ThumbnailState state = lyra::media::album_thumbnail(group, view->pixels);
-    if (view->group == group && state == view->state) return;
-    view->group = group;
-    view->state = state;
-    if (state == lyra::media::ThumbnailState::Ready) {
-        // Same descriptor, new pixels: drop any cached decode before redrawing.
-        lv_image_cache_drop(&view->descriptor);
-        lv_image_set_src(image, &view->descriptor);
-        lv_obj_remove_flag(image, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
-    }
-}
-
-void refresh_album_thumb(VirtualRowWidgets &widgets)
-{
-    bind_album_thumb(widgets.art, row_payload(widgets.button));
-}
-
-void request_album_thumbs(const size_t *groups, size_t count)
-{
-    lyra::media::request_album_thumbnails(groups, count);
+    request_row_thumbnails(lyra::media::ThumbnailSource::Album, groups, count);
 }
 
 void build_album(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t, const VirtualRow &data, int width)
 {
     if (widgets.button) {
         rebind_virtual_row(widgets, data);
-        bind_album_thumb(widgets.art, data.payload);
+        bind_row_thumbnail(widgets.art, lyra::media::ThumbnailSource::Album, data.payload);
         return;
     }
     lv_obj_t *row = make_button(slot, 7, 0, width, 60, kSurface, 5, true);
-    lv_obj_t *art = make_album_thumb(row);
-    const int text_width = width - kAlbumTextX - (s_queue_add_mode ? 58 : 12);
+    lv_obj_t *art = s_list_artwork ?
+        make_row_thumbnail(row, kRowThumbnailInset, (60 - kRowThumbnailSize) / 2) : nullptr;
+    const int text_x = s_list_artwork ? kRowThumbnailTextX : 12;
+    const int text_width = width - text_x - (s_queue_add_mode ? 58 : 12);
     lv_obj_t *title = make_label(row, data.title, kTextPrimary);
     make_marquee(title, text_width);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, kAlbumTextX, -10);
+    lv_obj_align(title, LV_ALIGN_LEFT_MID, text_x, -10);
     lv_obj_t *sub = make_label(row, data.subtitle, kTextSecondary);
     make_marquee(sub, text_width);
-    lv_obj_align(sub, LV_ALIGN_LEFT_MID, kAlbumTextX, 12);
+    lv_obj_align(sub, LV_ALIGN_LEFT_MID, text_x, 12);
     widgets = {row, title, sub, false};
     widgets.art = art;
     lv_obj_set_user_data(row, reinterpret_cast<void *>(data.payload));
-    bind_album_thumb(art, data.payload);
+    bind_row_thumbnail(art, lyra::media::ThumbnailSource::Album, data.payload);
     lv_obj_add_event_cb(row, [](lv_event_t *event) {
         open_album_detail(row_payload(lv_event_get_current_target_obj(event)));
     }, LV_EVENT_CLICKED, nullptr);
@@ -517,14 +396,16 @@ void render_library_section(LibraryTab section)
     spec.pitch = section == LibraryTab::Albums ? 63 : 58;
     spec.row_height = section == LibraryTab::Albums ? 60 : 54;
     switch (section) {
-        case LibraryTab::Songs: spec.fetch = fetch_song; spec.build = build_song; break;
+        case LibraryTab::Songs:
+            s_track_row_mode = TrackRowMode::Library;
+            spec.fetch = fetch_song;
+            spec.build = build_track_row;
+            enable_row_thumbnails(spec, request_track_row_thumbnails, refresh_track_row_thumbnail);
+            break;
         case LibraryTab::Albums:
             spec.fetch = fetch_album;
             spec.build = build_album;
-            spec.window = request_album_thumbs;
-            spec.refresh_stamp = lyra::media::thumbnail_generation;
-            spec.refresh = refresh_album_thumb;
-            spec.release = lyra::media::release_album_thumbnails;
+            enable_row_thumbnails(spec, request_album_thumbnails, refresh_album_thumbnail);
             break;
         case LibraryTab::Artists: spec.fetch = fetch_artist; spec.build = build_group; break;
         case LibraryTab::Genres: spec.fetch = fetch_genre; spec.build = build_group; break;
@@ -968,6 +849,89 @@ void make_playlist_track_manage_row(lv_obj_t *parent, int y, size_t track_index)
                         reinterpret_cast<void *>(track_index));
 }
 
+namespace {
+
+// The playlist is resolved into this snapshot once, so the prefetch task does
+// not rescan the playlist file for every row. Any edit re-renders the view.
+size_t *s_playlist_snapshot;
+size_t s_playlist_snapshot_count;
+bool s_playlist_snapshot_plays;
+portMUX_TYPE s_playlist_snapshot_lock = portMUX_INITIALIZER_UNLOCKED;
+
+void release_playlist_snapshot(lv_event_t *)
+{
+    portENTER_CRITICAL(&s_playlist_snapshot_lock);
+    size_t *snapshot = s_playlist_snapshot;
+    s_playlist_snapshot = nullptr;
+    s_playlist_snapshot_count = 0;
+    portEXIT_CRITICAL(&s_playlist_snapshot_lock);
+    heap_caps_free(snapshot);
+}
+
+bool fetch_playlist_row(size_t position, VirtualRow *row)
+{
+    portENTER_CRITICAL(&s_playlist_snapshot_lock);
+    const size_t track = position < s_playlist_snapshot_count ? s_playlist_snapshot[position] :
+                                                                SIZE_MAX;
+    const bool plays = s_playlist_snapshot_plays;
+    portEXIT_CRITICAL(&s_playlist_snapshot_lock);
+    lyra::media::TrackSummary summary{};
+    if (track == SIZE_MAX || !lyra::media::track_summary_at(track, &summary)) return false;
+    row->payload = track;
+    copy_ui_text(row->title, sizeof(row->title), summary.title);
+    if (plays) {
+        format_text_u32(lyra::i18n::StringId::ArtistPlayCount, summary.artist,
+                        lyra::media::track_play_count(track), row->subtitle,
+                        sizeof(row->subtitle));
+    } else {
+        copy_ui_text(row->subtitle, sizeof(row->subtitle), summary.artist);
+    }
+    return true;
+}
+
+// Shows a playlist's songs as one scrolling list.
+void render_playlist_tracks(lv_obj_t *list, bool smart, const lyra::media::Playlist &selected)
+{
+    const size_t expected = smart ?
+        lyra::media::smart_playlist_track_count(s_selected_smart_playlist) : selected.track_count;
+    size_t *snapshot = expected ? static_cast<size_t *>(heap_caps_malloc(
+        expected * sizeof(size_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) : nullptr;
+    if (expected && !snapshot) {
+        make_label(list, tr(lyra::i18n::StringId::FileMemoryError), kTextMuted);
+        return;
+    }
+    const size_t count = !snapshot ? 0 : smart ?
+        lyra::media::smart_playlist_tracks(s_selected_smart_playlist, 0, snapshot, expected) :
+        lyra::media::playlist_tracks(s_selected_playlist, 0, snapshot, expected);
+    if (count == 0) {
+        heap_caps_free(snapshot);
+        make_label(list, smart ? tr(lyra::i18n::StringId::SmartPlaylistEmpty) :
+                                 tr(lyra::i18n::StringId::PlaylistEmptyAdd), kTextMuted);
+        return;
+    }
+    portENTER_CRITICAL(&s_playlist_snapshot_lock);
+    s_playlist_snapshot = snapshot;
+    s_playlist_snapshot_count = count;
+    s_playlist_snapshot_plays = smart &&
+        s_selected_smart_playlist == lyra::media::SmartPlaylistKind::MostPlayed;
+    portEXIT_CRITICAL(&s_playlist_snapshot_lock);
+    lv_obj_add_event_cb(list, release_playlist_snapshot, LV_EVENT_DELETE, nullptr);
+
+    s_track_row_mode = !smart && s_playlist_manage_mode ? TrackRowMode::PlaylistManage :
+                                                          TrackRowMode::Library;
+    VirtualListSpec spec{};
+    spec.count = count;
+    spec.top = 0;
+    spec.pitch = 58;
+    spec.row_height = 54;
+    spec.fetch = fetch_playlist_row;
+    spec.build = build_track_row;
+    enable_row_thumbnails(spec, request_track_row_thumbnails, refresh_track_row_thumbnail);
+    make_virtual_list(list, spec);
+}
+
+} // namespace
+
 void render_playlists(bool detail)
 {
     // Returning to a playlist always ends the temporary library selection mode.
@@ -1040,30 +1004,7 @@ void render_playlists(bool detail)
                                 reinterpret_cast<void *>(static_cast<uintptr_t>(smart.kind)));
         }
     } else {
-        const size_t total = smart_detail ?
-            lyra::media::smart_playlist_track_count(s_selected_smart_playlist) : selected.track_count;
-        const size_t pages = (total + lyra::media::kTrackPageSize - 1) /
-                             lyra::media::kTrackPageSize;
-        if (pages && s_list_page >= pages) s_list_page = pages - 1;
-        size_t indices[lyra::media::kTrackPageSize];
-        const size_t count = smart_detail ?
-            lyra::media::smart_playlist_tracks(s_selected_smart_playlist,
-                s_list_page * lyra::media::kTrackPageSize, indices, lyra::media::kTrackPageSize) :
-            lyra::media::playlist_tracks(s_selected_playlist,
-                s_list_page * lyra::media::kTrackPageSize, indices, lyra::media::kTrackPageSize);
-        for (size_t i = 0; i < count; ++i) {
-            if (!smart_detail && s_playlist_manage_mode) {
-                make_playlist_track_manage_row(list, static_cast<int>(i) * 58, indices[i]);
-            } else {
-                make_song_row(list, static_cast<int>(i) * 58, indices[i], 54, false,
-                              smart_detail && s_selected_smart_playlist ==
-                                  lyra::media::SmartPlaylistKind::MostPlayed);
-            }
-        }
-        make_page_controls(list, static_cast<int>(count) * 58 + 4, total);
-        if (count == 0) make_label(list, smart_detail ?
-            tr(lyra::i18n::StringId::SmartPlaylistEmpty) :
-            tr(lyra::i18n::StringId::PlaylistEmptyAdd), kTextMuted);
+        render_playlist_tracks(list, smart_detail, selected);
     }
 }
 

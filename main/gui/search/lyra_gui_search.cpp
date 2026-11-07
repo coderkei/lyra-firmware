@@ -66,90 +66,243 @@ const char *keyboard_name(KeyboardLayout layout)
     return tr(lyra::i18n::StringId::KeyboardEnglish);
 }
 
-lv_timer_t *s_live_search_timer = nullptr;
-constexpr uint32_t kLiveSearchDelayMs = 650;
+// ---- Text cursor ---------------------------------------------------------------
+// Every text buffer stays complete outside an edit. Edits happen at the
+// cursor: the text after it is set aside, the input method works on the part
+// before it exactly as if typing at the end, and the rest is put back. The
+// input method's composition (preedit) is shown at the cursor.
 
-// Search as you type: once typing pauses, run the background search for the
-// committed text. Results refresh in place, so the keyboard stays put.
-void live_search_cb(lv_timer_t *)
+constexpr size_t kMaxCursorTail = lyra::media::kMaxPath * 2;
+size_t s_text_cursor = SIZE_MAX;  // Byte offset; SIZE_MAX means the end.
+View s_text_cursor_view = View::Menu;
+bool s_text_cursor_view_valid = false;
+// One buffer for every edit; edits only run on the GUI thread.
+char s_cursor_tail[kMaxCursorTail];
+
+bool utf8_continuation(char byte)
 {
-    s_live_search_timer = nullptr; // One-shot timers delete themselves.
-    if (s_view != View::Search || !s_search_query[0]) return;
-    if (std::strcmp(s_search_query, s_submitted_search_query) == 0 &&
-        s_search_category == s_submitted_search_category) return;
-    if (lyra::media::search_status().running) {
-        // Retry after the current search; start_search() rejects overlaps.
-        s_live_search_timer = lv_timer_create(live_search_cb, kLiveSearchDelayMs, nullptr);
-        if (s_live_search_timer) lv_timer_set_repeat_count(s_live_search_timer, 1);
-        return;
-    }
-    if (lyra::media::start_search(s_search_category, s_search_query) != ESP_OK) return;
-    copy_ui_text(s_submitted_search_query, sizeof(s_submitted_search_query), s_search_query);
-    s_submitted_search_category = s_search_category;
-    s_search_error[0] = '\0';
-    s_list_page = 0;
-    populate_search_results();
+    return (static_cast<unsigned char>(byte) & 0xC0U) == 0x80U;
 }
 
-void schedule_live_search()
+size_t utf8_length(const char *text, size_t bytes)
 {
-    if (s_view != View::Search) return;
-    if (s_live_search_timer) {
-        lv_timer_reset(s_live_search_timer);
+    size_t count = 0;
+    for (size_t i = 0; i < bytes && text[i]; ++i) {
+        if (!utf8_continuation(text[i])) ++count;
+    }
+    return count;
+}
+
+// The cursor clamped to the text and moved back onto a character boundary.
+size_t text_cursor(const char *text)
+{
+    const size_t length = std::strlen(text);
+    size_t cursor = std::min(s_text_cursor, length);
+    while (cursor > 0 && cursor < length && utf8_continuation(text[cursor])) --cursor;
+    return cursor;
+}
+
+template <typename Edit>
+void edit_at_cursor(Edit edit)
+{
+    char *text = keyboard_input_text();
+    const size_t capacity = keyboard_input_capacity();
+    const size_t length = std::strlen(text);
+    const size_t cursor = text_cursor(text);
+    const size_t tail_length = length - cursor;
+    if (tail_length == 0 || tail_length >= kMaxCursorTail || tail_length + 1 >= capacity) {
+        edit(text, capacity);
+        s_text_cursor = SIZE_MAX;
         return;
     }
-    s_live_search_timer = lv_timer_create(live_search_cb, kLiveSearchDelayMs, nullptr);
-    if (s_live_search_timer) lv_timer_set_repeat_count(s_live_search_timer, 1);
+    std::memcpy(s_cursor_tail, text + cursor, tail_length + 1);
+    text[cursor] = '\0';
+    // The reduced capacity keeps room for the tail after the edited head.
+    edit(text, capacity - tail_length);
+    const size_t head_length = std::strlen(text);
+    std::memcpy(text + head_length, s_cursor_tail, tail_length + 1);
+    s_text_cursor = head_length;
+}
+
+void reset_text_cursor_for_view()
+{
+    if (s_text_cursor_view_valid && s_text_cursor_view == s_view) return;
+    s_text_cursor_view = s_view;
+    s_text_cursor_view_valid = true;
+    s_text_cursor = SIZE_MAX;
+}
+
+// ---- Text field --------------------------------------------------------------
+// A clipping strip holds the text and a caret. The text scrolls sideways so
+// the caret always stays inside the strip.
+
+constexpr uint32_t kCaretBlinkMs = 530;
+constexpr int kCaretWidth = 2;
+lv_obj_t *s_text_field = nullptr;
+lv_obj_t *s_text_caret = nullptr;
+lv_timer_t *s_caret_timer = nullptr;
+int s_text_scroll = 0;
+
+bool caret_wanted()
+{
+    return s_view != View::Search || s_search_keyboard_visible;
+}
+
+void caret_blink_cb(lv_timer_t *)
+{
+    if (!s_text_caret) return;
+    if (!caret_wanted()) {
+        lv_obj_add_flag(s_text_caret, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    if (lv_obj_has_flag(s_text_caret, LV_OBJ_FLAG_HIDDEN)) {
+        lv_obj_remove_flag(s_text_caret, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_text_caret, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void text_field_deleted_cb(lv_event_t *event)
+{
+    // A replaced field must not stop the caret of its successor.
+    if (lv_event_get_current_target_obj(event) != s_text_field) return;
+    if (s_caret_timer) lv_timer_delete(s_caret_timer);
+    s_caret_timer = nullptr;
+    s_text_field = nullptr;
+    s_text_caret = nullptr;
+}
+
+// Places the caret after caret_chars characters of the label's text.
+void place_caret(size_t caret_chars)
+{
+    if (!s_text_field || !s_text_caret || !s_search_label) return;
+    lv_obj_update_layout(s_search_label);
+    lv_point_t position{};
+    const size_t letters = utf8_length(lv_label_get_text(s_search_label), SIZE_MAX);
+    if (caret_chars >= letters) {
+        position.x = lv_obj_get_width(s_search_label);
+    } else {
+        lv_label_get_letter_pos(s_search_label, static_cast<uint32_t>(caret_chars), &position);
+    }
+    const int field_width = lv_obj_get_width(s_text_field);
+    const int caret_x = position.x;
+    if (caret_x - s_text_scroll > field_width - kCaretWidth) {
+        s_text_scroll = caret_x - field_width + kCaretWidth;
+    } else if (caret_x < s_text_scroll) {
+        s_text_scroll = caret_x;
+    }
+    if (s_text_scroll < 0) s_text_scroll = 0;
+    lv_obj_set_x(s_search_label, -s_text_scroll);
+    lv_obj_set_x(s_text_caret, caret_x - s_text_scroll);
+    // Typing shows the caret solidly; the blink restarts from here.
+    if (caret_wanted()) lv_obj_remove_flag(s_text_caret, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(s_text_caret, LV_OBJ_FLAG_HIDDEN);
+    if (s_caret_timer) lv_timer_reset(s_caret_timer);
+}
+
+void append_masked(char *display, size_t capacity, size_t *position, const char *value,
+                   size_t bytes)
+{
+    for (size_t i = 0; i < bytes && value[i]; ++i) {
+        if (utf8_continuation(value[i])) continue;
+        if (*position + 4 > capacity) break;
+        display[(*position)++] = '\xE2';
+        display[(*position)++] = '\x80';
+        display[(*position)++] = '\xA2';
+    }
+    display[*position] = '\0';
+}
+
+void append_text(char *display, size_t capacity, size_t *position, const char *value,
+                 size_t bytes)
+{
+    const size_t room = capacity - 1 - *position;
+    size_t length = std::min(bytes, room);
+    // Never split a character at the end of the display buffer.
+    while (length > 0 && length < bytes && utf8_continuation(value[length])) --length;
+    std::memcpy(display + *position, value, length);
+    *position += length;
+    display[*position] = '\0';
 }
 
 void update_keyboard_display()
 {
-    schedule_live_search();
     if (!s_search_label) return;
     const char *text = keyboard_input_text();
-    if (!text[0] && !lyra::gui::ime::preedit()[0]) {
+    const char *preedit = lyra::gui::ime::preedit();
+    if (!text[0] && !preedit[0]) {
         update_search_label();
         return;
     }
-    char display[lyra::media::kMaxPath];
-    if (s_view == View::WifiPassword && !wifi_password_is_visible()) {
-        const char *preedit = lyra::gui::ime::preedit();
-        const size_t capacity = sizeof(display);
-        size_t position = 0;
-        const auto append_mask = [&display, capacity, &position](const char *value) {
-            if (!value) return;
-            for (const unsigned char *cursor =
-                     reinterpret_cast<const unsigned char *>(value); *cursor; ++cursor) {
-                if ((*cursor & 0xC0U) == 0x80U) continue;
-                if (position + 3 >= capacity) break;
-                display[position++] = '\xE2';
-                display[position++] = '\x80';
-                display[position++] = '\xA2';
-            }
-        };
-        append_mask(text);
-        append_mask(preedit);
-        display[position] = '\0';
-        lv_label_set_text(s_search_label, display);
-        lv_obj_set_style_text_color(s_search_label, kTextPrimary, 0);
-        return;
-    }
-    const size_t capacity = sizeof(display);
-    const size_t length = std::min(std::strlen(text), capacity - 1);
-    std::memcpy(display, text, length);
-    display[length] = '\0';
-    const char *preedit = lyra::gui::ime::preedit();
-    const size_t preedit_length = std::strlen(preedit);
-    if (length + preedit_length < capacity) {
-        std::memcpy(display + length, preedit, preedit_length + 1);
-    } else {
-        display[capacity - 1] = '\0';
+    const size_t cursor = text_cursor(text);
+    const size_t length = std::strlen(text);
+    const bool masked = s_view == View::WifiPassword && !wifi_password_is_visible();
+    char display[lyra::media::kMaxPath * 3];
+    size_t position = 0;
+    display[0] = '\0';
+    const auto append = masked ? append_masked : append_text;
+    append(display, sizeof(display), &position, text, cursor);
+    append(display, sizeof(display), &position, preedit, std::strlen(preedit));
+    append(display, sizeof(display), &position, text + cursor, length - cursor);
+    if (s_text_field) {
+        lv_label_set_long_mode(s_search_label, LV_LABEL_LONG_MODE_CLIP);
+        lv_obj_set_width(s_search_label, LV_SIZE_CONTENT);
     }
     lv_label_set_text(s_search_label, display);
     lv_obj_set_style_text_color(s_search_label, kTextPrimary, 0);
+    place_caret(utf8_length(text, cursor) + utf8_length(preedit, std::strlen(preedit)));
+}
+
+// Moves the cursor one character; the composition is committed first.
+void move_text_cursor(int direction)
+{
+    if (lyra::gui::ime::preedit()[0]) {
+        edit_at_cursor([](char *head, size_t capacity) {
+            lyra::gui::ime::commit(ime_layout(), head, capacity);
+        });
+    }
+    const char *text = keyboard_input_text();
+    const size_t length = std::strlen(text);
+    size_t cursor = text_cursor(text);
+    if (direction < 0 && cursor > 0) {
+        --cursor;
+        while (cursor > 0 && utf8_continuation(text[cursor])) --cursor;
+    } else if (direction > 0 && cursor < length) {
+        ++cursor;
+        while (cursor < length && utf8_continuation(text[cursor])) ++cursor;
+    }
+    s_text_cursor = cursor;
+    update_keyboard_display();
 }
 
 } // namespace
+
+lv_obj_t *make_text_field(lv_obj_t *input, int x, int width)
+{
+    reset_text_cursor_for_view();
+    if (s_caret_timer) lv_timer_delete(s_caret_timer);
+    s_caret_timer = nullptr;
+    s_text_scroll = 0;
+    lv_obj_update_layout(input);
+    const int height = lv_obj_get_height(input) > 0 ? lv_obj_get_height(input) : 43;
+    s_text_field = lv_obj_create(input);
+    lv_obj_remove_style_all(s_text_field);
+    lv_obj_remove_flag(s_text_field, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(s_text_field, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_pos(s_text_field, x, 0);
+    lv_obj_set_size(s_text_field, width, height);
+    lv_obj_add_event_cb(s_text_field, text_field_deleted_cb, LV_EVENT_DELETE, nullptr);
+    lv_obj_t *label = make_label(s_text_field, "", kTextMuted);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_CLIP);
+    lv_obj_set_width(label, LV_SIZE_CONTENT);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, 0, 0);
+    const int line_height = lv_font_get_line_height(lv_obj_get_style_text_font(label, LV_PART_MAIN));
+    s_text_caret = make_box(s_text_field, 0, (height - line_height) / 2, kCaretWidth,
+                            line_height, kAccent, 1);
+    lv_obj_remove_flag(s_text_caret, LV_OBJ_FLAG_CLICKABLE);
+    s_caret_timer = lv_timer_create(caret_blink_cb, kCaretBlinkMs, nullptr);
+    return label;
+}
 
 void update_search_label()
 {
@@ -171,8 +324,15 @@ void update_search_label()
         file_name ? tr(lyra::i18n::StringId::FileNamePlaceholder) :
         creating ? tr(lyra::i18n::StringId::PlaylistNamePlaceholder) :
                    tr(lyra::i18n::StringId::SearchMusicPlaceholder);
-    lv_label_set_text(s_search_label, text[0] == '\0' ? placeholder : text);
-    lv_obj_set_style_text_color(s_search_label, text[0] == '\0' ? kTextMuted : kTextPrimary, 0);
+    if (s_text_field) {
+        lv_label_set_long_mode(s_search_label, LV_LABEL_LONG_MODE_DOTS);
+        lv_obj_set_width(s_search_label, lv_obj_get_width(s_text_field) - kCaretWidth * 2);
+    }
+    lv_label_set_text(s_search_label, placeholder);
+    lv_obj_set_style_text_color(s_search_label, kTextMuted, 0);
+    s_text_cursor = SIZE_MAX;
+    // The caret sits before the placeholder.
+    place_caret(0);
 }
 
 const char *search_category_name(lyra::media::SearchCategory category)
@@ -197,10 +357,149 @@ const char *search_empty_message(lyra::media::SearchCategory category)
     return tr(lyra::i18n::StringId::NoMatches);
 }
 
+namespace {
+
+// ---- Scrolling results ------------------------------------------------------
+// Fetchers run on the list's prefetch task and read the finished result set.
+
+bool search_result_at(size_t position, lyra::media::SearchResult *result)
+{
+    return lyra::media::search_results(position, result, 1) == 1;
+}
+
+bool fetch_search_song(size_t position, VirtualRow *row)
+{
+    lyra::media::SearchResult result{};
+    lyra::media::TrackSummary summary{};
+    if (!search_result_at(position, &result) ||
+        !lyra::media::track_summary_at(result.track_index, &summary)) return false;
+    row->payload = result.track_index;
+    copy_ui_text(row->title, sizeof(row->title), summary.title);
+    copy_ui_text(row->subtitle, sizeof(row->subtitle), summary.artist);
+    return true;
+}
+
+bool fetch_search_playlist_song(size_t position, VirtualRow *row)
+{
+    lyra::media::SearchResult result{};
+    lyra::media::TrackSummary summary{};
+    lyra::media::Playlist playlist{};
+    if (!search_result_at(position, &result) ||
+        !lyra::media::track_summary_at(result.track_index, &summary) ||
+        !lyra::media::playlist_at(result.playlist_index, &playlist)) return false;
+    row->payload = search_playlist_payload(result.track_index, result.playlist_index);
+    copy_ui_text(row->title, sizeof(row->title), summary.title);
+    copy_ui_text(row->subtitle, sizeof(row->subtitle), playlist.name);
+    return true;
+}
+
+bool fetch_search_group(size_t position, VirtualRow *row)
+{
+    const lyra::media::GroupKind kind = s_search_category == lyra::media::SearchCategory::Albums ?
+        lyra::media::GroupKind::Album : lyra::media::GroupKind::Artist;
+    lyra::media::SearchResult result{};
+    lyra::media::Group group{};
+    if (!search_result_at(position, &result) ||
+        !lyra::media::group_at(kind, result.group_index, &group)) return false;
+    row->payload = result.group_index;
+    copy_ui_text(row->title, sizeof(row->title), group.name);
+    format_count(lyra::i18n::StringId::SongCount, static_cast<uint32_t>(group.track_count),
+                 row->subtitle, sizeof(row->subtitle));
+    return true;
+}
+
+size_t search_row_payload(lv_obj_t *row)
+{
+    return reinterpret_cast<uintptr_t>(lv_obj_get_user_data(row));
+}
+
+void bind_search_thumbnail(lv_obj_t *art, size_t payload)
+{
+    if (s_search_category == lyra::media::SearchCategory::Albums) {
+        bind_row_thumbnail(art, lyra::media::ThumbnailSource::Album, payload);
+    } else {
+        bind_row_thumbnail(art, lyra::media::ThumbnailSource::Track,
+                           payload % lyra::media::kMaxTracks);
+    }
+}
+
+void refresh_search_thumbnail(VirtualRowWidgets &widgets)
+{
+    bind_search_thumbnail(widgets.art, search_row_payload(widgets.button));
+}
+
+void request_search_thumbnails(const size_t *payloads, size_t count)
+{
+    if (s_search_category == lyra::media::SearchCategory::Albums) {
+        request_row_thumbnails(lyra::media::ThumbnailSource::Album, payloads, count);
+        return;
+    }
+    size_t tracks[32];
+    count = std::min(count, sizeof(tracks) / sizeof(tracks[0]));
+    for (size_t i = 0; i < count; ++i) tracks[i] = payloads[i] % lyra::media::kMaxTracks;
+    request_row_thumbnails(lyra::media::ThumbnailSource::Track, tracks, count);
+}
+
+// Albums, artists and playlist songs. Songs use the shared track rows.
+void build_search_entry(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t,
+                        const VirtualRow &data, int width)
+{
+    if (widgets.button) {
+        rebind_virtual_row(widgets, data);
+        bind_search_thumbnail(widgets.art, data.payload);
+        return;
+    }
+    const bool album = s_search_category == lyra::media::SearchCategory::Albums;
+    const bool artist = s_search_category == lyra::media::SearchCategory::Artists;
+    const bool queue_button = album && s_queue_add_mode;
+    lv_obj_t *row = make_button(slot, 7, 0, width, 54, kSurface, 5, true);
+    lv_obj_t *art = s_list_artwork && !artist ?
+        make_row_thumbnail(row, kRowThumbnailInset, (54 - kRowThumbnailSize) / 2) : nullptr;
+    const int text_x = art ? kRowThumbnailTextX : 12;
+    const int trailing = queue_button ? 58 : (album || artist) ? 34 : 12;
+    lv_obj_t *title = make_label(row, data.title, kTextPrimary);
+    make_marquee(title, width - text_x - trailing);
+    lv_obj_align(title, LV_ALIGN_LEFT_MID, text_x, -9);
+    lv_obj_t *sub = make_label(row, data.subtitle, kTextSecondary);
+    make_marquee(sub, width - text_x - trailing);
+    lv_obj_align(sub, LV_ALIGN_LEFT_MID, text_x, 11);
+    widgets = {row, title, sub, false};
+    widgets.art = art;
+    lv_obj_set_user_data(row, reinterpret_cast<void *>(data.payload));
+    bind_search_thumbnail(art, data.payload);
+    if ((album || artist) && !queue_button) {
+        lv_obj_t *chevron = make_label(row, LV_SYMBOL_RIGHT, kTextMuted);
+        lv_obj_align(chevron, LV_ALIGN_RIGHT_MID, -12, 0);
+    }
+    lv_obj_add_event_cb(row, [](lv_event_t *event) {
+        const size_t payload = search_row_payload(lv_event_get_current_target_obj(event));
+        switch (s_search_category) {
+            case lyra::media::SearchCategory::Albums: open_search_album_result(payload); break;
+            case lyra::media::SearchCategory::Artists: open_search_artist_result(payload); break;
+            case lyra::media::SearchCategory::Playlists: play_search_playlist_result(payload); break;
+            case lyra::media::SearchCategory::Songs: break;
+        }
+    }, LV_EVENT_CLICKED, nullptr);
+    if (queue_button) {
+        lv_obj_t *button = make_button(row, width - 46, 9, 34, 36, kAccentDark, 5);
+        lv_obj_t *icon = make_label(button, LV_SYMBOL_PLUS, kTextOnAccent);
+        lv_obj_center(icon);
+        lv_obj_add_event_cb(button, [](lv_event_t *event) {
+            lv_event_stop_bubbling(event);
+            show_queue_add_picker_for_album(search_row_payload(
+                static_cast<lv_obj_t *>(lv_event_get_user_data(event))));
+        }, LV_EVENT_CLICKED, row);
+    }
+}
+
+} // namespace
+
 void populate_search_results()
 {
     if (!s_search_results) return;
+    destroy_virtual_list(s_search_results);
     lv_obj_clean(s_search_results);
+    s_search_progress_label = nullptr;
     if (!s_search_query[0]) {
         make_label(s_search_results, tr(lyra::i18n::StringId::TypeSearchThenTap), kTextMuted);
         return;
@@ -233,57 +532,43 @@ void populate_search_results()
         make_label(s_search_results, prompt, kTextMuted);
         return;
     }
-    const size_t page_size = search_page_size();
-    lyra::media::SearchResult results[kSearchPageCapacity]{};
     size_t total = 0;
-    size_t count = lyra::media::search_results(s_list_page * page_size, results, page_size, &total);
-    const size_t pages = (total + page_size - 1) / page_size;
-    if (pages && s_list_page >= pages) {
-        s_list_page = pages - 1;
-        count = lyra::media::search_results(s_list_page * page_size, results, page_size, &total);
+    lyra::media::SearchResult first{};
+    lyra::media::search_results(0, &first, 1, &total);
+    if (total == 0) {
+        make_label(s_search_results, search_empty_message(s_search_category), kTextMuted);
+        return;
     }
-    for (size_t i = 0; i < count; ++i) {
-        const int y = static_cast<int>(i) * 58;
-        const lyra::media::SearchResult &result = results[i];
-        if (s_search_category == lyra::media::SearchCategory::Songs) {
-            make_song_row(s_search_results, y, result.track_index, 54, true);
-        } else if (s_search_category == lyra::media::SearchCategory::Playlists) {
-            make_search_playlist_row(s_search_results, y, result);
-        } else {
-            const lyra::media::GroupKind kind =
-                s_search_category == lyra::media::SearchCategory::Albums ?
-                lyra::media::GroupKind::Album : lyra::media::GroupKind::Artist;
-            lyra::media::Group group{};
-            if (!lyra::media::group_at(kind, result.group_index, &group)) continue;
-            char subtitle[32];
-            format_count(lyra::i18n::StringId::SongCount,
-                         static_cast<uint32_t>(group.track_count), subtitle, sizeof(subtitle));
-            const View target = kind == lyra::media::GroupKind::Album ?
-                                View::AlbumDetail : View::TrackList;
-            lv_obj_t *row = make_row(s_search_results, y, nullptr, group.name,
-                                     subtitle, target, 54);
-            lv_obj_remove_event_cb(row, route_cb);
-            lv_obj_add_event_cb(row,
-                kind == lyra::media::GroupKind::Album ? search_album_result_cb : search_artist_result_cb,
-                LV_EVENT_CLICKED, reinterpret_cast<void *>(result.group_index));
-            if (kind == lyra::media::GroupKind::Album) {
-                if (s_queue_add_mode) {
-                    lv_obj_t *queue_button = make_button(row, 270, 12, 24, 30,
-                                                          kAccentDark, 5);
-                    lv_obj_t *queue_icon = make_label(queue_button, LV_SYMBOL_PLUS,
-                                                      kTextOnAccent);
-                    lv_obj_center(queue_icon);
-                    lv_obj_add_event_cb(queue_button, [](lv_event_t *event) {
-                        lv_event_stop_bubbling(event);
-                        show_queue_add_picker_for_album(reinterpret_cast<uintptr_t>(
-                            lv_event_get_user_data(event)));
-                    }, LV_EVENT_CLICKED, reinterpret_cast<void *>(result.group_index));
-                }
-            }
-        }
+    VirtualListSpec spec{};
+    spec.count = total;
+    spec.top = 0;
+    spec.pitch = 58;
+    spec.row_height = 54;
+    // Hiding the keyboard grows the results without a re-render.
+    spec.max_viewport = content_height(kStatusHeight) - 84;
+    switch (s_search_category) {
+        case lyra::media::SearchCategory::Songs:
+            s_track_row_mode = TrackRowMode::Single;
+            spec.fetch = fetch_search_song;
+            spec.build = build_track_row;
+            enable_row_thumbnails(spec, request_track_row_thumbnails, refresh_track_row_thumbnail);
+            break;
+        case lyra::media::SearchCategory::Playlists:
+            spec.fetch = fetch_search_playlist_song;
+            spec.build = build_search_entry;
+            enable_row_thumbnails(spec, request_search_thumbnails, refresh_search_thumbnail);
+            break;
+        case lyra::media::SearchCategory::Albums:
+            spec.fetch = fetch_search_group;
+            spec.build = build_search_entry;
+            enable_row_thumbnails(spec, request_search_thumbnails, refresh_search_thumbnail);
+            break;
+        case lyra::media::SearchCategory::Artists:
+            spec.fetch = fetch_search_group;
+            spec.build = build_search_entry;
+            break;
     }
-    make_page_controls(s_search_results, static_cast<int>(count) * 58 + 4, total, page_size);
-    if (count == 0) make_label(s_search_results, search_empty_message(s_search_category), kTextMuted);
+    make_virtual_list(s_search_results, spec);
 }
 
 void search_category_cb(lv_event_t *event)
@@ -471,12 +756,57 @@ void make_keyboard_shift_key(lv_obj_t *parent, int x, int y, int width, int heig
     update_keyboard_shift_display();
 }
 
+struct SpaceSwipe {
+    int32_t start_x = 0;
+    int32_t steps = 0;
+    bool moved = false;
+};
+SpaceSwipe s_space_swipe;
+constexpr int32_t kSpaceSwipeStep = 14;
+
+bool space_swipe_moved()
+{
+    const bool moved = s_space_swipe.moved;
+    s_space_swipe.moved = false;
+    return moved;
+}
+
+void space_swipe_cb(lv_event_t *event)
+{
+    lv_indev_t *indev = lv_indev_active();
+    if (!indev) return;
+    lv_point_t point{};
+    lv_indev_get_point(indev, &point);
+    if (lv_event_get_code(event) == LV_EVENT_PRESSED) {
+        s_space_swipe = {point.x, 0, false};
+        return;
+    }
+    const int32_t steps = (point.x - s_space_swipe.start_x) / kSpaceSwipeStep;
+    while (s_space_swipe.steps < steps) {
+        move_text_cursor(1);
+        ++s_space_swipe.steps;
+        s_space_swipe.moved = true;
+    }
+    while (s_space_swipe.steps > steps) {
+        move_text_cursor(-1);
+        --s_space_swipe.steps;
+        s_space_swipe.moved = true;
+    }
+}
+
 void make_keyboard_command_key(lv_obj_t *parent, int x, int y, int width, int height,
                                const char *label_text, KeyboardCommand command)
 {
     lv_obj_t *key = make_button(parent, x, y, width, height, kSurfaceRaised, 5);
     lv_obj_t *label = make_label(key, label_text, kTextPrimary);
     lv_obj_center(label);
+    if (command == KeyboardCommand::Space) {
+        // Keep the press while the finger slides off the key.
+        lv_obj_add_flag(key, LV_OBJ_FLAG_PRESS_LOCK);
+        lv_obj_remove_flag(key, LV_OBJ_FLAG_GESTURE_BUBBLE);
+        lv_obj_add_event_cb(key, space_swipe_cb, LV_EVENT_PRESSED, nullptr);
+        lv_obj_add_event_cb(key, space_swipe_cb, LV_EVENT_PRESSING, nullptr);
+    }
     lv_obj_add_event_cb(key, keyboard_action_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(command)));
 }
@@ -936,7 +1266,9 @@ void keyboard_text_cb(lv_event_t *event)
                                    s_keyboard_shift != KeyboardShift::Off;
     }
     const char *key = context->pressed_shifted ? context->upper : context->lower;
-    lyra::gui::ime::process_key(ime_layout(), key, keyboard_input_text(), keyboard_input_capacity());
+    edit_at_cursor([key](char *head, size_t capacity) {
+        lyra::gui::ime::process_key(ime_layout(), key, head, capacity);
+    });
     if (code == LV_EVENT_PRESSED && context->pressed_shifted &&
         s_keyboard_shift == KeyboardShift::OneShot) {
         s_keyboard_shift = KeyboardShift::Off;
@@ -953,8 +1285,9 @@ void t9_key_cb(lv_event_t *event)
     const char key = static_cast<char>(
         reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
     const bool upper = s_keyboard_shift != KeyboardShift::Off;
-    lyra::gui::ime::process_t9_key(ime_layout(), key, upper, keyboard_input_text(),
-                                   keyboard_input_capacity());
+    edit_at_cursor([key, upper](char *head, size_t capacity) {
+        lyra::gui::ime::process_t9_key(ime_layout(), key, upper, head, capacity);
+    });
     // Only the letter keys consume a one-shot shift.
     if (key >= '2' && key <= '9' && s_keyboard_shift == KeyboardShift::OneShot) {
         s_keyboard_shift = KeyboardShift::Off;
@@ -1041,8 +1374,6 @@ void keyboard_action_cb(lv_event_t *event)
 {
     const auto command = static_cast<KeyboardCommand>(
         reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-    char *text = keyboard_input_text();
-    const size_t capacity = keyboard_input_capacity();
     switch (command) {
         case KeyboardCommand::Shift:
             toggle_keyboard_shift();
@@ -1070,10 +1401,16 @@ void keyboard_action_cb(lv_event_t *event)
             render(s_view);
             return;
         case KeyboardCommand::Backspace:
-            lyra::gui::ime::backspace(ime_layout(), text, capacity);
+            edit_at_cursor([](char *head, size_t head_capacity) {
+                lyra::gui::ime::backspace(ime_layout(), head, head_capacity);
+            });
             break;
         case KeyboardCommand::Space:
-            lyra::gui::ime::space(ime_layout(), text, capacity);
+            // A swipe along the space bar moved the cursor instead.
+            if (space_swipe_moved()) return;
+            edit_at_cursor([](char *head, size_t head_capacity) {
+                lyra::gui::ime::space(ime_layout(), head, head_capacity);
+            });
             break;
         case KeyboardCommand::Submit:
             commit_keyboard_preedit();
@@ -1124,9 +1461,13 @@ void keyboard_action_cb(lv_event_t *event)
             }
             s_list_page = 0;
             s_search_error[0] = '\0';
+            if (!s_search_query[0]) return;
             if (lyra::media::start_search(s_search_category, s_search_query) == ESP_OK) {
                 copy_ui_text(s_submitted_search_query, sizeof(s_submitted_search_query), s_search_query);
                 s_submitted_search_category = s_search_category;
+                // Results get the whole screen; the toggle brings the keyboard back.
+                s_search_keyboard_visible = false;
+                s_keyboard_picker_visible = false;
             } else {
                 copy_ui_text(s_search_error, sizeof(s_search_error),
                              tr(lyra::i18n::StringId::SearchBusy));
@@ -1173,12 +1514,14 @@ void kana_flick_cb(lv_event_t *event)
         // In T9 mode a plain tap toggles through the row; flicks still work.
         const size_t key_index = static_cast<size_t>(context - s_kana_flick_keys);
         if (s_t9_input && variant == 0) {
-            lyra::gui::ime::process_t9_key(ime_layout(),
-                key_index == 9 ? '0' : static_cast<char>('1' + key_index), false,
-                keyboard_input_text(), keyboard_input_capacity());
+            const char key = key_index == 9 ? '0' : static_cast<char>('1' + key_index);
+            edit_at_cursor([key](char *head, size_t capacity) {
+                lyra::gui::ime::process_t9_key(ime_layout(), key, false, head, capacity);
+            });
         } else {
-            lyra::gui::ime::process_kana_flick(
-                ime_layout(), kana, keyboard_input_text(), keyboard_input_capacity());
+            edit_at_cursor([kana](char *head, size_t capacity) {
+                lyra::gui::ime::process_kana_flick(ime_layout(), kana, head, capacity);
+            });
         }
         update_keyboard_display();
         s_ime_candidate_page = 0;
@@ -1190,8 +1533,10 @@ void ime_candidate_cb(lv_event_t *event)
 {
     const uintptr_t encoded = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
     if (encoded == 0) return;
-    lyra::gui::ime::select_candidate(ime_layout(), static_cast<size_t>(encoded - 1),
-                                     keyboard_input_text(), keyboard_input_capacity());
+    edit_at_cursor([encoded](char *head, size_t capacity) {
+        lyra::gui::ime::select_candidate(ime_layout(), static_cast<size_t>(encoded - 1),
+                                         head, capacity);
+    });
     s_ime_candidate_page = 0;
     render(s_view);
 }
@@ -1232,8 +1577,9 @@ void kana_modifier_cb(lv_event_t *event)
         s_kana_modifier_just_changed = false;
         return;
     }
-    lyra::gui::ime::apply_kana_modifier(s_kana_modifier,
-        keyboard_input_text(), keyboard_input_capacity());
+    edit_at_cursor([](char *head, size_t capacity) {
+        lyra::gui::ime::apply_kana_modifier(s_kana_modifier, head, capacity);
+    });
     update_keyboard_display();
     s_ime_candidate_page = 0;
     refresh_ime_candidates();
@@ -1246,7 +1592,9 @@ void commit_keyboard_preedit()
     reset_keyboard_shift();
     if (s_view != View::Search && s_view != View::PlaylistCreate &&
         s_view != View::RadioAdd && s_view != View::FileNameInput) return;
-    lyra::gui::ime::commit(ime_layout(), keyboard_input_text(), keyboard_input_capacity());
+    edit_at_cursor([](char *head, size_t capacity) {
+        lyra::gui::ime::commit(ime_layout(), head, capacity);
+    });
     update_search_label();
 }
 
@@ -1283,6 +1631,7 @@ void toggle_search_keyboard_cb(lv_event_t *)
         lv_obj_set_height(s_search_results, content_height(kStatusHeight) - 84);
     }
     lv_obj_invalidate(s_search_results);
+    update_search_label();
 }
 
 void render_search()
@@ -1292,9 +1641,7 @@ void render_search()
     lv_obj_t *input = make_box(body, 9, 4, input_width, 43, kSurfaceRaised, 7);
     lv_obj_t *magnifier = make_icon(input, Icon::Search, kTextSecondary, 18);
     lv_obj_align(magnifier, LV_ALIGN_LEFT_MID, 10, 0);
-    s_search_label = make_label(input, "", kTextMuted);
-    make_marquee(s_search_label, input_width - 44, MarqueeMode::Continuous);
-    lv_obj_align(s_search_label, LV_ALIGN_LEFT_MID, 37, 0);
+    s_search_label = make_text_field(input, 37, input_width - 44);
     update_search_label();
     make_keyboard_selector(body, 183, 4, 36, 43, true);
     make_queue_add_mode_toggle(body, 223, 7);
@@ -1342,9 +1689,7 @@ void render_playlist_create()
                 tr(lyra::i18n::StringId::NewPlaylist), View::Playlists, true);
     lv_obj_t *body = make_box(s_screen, 0, 72, 320, content_height(72), kBackground);
     lv_obj_t *input = make_box(body, 9, 8, 240, 43, kSurfaceRaised, 7);
-    s_search_label = make_label(input, "", kTextMuted);
-    make_marquee(s_search_label, 214, MarqueeMode::Continuous);
-    lv_obj_align(s_search_label, LV_ALIGN_LEFT_MID, 12, 0);
+    s_search_label = make_text_field(input, 12, 214);
     update_search_label();
     make_keyboard_selector(body, 255, 8, 56, 43);
     const int keyboard_height = library_keyboard_height();
@@ -1360,9 +1705,7 @@ void render_file_name_input()
                 View::Folders, true);
     lv_obj_t *body = make_box(s_screen, 0, 72, 320, content_height(72), kBackground);
     lv_obj_t *input = make_box(body, 9, 8, 240, 43, kSurfaceRaised, 7);
-    s_search_label = make_label(input, "", kTextMuted);
-    make_marquee(s_search_label, 214, MarqueeMode::Continuous);
-    lv_obj_align(s_search_label, LV_ALIGN_LEFT_MID, 12, 0);
+    s_search_label = make_text_field(input, 12, 214);
     update_search_label();
     make_keyboard_selector(body, 255, 8, 56, 43);
     const int keyboard_height = library_keyboard_height();

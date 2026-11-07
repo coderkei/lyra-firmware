@@ -36,7 +36,7 @@ struct Track {
     // Reserved catalog fields kept for binary record compatibility. Artwork is
     // decoded on demand from the song and is never represented by SD paths.
     char artwork[80];
-    // Reserved; album-list thumbnails live in the packed SD thumbnail cache.
+    // Reserved; list thumbnails live in the packed SD thumbnail cache.
     char thumbnail[80];
     // Reserved; the display-sized RGB565 cover lives in the media RAM buffer.
     char player_art[80];
@@ -218,25 +218,32 @@ enum class ArtworkSize : uint8_t { Player };
 bool copy_artwork(const Track &track, uint16_t *pixels, size_t pixel_count);
 esp_err_t request_artwork(const Track &track, ArtworkSize size);
 
-// Album-list thumbnails. Each album's cover is decoded once at thumbnail size
-// (the JPEG decoder scales in the DCT, so large covers stay cheap) and kept in
-// a packed SD cache under the covers folder, so later visits cost one small
-// read. A PSRAM cache holds the most recently shown thumbnails. A low-priority
-// worker serves requests in the order given, never blocks the caller, and
-// yields to the player cover.
+// List thumbnails. Each cover is decoded once at thumbnail size (the JPEG
+// decoder scales in the DCT, so large covers stay cheap) and kept in a packed
+// SD cache under the covers folder, so later visits cost one small read.
+// Songs from the same album folder share one cached image. A PSRAM cache
+// holds the most recently shown thumbnails. A low-priority worker serves
+// requests in the order given, never blocks the caller, and yields to the
+// player cover.
 constexpr uint16_t kThumbnailSize = 48;
 constexpr size_t kThumbnailPixels = static_cast<size_t>(kThumbnailSize) * kThumbnailSize;
 enum class ThumbnailState : uint8_t { Pending, Ready, None };
+// Album: an album group index. Track: a track index as used by track_at().
+enum class ThumbnailSource : uint8_t { Album, Track };
+struct ThumbnailRequest {
+    ThumbnailSource source;
+    size_t index;
+};
 // Copies a ready thumbnail into pixels (kThumbnailPixels RGB565 values).
-// Pending means it has not been loaded yet; None means the album has no cover.
-ThumbnailState album_thumbnail(size_t album_group, uint16_t *pixels);
-// Replaces the set of wanted thumbnails, most important first. Groups refer to
-// the catalog generation current when the call is made.
-void request_album_thumbnails(const size_t *album_groups, size_t count);
+// Pending means it has not been loaded yet; None means there is no cover.
+ThumbnailState thumbnail(ThumbnailSource source, size_t index, uint16_t *pixels);
+// Replaces the set of wanted thumbnails, most important first. Indices refer
+// to the catalog generation current when the call is made.
+void request_thumbnails(const ThumbnailRequest *requests, size_t count);
 // Changes whenever a requested thumbnail becomes Ready or None. Lock-free.
 uint32_t thumbnail_generation();
 // Drops pending requests and the PSRAM thumbnail cache; the SD cache remains.
-void release_album_thumbnails();
+void release_thumbnails();
 
 enum class LyricsSource : uint8_t { None, Embedded, Lrc, Text };
 constexpr size_t kMaxLyricsBytes = 16u * 1024u;

@@ -246,6 +246,7 @@ extern bool s_dst_enabled;
 extern bool s_speaker_output_enabled;
 extern bool s_timer_alarm_enabled;
 extern bool s_t9_input;
+extern bool s_list_artwork;
 extern EqualizerPreset s_equalizer_preset;
 extern int16_t s_equalizer_custom_bands[lyra::audio::kEqualizerBandCount];
 extern uint16_t s_sleep_timer_minutes;
@@ -508,6 +509,10 @@ void show_queue_add_picker_for_folder(const char *folder_path);
 void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height = 54,
                    bool force_single = false, bool show_play_count = false);
 void add_search_playlist_route(lv_obj_t *row, size_t track_index, size_t playlist_index);
+uintptr_t search_playlist_payload(size_t track_index, size_t playlist_index);
+void play_search_playlist_result(uintptr_t payload);
+void open_search_album_result(size_t group_index);
+void open_search_artist_result(size_t group_index);
 void make_search_playlist_row(lv_obj_t *parent, int y, const lyra::media::SearchResult &result);
 void search_album_result_cb(lv_event_t *event);
 void search_artist_result_cb(lv_event_t *event);
@@ -554,6 +559,8 @@ struct VirtualRowWidgets {
 // Builds the widgets on first use and rebinds them to subsequent rows.
 using VirtualBuild = void (*)(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t position,
                               const VirtualRow &row, int width);
+using VirtualWindow = void (*)(const size_t *payloads, size_t count);
+using VirtualRefresh = void (*)(VirtualRowWidgets &widgets);
 struct VirtualListSpec {
     size_t count;
     int top;
@@ -568,12 +575,39 @@ struct VirtualListSpec {
     // screen, top to bottom, then of the rows just ahead of the scroll; it is
     // called whenever they change. When refresh_stamp() changes, refresh runs
     // for every shown row. release runs when the list goes away.
-    void (*window)(const size_t *payloads, size_t count) = nullptr;
+    VirtualWindow window = nullptr;
     uint32_t (*refresh_stamp)() = nullptr;
-    void (*refresh)(VirtualRowWidgets &widgets) = nullptr;
+    VirtualRefresh refresh = nullptr;
     void (*release)() = nullptr;
+    // Tallest the body can grow without a re-render (for example when a
+    // keyboard hides), so enough row slots exist. 0 uses the current height.
+    int max_viewport = 0;
 };
 void make_virtual_list(lv_obj_t *body, const VirtualListSpec &spec);
+// Stops the list on body before its rows are removed without deleting body.
+void destroy_virtual_list(lv_obj_t *body);
+// Row thumbnails (Settings > Display > Album art in lists). A row reserves
+// kRowThumbnailSize pixels at its left edge; text starts at
+// kRowThumbnailTextX. make_row_thumbnail returns the image to bind, or
+// nullptr if no memory was available (the placeholder still shows).
+constexpr int kRowThumbnailSize = lyra::media::kThumbnailSize;
+constexpr int kRowThumbnailInset = 6;
+constexpr int kRowThumbnailTextX = kRowThumbnailInset * 2 + kRowThumbnailSize;
+lv_obj_t *make_row_thumbnail(lv_obj_t *row, int x, int y);
+void bind_row_thumbnail(lv_obj_t *image, lyra::media::ThumbnailSource source, size_t index);
+void request_row_thumbnails(lyra::media::ThumbnailSource source, const size_t *indices,
+                            size_t count);
+// Installs the thumbnail hooks when the setting is on; otherwise does nothing.
+void enable_row_thumbnails(VirtualListSpec &spec, VirtualWindow window, VirtualRefresh refresh);
+// Scrolling track rows. Set s_track_row_mode before make_virtual_list():
+// Library plays in the current view's scope, Single plays only the tapped
+// song (search), PlaylistManage shows a remove button instead.
+enum class TrackRowMode : uint8_t { Library, Single, PlaylistManage };
+extern TrackRowMode s_track_row_mode;
+void build_track_row(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t position,
+                     const VirtualRow &data, int width);
+void refresh_track_row_thumbnail(VirtualRowWidgets &widgets);
+void request_track_row_thumbnails(const size_t *tracks, size_t count);
 void rebind_virtual_row(VirtualRowWidgets &widgets, const VirtualRow &row);
 int virtual_list_row_width();
 void render_page_jump();
@@ -746,6 +780,9 @@ void update_search_label();
 const char *search_category_name(lyra::media::SearchCategory category);
 const char *search_empty_message(lyra::media::SearchCategory category);
 void populate_search_results();
+// Builds a single-line text field with a blinking caret inside input and
+// returns its label, which becomes s_search_label.
+lv_obj_t *make_text_field(lv_obj_t *input, int x, int width);
 void search_category_cb(lv_event_t *event);
 void toggle_search_keyboard_cb(lv_event_t *);
 void keyboard_selector_cb(lv_event_t *);

@@ -421,6 +421,27 @@ void tick_cb(lv_timer_t *)
     }
 }
 
+void body_event_cb(lv_event_t *event);
+
+void stop_list(bool explicit_stop)
+{
+    if (explicit_stop) {
+        lv_obj_remove_event_cb(s_list.body, body_event_cb);
+        // The strip and bubble belong to the screen, not the body.
+        if (s_list.strip) lv_obj_delete(s_list.strip);
+        if (s_list.bubble) lv_obj_delete(s_list.bubble);
+    }
+    if (s_list.timer) lv_timer_delete(s_list.timer);
+    {
+        Lock lock;
+        ++s_generation;
+        s_request_fetch = nullptr;
+    }
+    heap_caps_free(s_list.letters);
+    if (s_list.spec.release) s_list.spec.release();
+    s_list = {};
+}
+
 void body_event_cb(lv_event_t *event)
 {
     switch (lv_event_get_code(event)) {
@@ -446,15 +467,8 @@ void body_event_cb(lv_event_t *event)
             s_list.drag_device = nullptr;
             break;
         case LV_EVENT_DELETE:
-            if (s_list.timer) lv_timer_delete(s_list.timer);
-            {
-                Lock lock;
-                ++s_generation;
-                s_request_fetch = nullptr;
-            }
-            heap_caps_free(s_list.letters);
-            if (s_list.spec.release) s_list.spec.release();
-            s_list = {};
+            // The screen is being cleared; it deletes the strip and bubble.
+            stop_list(false);
             break;
         default:
             break;
@@ -484,6 +498,11 @@ lv_obj_t *make_plain_object(lv_obj_t *parent)
 
 } // namespace
 
+void destroy_virtual_list(lv_obj_t *body)
+{
+    if (body && s_list.body == body) stop_list(true);
+}
+
 int virtual_list_row_width()
 {
     return s_list.width ? s_list.width : 306;
@@ -511,7 +530,7 @@ void make_virtual_list(lv_obj_t *body, const VirtualListSpec &spec)
     s_list.forward = true;
     s_list.window_hash = SIZE_MAX;
     if (spec.refresh_stamp) s_list.refresh_stamp = spec.refresh_stamp();
-    const int viewport = lv_obj_get_height(body);
+    const int viewport = std::max<int>(lv_obj_get_height(body), spec.max_viewport);
     s_list.slot_count = std::min<size_t>(kMaxSlots, static_cast<size_t>(viewport / spec.pitch) + 4);
 
     if (s_pending_list_position != SIZE_MAX && spec.count) {

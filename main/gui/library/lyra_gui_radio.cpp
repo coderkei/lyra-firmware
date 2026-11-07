@@ -259,9 +259,7 @@ void render_radio_add()
     lv_obj_t *body = make_box(s_screen, 0, 72, kScreenWidth,
                               content_height(72), kBackground);
     lv_obj_t *input = make_box(body, 8, 8, 240, 44, kSurfaceRaised, 7);
-    s_search_label = make_label(input, "", kTextMuted);
-    make_marquee(s_search_label, 214, MarqueeMode::Continuous);
-    lv_obj_align(s_search_label, LV_ALIGN_LEFT_MID, 12, 0);
+    s_search_label = make_text_field(input, 12, 214);
     update_search_label();
 
     lv_obj_t *keyboard_button = make_button(body, 255, 8, 56, 44,

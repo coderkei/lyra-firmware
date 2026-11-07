@@ -50,6 +50,8 @@ struct Values {
     bool timer_alarm_enabled = true;
     // Replaces the QWERTY-style keyboards with a 12-key T9 keypad where one exists.
     bool t9_input = false;
+    // Small album covers beside rows in the library, queue, playlists and search.
+    bool list_artwork = true;
 };
 
 // Loads only valid persisted values, leaving caller-provided defaults intact.
