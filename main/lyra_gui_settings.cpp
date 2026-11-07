@@ -29,6 +29,8 @@ constexpr const char *kListeningHubKey = "menu_hub";
 constexpr const char *kTimerAlarmKey = "timer_alarm";
 constexpr const char *kT9InputKey = "t9_input";
 constexpr const char *kListArtworkKey = "list_art";
+constexpr const char *kAutomaticTimeKey = "auto_time";
+constexpr const char *kUtcOffsetKey = "utc_offset";
 constexpr const char *kSpeakerOutputKey = "speaker_output";
 constexpr const char *kEqualizerPresetKey = "eq_preset";
 constexpr const char *kDateFormatKey = "date_format";
@@ -123,6 +125,14 @@ void load(Values *values, size_t accent_palette_count, uint8_t equalizer_preset_
     if (nvs_get_u8(handle, kListArtworkKey, &value) == ESP_OK && value <= 1) {
         values->list_artwork = value != 0;
     }
+    if (nvs_get_u8(handle, kAutomaticTimeKey, &value) == ESP_OK && value <= 1) {
+        values->automatic_time = value != 0;
+    }
+    int16_t offset = 0;
+    if (nvs_get_i16(handle, kUtcOffsetKey, &offset) == ESP_OK &&
+        offset >= kMinUtcOffsetMinutes && offset <= kMaxUtcOffsetMinutes && offset % 15 == 0) {
+        values->utc_offset_minutes = offset;
+    }
     if (nvs_get_u8(handle, kSpeakerOutputKey, &value) == ESP_OK && value <= 1) {
         values->speaker_output_enabled = value != 0;
     }
@@ -202,6 +212,9 @@ esp_err_t save(const Values &values)
     if (result == ESP_OK) result = nvs_set_u8(handle, kT9InputKey, values.t9_input ? 1 : 0);
     if (result == ESP_OK) result = nvs_set_u8(handle, kListArtworkKey,
                                                values.list_artwork ? 1 : 0);
+    if (result == ESP_OK) result = nvs_set_u8(handle, kAutomaticTimeKey,
+                                               values.automatic_time ? 1 : 0);
+    if (result == ESP_OK) result = nvs_set_i16(handle, kUtcOffsetKey, values.utc_offset_minutes);
     if (result == ESP_OK) result = nvs_commit(handle);
     nvs_close(handle);
     if (result != ESP_OK) {

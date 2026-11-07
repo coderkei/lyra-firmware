@@ -12,6 +12,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "lyra_board.h"
+#include "lyra_crash_log.h"
 #include "lyra_font.h"
 #include "lyra_png.h"
 
@@ -157,6 +158,14 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     // its gain work isolated from normal progress/UI refreshes.
     lv_timer_create(crossfade_poll_cb, 100, nullptr);
     lv_timer_create(catalog_poll_cb, 500, nullptr);
+    // Tell the user once that a crash report was saved, after the first screen.
+    lv_timer_t *crash_notice = lv_timer_create([](lv_timer_t *) {
+        if (lyra::crash_log::take_report_notice()) {
+            show_notice(tr(lyra::i18n::StringId::CrashReportTitle),
+                        tr(lyra::i18n::StringId::CrashReportSaved));
+        }
+    }, 1500, nullptr);
+    if (crash_notice) lv_timer_set_repeat_count(crash_notice, 1);
     ESP_LOGI(kTag, "Lyra GUI created with MicroSD-backed catalog and native multi-format playback");
     return ESP_OK;
 }

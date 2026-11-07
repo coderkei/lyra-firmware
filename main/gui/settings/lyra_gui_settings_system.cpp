@@ -5,6 +5,9 @@
 
 #include "../lyra_gui_internal.h"
 #include "lyra_board_pins.h"
+#include "esp_app_desc.h"
+#include "lyra_time_sync.h"
+#include "lyra_usb_transfer.h"
 
 namespace lyra::gui::internal {
 
@@ -119,6 +122,10 @@ void toggle_bool_cb(lv_event_t *event)
         save_user_settings();
         render(s_view);
         return;
+    }
+    if (value == &s_automatic_time) {
+        save_user_settings();
+        apply_time_sync_settings();
     }
     if (value == &s_list_artwork) {
         save_user_settings();
@@ -583,7 +590,57 @@ void clock_dst_cb(lv_event_t *)
     }
     s_dst_enabled = enabled;
     save_user_settings();
+    apply_time_sync_settings();
     render(View::ClockSettings);
+}
+
+void apply_time_sync_settings()
+{
+    lyra::time_sync::configure(s_automatic_time,
+                               s_utc_offset_minutes + (s_dst_enabled ? 60 : 0));
+    if (s_automatic_time && lyra::wifi::status().connected) lyra::time_sync::request();
+}
+
+void format_utc_offset(int16_t minutes, char *output, size_t capacity)
+{
+    const int magnitude = minutes < 0 ? -minutes : minutes;
+    char offset[16];
+    std::snprintf(offset, sizeof(offset), "%c%02d:%02d", minutes < 0 ? '-' : '+',
+                  magnitude / 60, magnitude % 60);
+    format_text(lyra::i18n::StringId::TimeZoneValue, offset, output, capacity);
+}
+
+void utc_offset_step_cb(lv_event_t *event)
+{
+    const int step = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)) ? 15 : -15;
+    const int next = std::clamp<int>(s_utc_offset_minutes + step,
+                                     lyra::gui_settings::kMinUtcOffsetMinutes,
+                                     lyra::gui_settings::kMaxUtcOffsetMinutes);
+    if (next == s_utc_offset_minutes) return;
+    s_utc_offset_minutes = static_cast<int16_t>(next);
+    save_user_settings();
+    apply_time_sync_settings();
+    render(View::ClockSettings);
+}
+
+void make_utc_offset_row(lv_obj_t *parent, int y)
+{
+    lv_obj_t *row = make_box(parent, 7, y, 306, 62, kSurface, 6, true);
+    lv_obj_t *title = make_label(row, tr(lyra::i18n::StringId::TimeZone), kTextPrimary);
+    make_marquee(title, 160);
+    lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -10);
+    char value[24];
+    format_utc_offset(s_utc_offset_minutes, value, sizeof(value));
+    lv_obj_t *value_label = make_label(row, value, kAccent);
+    lv_obj_align(value_label, LV_ALIGN_LEFT_MID, 12, 12);
+    for (uintptr_t increase = 0; increase < 2; ++increase) {
+        lv_obj_t *button = make_button(row, increase ? 254 : 200, 11, 40, 40, kSurfaceRaised, 6);
+        lv_obj_t *symbol = make_label(button, increase ? LV_SYMBOL_PLUS : LV_SYMBOL_MINUS,
+                                      kTextPrimary);
+        lv_obj_center(symbol);
+        lv_obj_add_event_cb(button, utc_offset_step_cb, LV_EVENT_CLICKED,
+                            reinterpret_cast<void *>(increase));
+    }
 }
 
 void clock_input_digit_cb(lv_event_t *event)
@@ -827,6 +884,9 @@ void render_clock_settings()
                              View::ClockSettings, 54);
     lv_obj_remove_event_cb(dst, route_cb);
     lv_obj_add_event_cb(dst, clock_dst_cb, LV_EVENT_CLICKED, nullptr);
+    make_setting_toggle(body, 354, tr(lyra::i18n::StringId::AutomaticTime),
+                        tr(lyra::i18n::StringId::AutomaticTimeDescription), &s_automatic_time);
+    make_utc_offset_row(body, 420);
 }
 
 void language_option_cb(lv_event_t *event)
@@ -1061,6 +1121,72 @@ void save_active_queue_snapshot(const lyra::audio::Status &audio_status)
     }
 }
 
+// ---- USB file transfer -------------------------------------------------------
+// The screen lives on the top layer so normal re-renders cannot cover it, and
+// it blocks every other touch: the computer owns the card until restart.
+
+void usb_transfer_screen_async_cb(void *data)
+{
+    const esp_err_t result = static_cast<esp_err_t>(reinterpret_cast<intptr_t>(data));
+    // A plain object, not make_box(): wallpaper themes make full-screen
+    // background boxes transparent, and nothing lies under the top layer.
+    lv_obj_t *overlay = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(overlay);
+    lv_obj_set_pos(overlay, 0, 0);
+    lv_obj_set_size(overlay, kScreenWidth, kScreenHeight);
+    lv_obj_set_style_bg_color(overlay, kBackground, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_remove_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *icon = make_icon(overlay, Icon::SdCard, result == ESP_OK ? kAccent : kDanger, 56);
+    lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 96);
+    char failed[96];
+    if (result != ESP_OK) {
+        format_text(lyra::i18n::StringId::UsbTransferFailed, esp_err_to_name(result),
+                    failed, sizeof(failed));
+    }
+    lv_obj_t *title = make_label(overlay, result == ESP_OK ?
+        tr(lyra::i18n::StringId::UsbTransferActiveTitle) : failed, kTextPrimary);
+    lv_obj_set_width(title, 280);
+    lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 176);
+    lv_obj_t *message = make_label(overlay, result == ESP_OK ?
+        tr(lyra::i18n::StringId::UsbTransferActiveMessage) :
+        tr(lyra::i18n::StringId::UsbTransferRestartMessage), kTextSecondary);
+    lv_obj_set_width(message, 280);
+    lv_label_set_long_mode(message, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align_to(message, title, LV_ALIGN_OUT_BOTTOM_MID, 0, 14);
+    lv_obj_t *finish = make_button(overlay, 30, kScreenHeight - 96, 260, 52, kAccentDark, 8);
+    lv_obj_t *finish_label = make_label(finish, result == ESP_OK ?
+        tr(lyra::i18n::StringId::UsbTransferFinish) : tr(lyra::i18n::StringId::Reboot),
+        kTextOnAccent);
+    make_marquee(finish_label, 240);
+    lv_obj_center(finish_label);
+    lv_obj_add_event_cb(finish, [](lv_event_t *) {
+        lyra_board_display_set_backlight(false);
+        lyra::usb_transfer::finish_and_restart();
+    }, LV_EVENT_CLICKED, nullptr);
+}
+
+// Safe from the power-action task: LVGL work is queued for the GUI thread.
+void post_usb_transfer_screen(esp_err_t result)
+{
+    lv_async_call(usb_transfer_screen_async_cb,
+                  reinterpret_cast<void *>(static_cast<intptr_t>(result)));
+}
+
+void usb_transfer_cb(lv_event_t *)
+{
+    if (!lyra::usb_transfer::available()) {
+        show_notice(tr(lyra::i18n::StringId::UsbTransfer),
+                    tr(lyra::i18n::StringId::UsbTransferUnavailable));
+        return;
+    }
+    show_power_confirmation(PowerAction::UsbTransfer);
+}
+
 // The shutdown sequence. It returns only when the action could not complete;
 // a successful reboot, power-off or factory reset never returns. It writes
 // NVS, so it must run on a task with an internal stack.
@@ -1076,6 +1202,7 @@ static void run_power_action(PowerAction action)
         ESP_LOGE(kTag, "could not stop audio before shutdown: %s",
                  esp_err_to_name(audio_result));
         if (factory_reset) post_factory_reset_failure(audio_result);
+        if (action == PowerAction::UsbTransfer) post_usb_transfer_screen(audio_result);
         // Do not write queue state or unmount while a decoder may still own
         // an open MicroSD file.
         return;
@@ -1097,8 +1224,15 @@ static void run_power_action(PowerAction action)
     if (media_result != ESP_OK) {
         ESP_LOGE(kTag, "safe shutdown failed: %s", esp_err_to_name(media_result));
         if (factory_reset) post_factory_reset_failure(media_result);
+        if (action == PowerAction::UsbTransfer) post_usb_transfer_screen(media_result);
         // Do not restart or sleep after an unmount failure: preserving the card
         // takes priority over completing the requested power action.
+        return;
+    }
+
+    if (action == PowerAction::UsbTransfer) {
+        // The card is unmounted and idle; hand it to the computer.
+        post_usb_transfer_screen(lyra::usb_transfer::start());
         return;
     }
 
@@ -1152,6 +1286,8 @@ void confirm_power_action_cb(lv_event_t *event)
         reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
     style_root();
     lv_obj_t *label = make_label(s_screen,
+                                 action == PowerAction::UsbTransfer ?
+                                 tr(lyra::i18n::StringId::UsbTransferConnecting) :
                                  action == PowerAction::Reboot ?
                                  tr(lyra::i18n::StringId::Rebooting) :
                                  action == PowerAction::FactoryReset ?
@@ -1191,7 +1327,9 @@ void show_power_confirmation(PowerAction action)
     lv_obj_set_style_bg_opa(overlay, LV_OPA_90, 0);
     lv_obj_move_foreground(overlay);
     lv_obj_t *dialog = make_box(overlay, 20, 132, 280, 216, kSurfaceRaised, 12);
-    lv_obj_t *title = make_label(dialog, action == PowerAction::Reboot ?
+    lv_obj_t *title = make_label(dialog, action == PowerAction::UsbTransfer ?
+                                 tr(lyra::i18n::StringId::UsbTransferQuestion) :
+                                 action == PowerAction::Reboot ?
                                  tr(lyra::i18n::StringId::RebootLyraQuestion) :
                                  action == PowerAction::FactoryReset ?
                                  tr(lyra::i18n::StringId::FactoryResetQuestion) :
@@ -1201,6 +1339,8 @@ void show_power_confirmation(PowerAction action)
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 22);
     lv_obj_t *message = make_label(dialog,
+                                   action == PowerAction::UsbTransfer ?
+                                       tr(lyra::i18n::StringId::UsbTransferMessage) :
                                    action == PowerAction::Reboot ?
                                        tr(lyra::i18n::StringId::RebootMessage) :
                                        action == PowerAction::FactoryReset ?
@@ -1217,9 +1357,12 @@ void show_power_confirmation(PowerAction action)
     lv_obj_center(cancel_label);
     lv_obj_add_event_cb(cancel, cancel_power_action_cb, LV_EVENT_CLICKED, overlay);
 
-    lv_obj_t *confirm = make_button(dialog, 150, 152, 116, 48,
-                                    action == PowerAction::Reboot ? kAccentDark : kDanger, 7);
-    lv_obj_t *confirm_label = make_label(confirm, action == PowerAction::Reboot ?
+    const bool calm = action == PowerAction::Reboot || action == PowerAction::UsbTransfer;
+    lv_obj_t *confirm = make_button(dialog, 150, 152, 116, 48, calm ? kAccentDark : kDanger, 7);
+    lv_obj_t *confirm_label = make_label(confirm,
+                                         action == PowerAction::UsbTransfer ?
+                                         tr(lyra::i18n::StringId::UsbTransferConnect) :
+                                         action == PowerAction::Reboot ?
                                          tr(lyra::i18n::StringId::Reboot) :
                                          action == PowerAction::FactoryReset ?
                                          tr(lyra::i18n::StringId::FactoryResetButton) :
@@ -1443,19 +1586,25 @@ void render_settings_page(View view)
                                     tr(lyra::i18n::StringId::AlbumArt240WhenDisabled),
                                     status.artwork_size == lyra::media::kLargeArtworkSize,
                                     ArtworkSetting::Size320);
-        lv_obj_t *reboot = make_row(body, 594, LV_SYMBOL_REFRESH,
+        lv_obj_t *usb = make_row(body, 594, Icon::SdCard,
+                                 tr(lyra::i18n::StringId::UsbTransfer),
+                                 tr(lyra::i18n::StringId::UsbTransferDescription),
+                                 View::SystemSettings, 62);
+        lv_obj_remove_event_cb(usb, route_cb);
+        lv_obj_add_event_cb(usb, usb_transfer_cb, LV_EVENT_CLICKED, nullptr);
+        lv_obj_t *reboot = make_row(body, 660, LV_SYMBOL_REFRESH,
                                     tr(lyra::i18n::StringId::Reboot),
                                     tr(lyra::i18n::StringId::SafelyRestartLyra),
                                     View::SystemSettings, 62);
         lv_obj_remove_event_cb(reboot, route_cb);
         lv_obj_add_event_cb(reboot, reboot_cb, LV_EVENT_CLICKED, nullptr);
-        lv_obj_t *power_off = make_row(body, 660, LV_SYMBOL_POWER,
+        lv_obj_t *power_off = make_row(body, 726, LV_SYMBOL_POWER,
                                        tr(lyra::i18n::StringId::PowerOff),
                                        tr(lyra::i18n::StringId::SafelyUnmountAndSleep),
                                        View::SystemSettings, 62);
         lv_obj_remove_event_cb(power_off, route_cb);
         lv_obj_add_event_cb(power_off, power_off_cb, LV_EVENT_CLICKED, nullptr);
-        lv_obj_t *factory_reset = make_row(body, 726, LV_SYMBOL_WARNING,
+        lv_obj_t *factory_reset = make_row(body, 792, LV_SYMBOL_WARNING,
                                            tr(lyra::i18n::StringId::FactoryReset),
                                            tr(lyra::i18n::StringId::FactoryResetDescription),
                                            View::SystemSettings, 62);
@@ -1495,8 +1644,9 @@ void render_about()
     lv_obj_align(project_developer, LV_ALIGN_TOP_MID, 0, 108);
     lv_obj_t *firmware_heading = make_label(body, tr(lyra::i18n::StringId::FirmwareVersion), kTextMuted);
     lv_obj_align(firmware_heading, LV_ALIGN_TOP_MID, 0, 145);
-    lv_obj_t *firmware_version = make_label(body,
-        tr(lyra::i18n::StringId::FirmwareVersionValue), kTextPrimary);
+    // ESP-IDF embeds version.txt as the application version at build time.
+    lv_obj_t *firmware_version = make_label(body, esp_app_get_description()->version,
+                                            kTextPrimary);
     lv_obj_align(firmware_version, LV_ALIGN_TOP_MID, 0, 169);
     lv_obj_t *hardware_heading = make_label(body, tr(lyra::i18n::StringId::HardwareId), kTextMuted);
     lv_obj_align(hardware_heading, LV_ALIGN_TOP_MID, 0, 221);

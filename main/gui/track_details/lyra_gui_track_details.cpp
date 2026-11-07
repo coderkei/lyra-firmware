@@ -99,6 +99,7 @@ void track_info_tab_cb(lv_event_t *event)
 {
     s_track_info_tab = static_cast<TrackInfoTab>(
         reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    s_pending_scroll_restore_y = 0;
     render(View::TrackInfo);
 }
 

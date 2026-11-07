@@ -116,7 +116,7 @@ enum class RepeatMode : uint8_t { Off, All, Song };
 enum class EqualizerPreset : uint8_t {
     Custom, Flat, FullBass, FullTreble, BassAndTreble, Rock, Pop, Jazz, Classic, Count,
 };
-enum class PowerAction : uintptr_t { Reboot, PowerOff, FactoryReset };
+enum class PowerAction : uintptr_t { Reboot, PowerOff, FactoryReset, UsbTransfer };
 enum class DatabaseAction : uintptr_t { Playlists, Artwork, All };
 enum class ArtworkSetting : uintptr_t { SdCache, Size320 };
 enum class PlaylistManageAction : uint8_t { DeletePlaylist, RemoveTrack };
@@ -191,6 +191,10 @@ extern lv_obj_t *s_scroll_body;
 extern int32_t s_pending_scroll_restore_y;
 // A list row to reveal on the next render (page jump, queue); SIZE_MAX if none.
 extern size_t s_pending_list_position;
+// Changes whenever navigation moves to other content, even within the same
+// view (another playlist, folder or album). render() keeps the scroll
+// position only for re-renders of unchanged content.
+extern uint32_t s_navigation_serial;
 extern lv_obj_t *s_search_label;
 extern lv_obj_t *s_search_results;
 extern lv_obj_t *s_search_keyboard;
@@ -247,6 +251,10 @@ extern bool s_speaker_output_enabled;
 extern bool s_timer_alarm_enabled;
 extern bool s_t9_input;
 extern bool s_list_artwork;
+extern bool s_automatic_time;
+extern int16_t s_utc_offset_minutes;
+// Passes the time settings to network time sync.
+void apply_time_sync_settings();
 extern EqualizerPreset s_equalizer_preset;
 extern int16_t s_equalizer_custom_bands[lyra::audio::kEqualizerBandCount];
 extern uint16_t s_sleep_timer_minutes;
@@ -406,7 +414,7 @@ enum class Icon : uint8_t {
     Playback, Sound, Display, Sorting, System, About, Theme, Language, Clock,
     Wifi, SdCard, Storage, Sleep, Crossfade, Radio, Album, Artist, Genre,
     Calendar, Playlist, Favorite, Recent, Added, Calculator, Stopwatch, Timer,
-    Book, Photo, Network,
+    Book, Photo, Network, DotLink, Dice,
 };
 // Marks icon objects so pressed-row feedback recolours them with the text.
 constexpr lv_obj_flag_t kIconFlag = LV_OBJ_FLAG_USER_3;

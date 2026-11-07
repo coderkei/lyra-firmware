@@ -5,6 +5,7 @@
 
 #include "lyra_gui.h"
 #include "lyra_clock.h"
+#include "lyra_crash_log.h"
 #include "lyra_audio.h"
 #include "lyra_boot_test.h"
 #include "lyra_media.h"
@@ -105,6 +106,9 @@ extern "C" void app_main(void)
     if (media_ret != ESP_OK) {
         ESP_LOGW(kTag, "MicroSD unavailable at startup: %s; insert a card and use Scan to retry",
                  esp_err_to_name(media_ret));
+    } else {
+        // After a crash, move its report to the card before anything else runs.
+        lyra::crash_log::save_after_boot();
     }
     const esp_err_t audio_ret = lyra::audio::init();
     if (audio_ret != ESP_OK) {

@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <ctime>
 
 #include "esp_err.h"
 
@@ -44,6 +45,10 @@ bool is_valid(const DateTime &value);
 // Sets the system clock with seconds reset to zero. The new value takes effect
 // immediately and is used by filesystem timestamps for subsequent writes.
 esp_err_t set(const DateTime &value);
+
+// Sets the clock to local_seconds, a local time expressed like a Unix time
+// (the clock has no time zone). Used by network time sync.
+esp_err_t set_epoch(std::time_t local_seconds);
 
 // Applies a manual daylight-saving correction to the running system clock.
 // This is an explicit hour shift because the device has no timezone setting.

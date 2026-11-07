@@ -103,6 +103,27 @@ while keeping its settings and recovery interface available.
 - Playlist details and search results are single scrolling lists. Search
   starts only from the keyboard's Search key, which also hides the keyboard;
   changing the category re-runs the current query.
+- Genre and year song lists are single scrolling lists, like Songs.
+- Settings > System > USB file transfer stops playback, unmounts the card and
+  exposes it to a computer as a USB mass-storage drive (TinyUSB). The
+  ESP32-S3 has one USB PHY, so the USB serial/JTAG port (logs, monitor,
+  flashing) is unavailable until Finish, which restarts Lyra. The mode is
+  never persisted: every boot, crash or power cycle starts normally. The
+  card is never formatted from this mode.
+- Settings > System > Clock > Set time automatically (on by default) queries
+  NTP (`pool.ntp.org`, then `time.google.com`, `time.cloudflare.com`) each
+  time Wi-Fi gets an address, and sets the clock to UTC plus the Time zone
+  offset (UTC-12:00 to UTC+14:00, 15-minute steps) plus the Daylight saving
+  hour. The clock still holds local time; there is no time-zone database.
+- After a panic, watchdog or brownout reset, Lyra writes
+  `/sdcard/.lyra/crash/crash-YYYYMMDD-HHMM.txt` (firmware version, ELF hash,
+  reset and panic reason, task, PC and backtrace) and, when present, the ELF
+  core dump as `...-core.elf`, then erases the flash copy and tells the user
+  once. Core dumps use the 128 KiB `coredump` partition at 0xFE0000; devices
+  updated over the air keep their old partition table and get text reports
+  only.
+- The About screen shows the application version, which ESP-IDF takes from
+  `version.txt` at build time.
 - Text fields show a blinking caret. Swiping along the space bar of any
   keyboard moves the caret one character per 14 px; typing and backspace act
   at the caret.

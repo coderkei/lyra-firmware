@@ -42,6 +42,9 @@ idf_component_register(
         "gui/lifecycle/lyra_gui_lifecycle.cpp"
         "lyra_gui_settings.cpp"
         "lyra_wifi.cpp"
+        "lyra_time_sync.cpp"
+        "lyra_crash_log.cpp"
+        "lyra_usb_transfer.cpp"
         "lyra_audio.cpp"
         "lyra_radio.cpp"
         "audio/lyra_audio_state.cpp"
@@ -91,6 +94,8 @@ idf_component_register(
         esp_hw_support
         esp_psram
         esp_partition
+        esp_app_format
+        espcoredump
         app_update
         bootloader_support
         nvs_flash

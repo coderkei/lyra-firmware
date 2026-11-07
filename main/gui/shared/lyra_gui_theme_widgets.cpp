@@ -288,6 +288,8 @@ esp_err_t save_user_settings()
     values.timer_alarm_enabled = s_timer_alarm_enabled;
     values.t9_input = s_t9_input;
     values.list_artwork = s_list_artwork;
+    values.automatic_time = s_automatic_time;
+    values.utc_offset_minutes = s_utc_offset_minutes;
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
     return lyra::gui_settings::save(values);
@@ -323,7 +325,12 @@ void load_user_settings()
     s_timer_alarm_enabled = values.timer_alarm_enabled;
     s_t9_input = values.t9_input;
     s_list_artwork = values.list_artwork;
-    const bool clear_fallback_dst = lyra::clock::is_using_default_time() && values.dst_enabled;
+    s_automatic_time = values.automatic_time;
+    s_utc_offset_minutes = values.utc_offset_minutes;
+    // Without a retained clock the manual DST hour was lost, unless network
+    // time will set the clock again with the hour included.
+    const bool clear_fallback_dst = lyra::clock::is_using_default_time() && values.dst_enabled &&
+                                    !values.automatic_time;
     if (clear_fallback_dst) values.dst_enabled = false;
     s_gapless = values.gapless;
     s_replay_gain = values.replay_gain;
@@ -342,6 +349,7 @@ void load_user_settings()
                                              DateFormat::DayMonthYear;
     s_use_24_hour = values.use_24_hour;
     s_dst_enabled = values.dst_enabled;
+    apply_time_sync_settings();
     std::memcpy(s_equalizer_custom_bands, values.equalizer_custom_bands,
                 sizeof(s_equalizer_custom_bands));
     if (clear_fallback_dst && !s_setup_pending) save_user_settings();
@@ -397,6 +405,7 @@ void push_navigation_state()
         --s_navigation_depth;
     }
     s_navigation[s_navigation_depth++] = state;
+    ++s_navigation_serial;
 }
 
 void restore_navigation_state(const NavigationState &state)
@@ -406,6 +415,7 @@ void restore_navigation_state(const NavigationState &state)
 
 void restore_navigation_state(const NavigationState &state, size_t list_page)
 {
+    ++s_navigation_serial;
     s_library_tab = state.library_tab;
     s_artist_detail_tab = state.artist_detail_tab;
     s_list_page = list_page;
@@ -439,6 +449,7 @@ void navigate_back(View fallback)
         return;
     }
     s_list_page = 0;
+    ++s_navigation_serial;
     render(fallback);
 }
 

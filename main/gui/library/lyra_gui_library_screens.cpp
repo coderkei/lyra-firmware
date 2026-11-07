@@ -421,6 +421,100 @@ void render_library_section(LibraryTab section)
     make_virtual_list(body, spec);
 }
 
+namespace {
+
+// The playlist is resolved into this snapshot once, so the prefetch task does
+// not rescan the playlist file for every row. Any edit re-renders the view.
+size_t *s_playlist_snapshot;
+size_t s_playlist_snapshot_count;
+bool s_playlist_snapshot_plays;
+portMUX_TYPE s_playlist_snapshot_lock = portMUX_INITIALIZER_UNLOCKED;
+
+void release_playlist_snapshot(lv_event_t *)
+{
+    portENTER_CRITICAL(&s_playlist_snapshot_lock);
+    size_t *snapshot = s_playlist_snapshot;
+    s_playlist_snapshot = nullptr;
+    s_playlist_snapshot_count = 0;
+    portEXIT_CRITICAL(&s_playlist_snapshot_lock);
+    heap_caps_free(snapshot);
+}
+
+bool fetch_playlist_row(size_t position, VirtualRow *row)
+{
+    portENTER_CRITICAL(&s_playlist_snapshot_lock);
+    const size_t track = position < s_playlist_snapshot_count ? s_playlist_snapshot[position] :
+                                                                SIZE_MAX;
+    const bool plays = s_playlist_snapshot_plays;
+    portEXIT_CRITICAL(&s_playlist_snapshot_lock);
+    lyra::media::TrackSummary summary{};
+    if (track == SIZE_MAX || !lyra::media::track_summary_at(track, &summary)) return false;
+    row->payload = track;
+    copy_ui_text(row->title, sizeof(row->title), summary.title);
+    if (plays) {
+        format_text_u32(lyra::i18n::StringId::ArtistPlayCount, summary.artist,
+                        lyra::media::track_play_count(track), row->subtitle,
+                        sizeof(row->subtitle));
+    } else {
+        copy_ui_text(row->subtitle, sizeof(row->subtitle), summary.artist);
+    }
+    return true;
+}
+
+// Shows a resolved track snapshot as one scrolling list. Takes ownership of
+// snapshot, which is freed when list is deleted.
+void show_track_snapshot(lv_obj_t *list, size_t *snapshot, size_t count, bool plays)
+{
+    portENTER_CRITICAL(&s_playlist_snapshot_lock);
+    s_playlist_snapshot = snapshot;
+    s_playlist_snapshot_count = count;
+    s_playlist_snapshot_plays = plays;
+    portEXIT_CRITICAL(&s_playlist_snapshot_lock);
+    lv_obj_add_event_cb(list, release_playlist_snapshot, LV_EVENT_DELETE, nullptr);
+    VirtualListSpec spec{};
+    spec.count = count;
+    spec.top = 0;
+    spec.pitch = 58;
+    spec.row_height = 54;
+    spec.fetch = fetch_playlist_row;
+    spec.build = build_track_row;
+    enable_row_thumbnails(spec, request_track_row_thumbnails, refresh_track_row_thumbnail);
+    make_virtual_list(list, spec);
+}
+
+size_t *allocate_track_snapshot(lv_obj_t *list, size_t count)
+{
+    if (!count) return nullptr;
+    auto *snapshot = static_cast<size_t *>(heap_caps_malloc(
+        count * sizeof(size_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!snapshot) make_label(list, tr(lyra::i18n::StringId::FileMemoryError), kTextMuted);
+    return snapshot;
+}
+
+// Shows a playlist's songs as one scrolling list.
+void render_playlist_tracks(lv_obj_t *list, bool smart, const lyra::media::Playlist &selected)
+{
+    const size_t expected = smart ?
+        lyra::media::smart_playlist_track_count(s_selected_smart_playlist) : selected.track_count;
+    size_t *snapshot = allocate_track_snapshot(list, expected);
+    if (expected && !snapshot) return;
+    const size_t count = !snapshot ? 0 : smart ?
+        lyra::media::smart_playlist_tracks(s_selected_smart_playlist, 0, snapshot, expected) :
+        lyra::media::playlist_tracks(s_selected_playlist, 0, snapshot, expected);
+    if (count == 0) {
+        heap_caps_free(snapshot);
+        make_label(list, smart ? tr(lyra::i18n::StringId::SmartPlaylistEmpty) :
+                                 tr(lyra::i18n::StringId::PlaylistEmptyAdd), kTextMuted);
+        return;
+    }
+    s_track_row_mode = !smart && s_playlist_manage_mode ? TrackRowMode::PlaylistManage :
+                                                          TrackRowMode::Library;
+    show_track_snapshot(list, snapshot, count, smart &&
+        s_selected_smart_playlist == lyra::media::SmartPlaylistKind::MostPlayed);
+}
+
+} // namespace
+
 void render_track_list()
 {
     char count_label[24];
@@ -431,13 +525,21 @@ void render_track_list()
                  count_label, sizeof(count_label));
     make_header(s_track_list_title, library_section_view(s_library_tab), true, count_label);
     lv_obj_t *list = make_scroll_body(72);
-    const size_t pages = (matches + lyra::media::kTrackPageSize - 1) / lyra::media::kTrackPageSize;
-    if (pages && s_list_page >= pages) s_list_page = pages - 1;
-    size_t indices[lyra::media::kTrackPageSize];
-    const size_t shown = lyra::media::group_tracks(s_selected_group_kind, s_selected_group,
-        s_list_page * lyra::media::kTrackPageSize, indices, lyra::media::kTrackPageSize);
-    for (size_t i = 0; i < shown; ++i) make_song_row(list, static_cast<int>(i) * 58, indices[i], 54);
-    make_page_controls(list, static_cast<int>(shown) * 58 + 4, matches);
+    // group_tracks() sorts the whole group anyway, so resolve it once.
+    size_t *snapshot = allocate_track_snapshot(list, matches);
+    if (!snapshot) {
+        if (!matches) make_label(list, tr(lyra::i18n::StringId::NoMusicScanned), kTextMuted);
+        return;
+    }
+    const size_t count = lyra::media::group_tracks(s_selected_group_kind, s_selected_group, 0,
+                                                   snapshot, matches);
+    if (count == 0) {
+        heap_caps_free(snapshot);
+        make_label(list, tr(lyra::i18n::StringId::NoMusicScanned), kTextMuted);
+        return;
+    }
+    s_track_row_mode = TrackRowMode::Library;
+    show_track_snapshot(list, snapshot, count, false);
 }
 
 void artist_detail_tab_cb(lv_event_t *event)
@@ -445,6 +547,7 @@ void artist_detail_tab_cb(lv_event_t *event)
     s_artist_detail_tab = static_cast<ArtistDetailTab>(
         reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
     s_list_page = 0;
+    s_pending_scroll_restore_y = 0;
     render(View::ArtistDetail);
 }
 
@@ -848,89 +951,6 @@ void make_playlist_track_manage_row(lv_obj_t *parent, int y, size_t track_index)
     lv_obj_add_event_cb(remove, remove_playlist_track_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(track_index));
 }
-
-namespace {
-
-// The playlist is resolved into this snapshot once, so the prefetch task does
-// not rescan the playlist file for every row. Any edit re-renders the view.
-size_t *s_playlist_snapshot;
-size_t s_playlist_snapshot_count;
-bool s_playlist_snapshot_plays;
-portMUX_TYPE s_playlist_snapshot_lock = portMUX_INITIALIZER_UNLOCKED;
-
-void release_playlist_snapshot(lv_event_t *)
-{
-    portENTER_CRITICAL(&s_playlist_snapshot_lock);
-    size_t *snapshot = s_playlist_snapshot;
-    s_playlist_snapshot = nullptr;
-    s_playlist_snapshot_count = 0;
-    portEXIT_CRITICAL(&s_playlist_snapshot_lock);
-    heap_caps_free(snapshot);
-}
-
-bool fetch_playlist_row(size_t position, VirtualRow *row)
-{
-    portENTER_CRITICAL(&s_playlist_snapshot_lock);
-    const size_t track = position < s_playlist_snapshot_count ? s_playlist_snapshot[position] :
-                                                                SIZE_MAX;
-    const bool plays = s_playlist_snapshot_plays;
-    portEXIT_CRITICAL(&s_playlist_snapshot_lock);
-    lyra::media::TrackSummary summary{};
-    if (track == SIZE_MAX || !lyra::media::track_summary_at(track, &summary)) return false;
-    row->payload = track;
-    copy_ui_text(row->title, sizeof(row->title), summary.title);
-    if (plays) {
-        format_text_u32(lyra::i18n::StringId::ArtistPlayCount, summary.artist,
-                        lyra::media::track_play_count(track), row->subtitle,
-                        sizeof(row->subtitle));
-    } else {
-        copy_ui_text(row->subtitle, sizeof(row->subtitle), summary.artist);
-    }
-    return true;
-}
-
-// Shows a playlist's songs as one scrolling list.
-void render_playlist_tracks(lv_obj_t *list, bool smart, const lyra::media::Playlist &selected)
-{
-    const size_t expected = smart ?
-        lyra::media::smart_playlist_track_count(s_selected_smart_playlist) : selected.track_count;
-    size_t *snapshot = expected ? static_cast<size_t *>(heap_caps_malloc(
-        expected * sizeof(size_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) : nullptr;
-    if (expected && !snapshot) {
-        make_label(list, tr(lyra::i18n::StringId::FileMemoryError), kTextMuted);
-        return;
-    }
-    const size_t count = !snapshot ? 0 : smart ?
-        lyra::media::smart_playlist_tracks(s_selected_smart_playlist, 0, snapshot, expected) :
-        lyra::media::playlist_tracks(s_selected_playlist, 0, snapshot, expected);
-    if (count == 0) {
-        heap_caps_free(snapshot);
-        make_label(list, smart ? tr(lyra::i18n::StringId::SmartPlaylistEmpty) :
-                                 tr(lyra::i18n::StringId::PlaylistEmptyAdd), kTextMuted);
-        return;
-    }
-    portENTER_CRITICAL(&s_playlist_snapshot_lock);
-    s_playlist_snapshot = snapshot;
-    s_playlist_snapshot_count = count;
-    s_playlist_snapshot_plays = smart &&
-        s_selected_smart_playlist == lyra::media::SmartPlaylistKind::MostPlayed;
-    portEXIT_CRITICAL(&s_playlist_snapshot_lock);
-    lv_obj_add_event_cb(list, release_playlist_snapshot, LV_EVENT_DELETE, nullptr);
-
-    s_track_row_mode = !smart && s_playlist_manage_mode ? TrackRowMode::PlaylistManage :
-                                                          TrackRowMode::Library;
-    VirtualListSpec spec{};
-    spec.count = count;
-    spec.top = 0;
-    spec.pitch = 58;
-    spec.row_height = 54;
-    spec.fetch = fetch_playlist_row;
-    spec.build = build_track_row;
-    enable_row_thumbnails(spec, request_track_row_thumbnails, refresh_track_row_thumbnail);
-    make_virtual_list(list, spec);
-}
-
-} // namespace
 
 void render_playlists(bool detail)
 {

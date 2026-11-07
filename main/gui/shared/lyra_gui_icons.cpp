@@ -128,6 +128,12 @@ constexpr IconPart kPhoto[] = {
 constexpr IconPart kNetwork[] = {
     D(10, 4, 2), D(4, 16, 2), D(16, 16, 2), L(10, 4, 4, 16), L(10, 4, 16, 16), L(4, 16, 16, 16),
 };
+// Two endpoints joined by an L-shaped link, as in the game.
+constexpr IconPart kDotLink[] = {D(4, 4, 3), D(16, 16, 3), L(4, 6, 4, 16), L(4, 16, 14, 16)};
+// A die showing five.
+constexpr IconPart kDice[] = {
+    F(1, 1, 18, 18, 4), D(6, 6, 2), D(14, 6, 2), D(10, 10, 2), D(6, 14, 2), D(14, 14, 2),
+};
 
 #undef L
 #undef LW
@@ -187,6 +193,8 @@ IconShape icon_shape(Icon icon)
         case Icon::Book: return shape(kBook);
         case Icon::Photo: return shape(kPhoto);
         case Icon::Network: return shape(kNetwork);
+        case Icon::DotLink: return shape(kDotLink);
+        case Icon::Dice: return shape(kDice);
     }
     return shape(kMusic);
 }

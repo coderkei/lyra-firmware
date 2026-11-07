@@ -241,6 +241,7 @@ bool dump_debug_info_to_sd()
 void debug_tab_cb(lv_event_t *event)
 {
     s_debug_tab = static_cast<DebugTab>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    s_pending_scroll_restore_y = 0;
     render(View::DebugMenu);
 }
 

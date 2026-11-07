@@ -9,6 +9,11 @@
 
 namespace lyra::gui::internal {
 
+namespace {
+// The navigation serial of the last render; see s_navigation_serial.
+uint32_t s_rendered_navigation_serial = UINT32_MAX;
+} // namespace
+
 void render(View view)
 {
     if (view == View::Player) {
@@ -25,6 +30,14 @@ void render(View view)
             lyra::wifi::scan();
         }
     }
+    // A screen redrawing itself (a toggle, a choice, a refresh) keeps its
+    // place. Navigation and explicit restores choose their own position.
+    if (view == s_view && s_rendered_navigation_serial == s_navigation_serial &&
+        s_pending_scroll_restore_y < 0 && s_pending_list_position == SIZE_MAX &&
+        s_scroll_body && lv_obj_is_valid(s_scroll_body)) {
+        s_pending_scroll_restore_y = std::max<int32_t>(0, lv_obj_get_scroll_y(s_scroll_body));
+    }
+    s_rendered_navigation_serial = s_navigation_serial;
     if (s_view != view) stop_apps_runtime_timers(view);
     if (s_view == View::SetupWelcome && view != View::SetupWelcome) {
         stop_setup_welcome_cycle();

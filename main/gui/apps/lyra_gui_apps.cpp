@@ -467,53 +467,21 @@ void stop_apps_runtime_timers(View next_view)
     (void)next_view;
 }
 
-// Dot Link and Dice have no matching font symbol; draw small native marks.
-static void app_icon_cb(lv_event_t *event)
-{
-    lv_area_t area;
-    lv_obj_get_coords(lv_event_get_current_target_obj(event), &area);
-    lv_layer_t *layer = lv_event_get_layer(event);
-    const View view = static_cast<View>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-    const auto rect = [&](int x, int y, int width, int height, lv_color_t color, int radius) {
-        lv_draw_rect_dsc_t shape;
-        lv_draw_rect_dsc_init(&shape);
-        shape.bg_color = color;
-        shape.bg_opa = LV_OPA_COVER;
-        shape.radius = radius;
-        const lv_area_t bounds{area.x1 + x, area.y1 + y,
-                               area.x1 + x + width - 1, area.y1 + y + height - 1};
-        lv_draw_rect(layer, &shape, &bounds);
-    };
-    if (view == View::Dice) {
-        rect(2, 2, 28, 28, kAccent, 6);
-        constexpr int pips[][2] = {{7, 7}, {20, 7}, {13, 13}, {7, 20}, {20, 20}};
-        for (const auto &pip : pips) rect(pip[0], pip[1], 5, 5, kTextOnAccent, LV_RADIUS_CIRCLE);
-        return;
-    }
-    // An L-shaped link joining two endpoints of the same colour.
-    const lv_color_t link = lv_color_hex(0xF97316);
-    rect(4, 6, 6, 22, link, 3);
-    rect(4, 22, 24, 6, link, 3);
-    rect(0, 1, 14, 14, link, LV_RADIUS_CIRCLE);
-    rect(18, 18, 14, 14, link, LV_RADIUS_CIRCLE);
-}
-
 void render_apps()
 {
     make_header(tr(lyra::i18n::StringId::Apps), View::Menu, true);
     lv_obj_t *body = make_scroll_body(72);
-    // Dot Link and Dice keep their own two-colour artwork (custom = true).
-    struct AppEntry { lyra::i18n::StringId label; View view; Icon icon; bool custom; };
+    struct AppEntry { lyra::i18n::StringId label; View view; Icon icon; };
     constexpr AppEntry apps[] = {
-        {lyra::i18n::StringId::Calculator, View::Calculator, Icon::Calculator, false},
-        {lyra::i18n::StringId::Calendar, View::Calendar, Icon::Calendar, false},
-        {lyra::i18n::StringId::Stopwatch, View::Stopwatch, Icon::Stopwatch, false},
-        {lyra::i18n::StringId::Timer, View::Timer, Icon::Timer, false},
-        {lyra::i18n::StringId::Photos, View::Photos, Icon::Photo, false},
-        {lyra::i18n::StringId::Ebook, View::Ebook, Icon::Book, false},
-        {lyra::i18n::StringId::Files, View::Folders, Icon::Folder, false},
-        {lyra::i18n::StringId::DotLink, View::DotLink, Icon::Apps, true},
-        {lyra::i18n::StringId::Dice, View::Dice, Icon::Apps, true},
+        {lyra::i18n::StringId::Calculator, View::Calculator, Icon::Calculator},
+        {lyra::i18n::StringId::Calendar, View::Calendar, Icon::Calendar},
+        {lyra::i18n::StringId::Stopwatch, View::Stopwatch, Icon::Stopwatch},
+        {lyra::i18n::StringId::Timer, View::Timer, Icon::Timer},
+        {lyra::i18n::StringId::Photos, View::Photos, Icon::Photo},
+        {lyra::i18n::StringId::Ebook, View::Ebook, Icon::Book},
+        {lyra::i18n::StringId::Files, View::Folders, Icon::Folder},
+        {lyra::i18n::StringId::DotLink, View::DotLink, Icon::DotLink},
+        {lyra::i18n::StringId::Dice, View::Dice, Icon::Dice},
     };
     constexpr int kColumns = 3;
     constexpr int kTileWidth = 98;
@@ -524,17 +492,8 @@ void render_apps()
         lv_obj_t *button = make_button(body, x, y, kTileWidth, kTileHeight,
             is_cute_theme() ? lv_color_hex(0xF3EDFF) : kSurfaceRaised,
             is_cute_theme() ? 18 : 9, true);
-        if (!apps[i].custom) {
-            lv_obj_t *icon = make_icon(button, apps[i].icon, kAccent, 32);
-            lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 14);
-        } else {
-            lv_obj_t *icon = make_box(button, (kTileWidth - 32) / 2, 14, 32, 32, kSurfaceRaised);
-            lv_obj_set_style_bg_opa(icon, LV_OPA_TRANSP, 0);
-            lv_obj_set_style_border_width(icon, 0, 0);
-            lv_obj_remove_flag(icon, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_add_event_cb(icon, app_icon_cb, LV_EVENT_DRAW_MAIN,
-                reinterpret_cast<void *>(static_cast<uintptr_t>(apps[i].view)));
-        }
+        lv_obj_t *icon = make_icon(button, apps[i].icon, kAccent, 32);
+        lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 14);
         lv_obj_t *label = make_label(button, tr(apps[i].label), kTextPrimary);
         make_marquee(label, kTileWidth - 10);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);

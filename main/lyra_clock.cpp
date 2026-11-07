@@ -77,6 +77,18 @@ esp_err_t set(const DateTime &value)
     return ESP_OK;
 }
 
+esp_err_t set_epoch(std::time_t local_seconds)
+{
+    if (local_seconds < kDefaultEpoch) return ESP_ERR_INVALID_ARG;
+    const timeval value{local_seconds, 0};
+    if (settimeofday(&value, nullptr) != 0) {
+        ESP_LOGE(kTag, "could not set system clock: errno=%d", errno);
+        return ESP_FAIL;
+    }
+    s_using_default_time = false;
+    return ESP_OK;
+}
+
 esp_err_t shift_minutes(int minutes)
 {
     if (minutes == 0) return ESP_OK;

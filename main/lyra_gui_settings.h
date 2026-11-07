@@ -52,7 +52,15 @@ struct Values {
     bool t9_input = false;
     // Small album covers beside rows in the library, queue, playlists and search.
     bool list_artwork = true;
+    // Sets the clock from network time whenever Wi-Fi connects.
+    bool automatic_time = true;
+    // Local standard time minus UTC, in minutes (daylight saving is separate).
+    int16_t utc_offset_minutes = 0;
 };
+
+// Valid UTC offsets: UTC-12:00 to UTC+14:00 in 15-minute steps.
+constexpr int16_t kMinUtcOffsetMinutes = -12 * 60;
+constexpr int16_t kMaxUtcOffsetMinutes = 14 * 60;
 
 // Loads only valid persisted values, leaving caller-provided defaults intact.
 // A missing or invalid persisted language resolves to English and leaves

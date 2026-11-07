@@ -4,6 +4,7 @@
  */
 
 #include "lyra_wifi.h"
+#include "lyra_time_sync.h"
 
 #include <cstdlib>
 #include <cstdio>
@@ -297,6 +298,8 @@ void wifi_event_handler(void *, esp_event_base_t event_base, int32_t event_id,
             bump_generation_locked();
             xSemaphoreGive(s_mutex);
         }
+        // Every new connection is a chance to correct the clock.
+        lyra::time_sync::request();
         ESP_LOGI(kTag, "connected to %s, IP " IPSTR, connected_ssid,
                  IP2STR(&event->ip_info.ip));
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_LOST_IP) {
