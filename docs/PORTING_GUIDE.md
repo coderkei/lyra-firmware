@@ -33,12 +33,14 @@ inventory and its distribution notes.
 | `main/gui/lyra_gui_internal.h` and `main/gui/` | GUI-wide constants and screens; `kScreenWidth` and `kScreenHeight` are fixed at 320 × 480, with substantial absolute positioning. |
 | `sdkconfig.defaults`, `partitions.csv`, `main/idf_component.yml`, `CMakeLists.txt` | Reference memory settings, flash layout, managed dependencies, build configuration, and component wiring. |
 | `main/lyra_sd.cpp`, `main/lyra_media.cpp`, `main/media/` | Audio-aware SD access gate, microSD mounting, catalog and media services. |
+| `main/lyra_usb_transfer.cpp` | USB mass-storage mode; re-initializes the SDMMC bus with the board's SD pins and hands the card to TinyUSB. |
+| `main/lyra_crash_log.cpp`, `partitions.csv` | Crash reports, which read the core dump from the `coredump` partition. |
 | `docs/JC3248W535EN_HARDWARE.md`, `docs/EMOTIVATE_LYRA_OS_SPEC_JC3248W535EN.md` | Current board wiring and implementation behavior. |
 | `docs/AUDIO_TRANSITION_VALIDATION.md` | Audio continuity counters and physical validation procedure. |
 
 ## Display driver caution
 
-The current AXS15231B QSPI path deliberately transfers a complete frame after LVGL has rendered its invalidated areas into the persistent full-screen buffer. This behavior follows panel command and row-window constraints observed in the current driver. Establish correctness for any partial-screen SPI/QSPI approach on its specific panel and driver, including repeated updates and long-running GUI activity.
+The AXS15231B accepts pixel writes only as one stream that starts at row zero, so the current driver rounds every invalidated area to full rows from the top of the panel and streams them in horizontal bands from two internal-RAM buffers (see the display performance notes in the [implementation reference](EMOTIVATE_LYRA_OS_SPEC_JC3248W535EN.md)). A panel that accepts row or column windows does not need this rounding. Establish correctness for any partial-screen SPI/QSPI approach on its specific panel and driver, including repeated updates and long-running GUI activity.
 
 Supporting display resolutions beyond 320 × 480 includes GUI geometry and layout work alongside changes to `LYRA_BOARD_DISPLAY_WIDTH` and `LYRA_BOARD_DISPLAY_HEIGHT`, because current screens use fixed dimensions and absolute positions.
 
@@ -49,11 +51,12 @@ Supporting display resolutions beyond 320 × 480 includes GUI geometry and layou
 3. Calibrate touch coordinates and validate taps, swipes, and any physical navigation controls.
 4. Bring up removable storage and check scans, metadata, artwork, playlists, file browsing, and SD access while audio is playing.
 5. Configure I2S pins, clocks, sample format, DAC or codec, analog output, amplifier, and any optional speaker path.
-6. Verify heap/PSRAM use, task stacks, flash capacity, partition sizing, OTA slots, and the recovery path; keep the partition map consistent with update logic.
-7. Preserve audio task priority and the audio-aware storage arbitration. Measure playback continuity while scanning, browsing artwork, and changing tracks.
-8. Test Unicode metadata, search input methods, installed dictionary behavior, all themes, and touch navigation on the real display.
-9. Exercise update, reboot, interrupted-update recovery, storage removal, and audio/output failure behavior.
-10. Document board differences, firmware revision, build configuration, and the evidence gathered through source review, builds, emulator runs, and physical tests.
+6. Verify heap/PSRAM use, task stacks, flash capacity, partition sizing, OTA slots, and the recovery path; keep the partition map consistent with update logic. Keep a `coredump` partition if you want crash reports.
+7. Check how USB is wired. On a board where one native USB port also serves serial/JTAG, USB file transfer temporarily replaces it; a separate USB-to-serial chip avoids that trade-off. Without native USB, leave mass storage disabled.
+8. Preserve audio task priority and the audio-aware storage arbitration. Measure playback continuity while scanning, browsing artwork, and changing tracks.
+9. Test Unicode metadata, search input methods, installed dictionary behavior, all themes, and touch navigation on the real display.
+10. Exercise update, reboot, interrupted-update recovery, storage removal, and audio/output failure behavior.
+11. Document board differences, firmware revision, build configuration, and the evidence gathered through source review, builds, emulator runs, and physical tests.
 
 Use the [reference wiring table](JC3248W535EN_HARDWARE.md) for exact JC3248W535EN details. Select and document board-specific pins for another target, then record its actual hardware behavior before marking the port verified.
 

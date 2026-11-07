@@ -20,6 +20,7 @@ for the broader adoption intent.
 | Removable storage | MicroSD socket using 1-bit SDMMC |
 | Audio | I2S output to an external PCM5102A DAC and the on-board speaker/amplifier |
 | Power | USB-C input, battery connector, and a battery-sense divider |
+| USB | One USB-C port on the ESP32-S3's native USB: serial/JTAG by default, a mass-storage drive during USB file transfer |
 
 The values above come from the supplied board.
 
@@ -59,6 +60,18 @@ Configure the DAC for standard I2S: `FLT` low, `DEMP` low, `XSMT` high, and
 jumpers. Connect `ROUT` and `LROUT`, the line-level outputs, to an amplifier
 or active speaker input.
 
+## USB port
+
+The USB-C port connects to the ESP32-S3's native USB peripheral rather than a
+separate USB-to-serial chip. By default it is the USB serial/JTAG device used
+for flashing, the monitor and debugging. **Settings > System > USB file
+transfer** hands the same port to TinyUSB as a mass-storage drive, because
+the chip has a single USB PHY; serial/JTAG returns when Lyra restarts. The
+board has no BOOT button, so transfer mode is never persisted and a power
+cycle always restores serial/JTAG.
+
+## On-board speaker
+
 The ESP32-S3 has two I2S peripherals. Lyra uses the second one to mirror
 playback to the original on-board speaker when **Settings > Sound > On-board
 speaker** is enabled. The setting is enabled by default and persists in NVS.
@@ -81,6 +94,10 @@ Record these measurements and observations from the physical development kit:
 - The fitted audio device, its enable/shutdown behaviour, and speaker output
   quality.
 - Battery chemistry, charger behaviour, divider ratio, ADC calibration, and
-  safe thresholds.
+  safe thresholds. Until this is measured, the status bar shows a fixed
+  battery level.
 - USB serial/JTAG enumeration and reset/boot behaviour.
+- USB file transfer: the computer sees the card as a drive, large copies
+  complete, ejecting and tapping Finish leaves the card readable, and
+  serial/JTAG is back after the restart.
 - Safe use of exposed GPIOs for any external controls or accessories.

@@ -20,3 +20,7 @@ assignees: ""
 **Actual behavior:**
 
 **Relevant logs or screenshots:**
+
+**Crash report:** if Lyra restarted after the problem, attach the newest
+`crash-*.txt` (and `crash-*-core.elf`, if present) from `.lyra/crash/` on the
+MicroSD card.

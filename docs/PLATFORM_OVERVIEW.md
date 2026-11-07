@@ -1,39 +1,73 @@
 # Lyra OS platform overview
 
-Lyra OS is an open-source reference firmware platform by Emotivate for affordable touchscreen digital audio players. It is specialised application firmware built on ESP-IDF, FreeRTOS, C++ and LVGL, intended to provide a reusable offline music-player foundation for hardware developers, hobbyists, OEMs, and manufacturers.
+Lyra OS is open-source firmware for touchscreen digital audio players, made by
+Emotivate. It's built on ESP-IDF, FreeRTOS, C++ and LVGL, and it's meant to be
+something other people can pick up and build on, whether that's a hobbyist
+with a different board or a company making a player.
 
-## The problem and goal
+## Why it exists
 
-Budget touchscreen players pair capable processors and displays with navigation, search input, and original-language metadata workflows that can improve through a cohesive software platform. Building a complete library, input system, playback pipeline, and interface for every device also duplicates substantial work.
+Cheap touchscreen players often have decent hardware: a capable processor, a
+nice screen, enough storage. Where they tend to fall down is the software.
+Browsing a big library is slow, search is awkward or in many cases, simply not implemented, and music tagged in
+Japanese, Korean, Chinese or Russian often shows up as boxes due to missing fonts. And every
+manufacturer ends up writing their own library, input system, playback
+pipeline and interface from scratch.
 
-Lyra OS aims to make an adaptable firmware foundation available: scan and navigate a local music collection, search it with multilingual input, and play stored audio through an integrated interface. The application code uses the permissive Apache-2.0 license; dependencies and bundled data keep their own terms.
+Lyra tries to be that missing piece, like an open standard platform, done once and shared. Scan a music
+collection, find things quickly in any language, and play it well. The
+application code is Apache-2.0 so it can be used freely; the libraries and
+data it depends on keep their own licences (see the
+[third-party notices](../THIRD_PARTY_NOTICES.md)).
 
-## Architecture in the current implementation
+## How the code is organised
 
-| Component | Repository paths | Current responsibility |
+| Part | Where it lives | What it does |
 | --- | --- | --- |
-| Startup and GUI | `main/app_main.cpp`, `main/lyra_gui.cpp`, `main/gui/` | Starts the services and LVGL interface; implements navigation, themes, search, settings, and display of library data. |
-| Media catalog and storage | `main/lyra_media.cpp`, `main/media/`, `main/lyra_sd.cpp` | Mounts the reference microSD storage, scans and searches the catalog, reads metadata and artwork, manages playlists, and arbitrates SD access with audio. |
-| Audio playback | `main/lyra_audio.cpp`, `main/audio/` | Decodes supported local formats, mixes PCM transitions, applies volume/EQ/ReplayGain, and sends samples to the configured I2S outputs. |
-| Board integration | `components/lyra_board/`, `board/JC3248W535EN/include/lyra_board_pins.h` | Initializes the current panel, touch input, backlight, LVGL display, and reference-board pin assignments. |
-| Localisation and fonts | `tools/i18n/lyra_i18n_catalog.inc`, `main/lyra_font.cpp`, `main/lyra_unicode_16.c`, `main/lyra_cjk_16.c` | Supplies translated interface text and embedded glyph coverage used for interface and music metadata. |
-| Build and flash layout | `CMakeLists.txt`, `main/idf_component.yml`, `sdkconfig.defaults`, `partitions.csv` | Defines the ESP-IDF project, managed components, configured memory, and current flash partitions. |
+| Startup and GUI | `main/app_main.cpp`, `main/lyra_gui.cpp`, `main/gui/` | Starts everything up and runs the LVGL interface: navigation, themes, lists, search, keyboards, settings and apps. |
+| Media and storage | `main/lyra_media.cpp`, `main/media/`, `main/lyra_sd.cpp` | Mounts the microSD card, scans and searches the library, reads tags and artwork, makes list thumbnails, manages playlists, and makes sure SD reads for audio always come first. |
+| Audio | `main/lyra_audio.cpp`, `main/audio/` | Decodes the supported formats, handles gapless and crossfade transitions, applies volume, EQ and ReplayGain, and feeds the I2S outputs. |
+| Network | `main/lyra_wifi.cpp`, `main/lyra_radio.cpp`, `main/lyra_time_sync.cpp` | Wi-Fi, internet radio stations, and setting the clock from network time. |
+| System services | `main/lyra_usb_transfer.cpp`, `main/lyra_crash_log.cpp` | USB file transfer (the card as a USB drive) and crash reports. |
+| Board support | `components/lyra_board/`, `board/JC3248W535EN/include/lyra_board_pins.h` | Display, touch, backlight and LVGL setup for the reference board, plus its pin assignments. |
+| Languages and fonts | `tools/i18n/lyra_i18n_catalog.inc`, `main/lyra_font.cpp`, `main/lyra_unicode_16.c`, `main/lyra_cjk_16.c` | Translated interface text and the embedded glyphs used for the interface and for song metadata. |
+| Build and flash layout | `CMakeLists.txt`, `main/idf_component.yml`, `sdkconfig.defaults`, `partitions.csv` | The ESP-IDF project, its components, memory settings and flash partitions. |
 
-## Design principles
+## What we care about
 
-- **Offline first:** the library, playlists, search, and playback operate on local microSD files.
-- **Fast collection navigation:** catalog metadata, sorting, and search provide direct paths through larger libraries.
-- **Original-language metadata:** Unicode display and selectable input methods support searching multilingual libraries.
-- **Audio continuity under load:** audio-aware SD access and a persistent PCM/I2S output path are intended to keep playback stable while the GUI and media features are active. Physical measurements remain necessary.
-- **Accessible hardware:** the project is developed on a readily available low-cost ESP32-S3 kit, while recognizing that its wiring and drivers are board-specific.
-- **Theme fidelity:** existing themes and visual assets are part of the user experience and should be preserved during performance or platform work.
+- **It works offline.** The library, playlists, search and playback all run
+  from files on the card. Wi-Fi is only for radio and the clock.
+- **Big libraries stay fast.** Lists scroll smoothly with thousands of
+  tracks, and sorting, jump strips and search get you anywhere quickly.
+- **Music in any language.** Tags display properly in the supported scripts,
+  and there are keyboards to search them.
+- **Audio doesn't stutter.** SD access is arranged so audio reads win, and
+  the output path stays running between tracks. This still needs measuring on
+  real hardware for each board.
+- **Cheap hardware.** Development happens on a low-cost ESP32-S3 kit that
+  anyone can buy, even though its wiring and drivers are specific to it.
+- **The themes matter.** They're part of the experience, so performance or
+  porting work shouldn't quietly break how they look.
 
-## Platform services and board-specific integration
+## What's reusable and what's board-specific
 
-The catalog, playlist logic, decoder orchestration, GUI features, localisation, and settings express the reusable software direction. The working implementation also includes hardware-specific display initialization, touch protocol and calibration, I2S GPIO setup, fixed 320 × 480 layout geometry, SD mount details, and board-dependent power assumptions. Future portability work can separate these responsibilities as additional targets are engineered.
+The catalog, playlists, decoder handling, GUI features, translations and
+settings are the reusable core. Mixed in with them, for now, is code that only
+makes sense on this board: the display driver, the touch protocol and
+calibration, the I2S pins, the fixed 320 × 480 layouts, SD mounting details,
+the USB arrangement and some power assumptions. Separating those more cleanly
+is future work, and it'll go best alongside a real second target.
 
-The JC3248W535EN is the currently documented development and test configuration. It provides a convenient reference for adapting Lyra OS to other device designs. Other ESP32-S3 boards and microcontrollers begin with engineering and validation; see [hardware support](HARDWARE_SUPPORT.md) and the [porting guide](PORTING_GUIDE.md).
+The JC3248W535EN is the board everything is developed and tested on. If you
+want to use something else, expect some engineering first; the
+[hardware support](HARDWARE_SUPPORT.md) page and the
+[porting guide](PORTING_GUIDE.md) explain what's involved.
 
-## Intended adoption model
+## Using it for your own device
 
-A hardware developer or vendor can study the reference implementation, adapt board integration and interface geometry to its device, and retain or modify the media, playback, and localisation features that fit the product. Validate each port on its display, touch controls, storage, audio path, memory configuration, and update/recovery scheme. The repository provides a software reference; device integration and certification are part of each hardware program.
+The intended path is: study the reference implementation, adapt the board
+support and screen layouts to your hardware, and keep (or change) whichever
+media, playback and language features suit your product. Then test it
+properly on your own display, touch, storage, audio path, memory setup and
+update/recovery process. The repository gives you the software; integrating
+it into a device and getting that device certified is part of your project.

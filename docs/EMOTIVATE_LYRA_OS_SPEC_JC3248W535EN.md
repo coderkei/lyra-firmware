@@ -16,13 +16,16 @@ information is in the [JC3248W535EN hardware reference](JC3248W535EN_HARDWARE.md
 | Display profile | `LYRA-320`, 320 × 480 portrait RGB565 |
 | Framework | ESP-IDF 6.0.2, FreeRTOS, C++, LVGL 9.4.0 |
 | Default resources | 16 MB flash and 8 MB octal PSRAM |
-| Managed components | LVGL, `esp_audio_codec`, libjpeg-turbo, and libpng |
-| Flash layout | NVS, OTA data, two 7.4375 MB application slots, and a 1 MB data partition named `littlefs` (SPIFFS subtype) |
+| Managed components | LVGL, `esp_audio_codec`, `esp_tinyusb`, libjpeg-turbo, and libpng |
+| Flash layout | NVS, OTA data, two 7.4375 MB application slots, an 896 KiB data partition named `littlefs` (SPIFFS subtype, currently unused), and a 128 KiB `coredump` partition |
+| Version | `version.txt`, embedded by ESP-IDF as the application version and shown on the About screen |
 
 `sdkconfig.defaults`, `partitions.csv`, `main/idf_component.yml`, and
 `components/lyra_board/idf_component.yml` define the build configuration.
 Generated `sdkconfig`, `build`, and `managed_components` directories are
-local ESP-IDF outputs.
+local ESP-IDF outputs. An existing `sdkconfig` keeps its values, so options
+added to `sdkconfig.defaults` later (core dumps, TinyUSB mass storage) must be
+enabled in menuconfig or picked up by regenerating `sdkconfig`.
 
 ## Board pins
 
@@ -36,12 +39,16 @@ hardware references.
 
 | Area | Source | Responsibility |
 |---|---|---|
-| Startup | `main/app_main.cpp` | Brings up the display, boot screen, media service, audio service, GUI, and LVGL worker |
+| Startup | `main/app_main.cpp` | Brings up the display, boot screen, media service, crash-report check, audio service, Wi-Fi, GUI, and LVGL worker |
 | Board support | `components/lyra_board/` | AXS15231B QSPI display, backlight, LVGL integration, and touch polling |
-| User interface | `main/lyra_gui.cpp` | LVGL screens, touch routing, settings, and navigation |
-| Media service | `main/lyra_media.cpp` | MicroSD mount, catalog, metadata, playlists, search, sorting, and artwork |
-| Audio service | `main/lyra_audio.cpp` | Decode, PCM conversion, equalizer, volume, seeking, and mirrored I2S output |
+| User interface | `main/lyra_gui.cpp`, `main/gui/` | LVGL screens, touch routing, settings, navigation, scrolling lists, and keyboards |
+| Media service | `main/lyra_media.cpp`, `main/media/` | MicroSD mount, catalog, metadata, playlists, search, sorting, artwork, and list thumbnails |
+| Audio service | `main/lyra_audio.cpp`, `main/audio/` | Decode, PCM conversion, equalizer, volume, seeking, and mirrored I2S output |
 | Wi-Fi service | `main/lyra_wifi.cpp` | Station startup, network scans, saved-network connection, reconnect, and ping diagnostics |
+| Internet radio | `main/lyra_radio.cpp` | Saved HTTP(S) stations and station-list import |
+| Network time | `main/lyra_time_sync.cpp` | NTP query on each Wi-Fi connection |
+| Crash reports | `main/lyra_crash_log.cpp` | Moves core dumps and reset reports to the MicroSD card |
+| USB file transfer | `main/lyra_usb_transfer.cpp` | Exposes the MicroSD card as a USB mass-storage drive |
 
 The display is initialised with its backlight off. Lyra renders the boot
 screen before enabling the panel, then starts its regular LVGL worker after
@@ -50,14 +57,6 @@ while keeping its settings and recovery interface available.
 
 ## Media and persistence
 
-- The system clock is initialized before MicroSD mounting. At startup, a
-  missing retained RTC/system-clock value uses the `00:00 01/01/2000` fallback
-  and counts forward while powered. **Settings > System > Time & date** opens separate
-  numeric **Set time** and **Set date** screens. The screens use a number pad
-  with left/right cursor movement so individual digits can be corrected. The
-  clock menu also stores the selected date format, 12/24-hour display format,
-  and a manual daylight-saving correction. After full power loss, startup
-  initializes the clock to its fallback epoch.
 - The MicroSD card mounts at `/sdcard`. A user starts the library scan from
   `Settings > System > Scan music library`.
 - Library scans still walk the card to discover additions and removals, but
@@ -70,66 +69,87 @@ while keeping its settings and recovery interface available.
   AIF, and AIFC files. The maximum catalog size is 10,000 tracks.
 - The catalog is stored at `/sdcard/.lyra/catalog-v10.bin` and is published
   with a temporary file and backup so a failed scan retains the prior catalog.
+- Track catalog records capture each file's filesystem modification timestamp
+  and refresh the size/date when file metadata is read, so files created or
+  changed by Lyra receive the active clock date.
 - User playlists are portable `.m3u` or `.m3u8` files under
   `/sdcard/Playlists`. The `Favorites` playlist is created as needed.
 - The Playlists screen includes generated Smart Playlists for Recently Added,
   Recently Played, Most Played, and Never Played. Playback counts and recency
   are persisted by track path in `/sdcard/.lyra/play-stats-v1.bin`.
 - The active queue is stored separately at `/sdcard/.lyra/queue-v1.m3u8`.
-- Settings, volume, equalizer preferences, sort choices, and artwork-cache
-  choices use the `lyra` NVS namespace.
+- Internet radio stations are stored at `/sdcard/.lyra/radio-stations-v1.tsv`.
+  Station lists can be imported from `.m3u`, `.m3u8`, `.pls`, and `.asx` files.
+- Settings, volume, equalizer preferences, sort choices, time settings, and
+  artwork-cache choices use the `lyra` NVS namespace.
 - Wi-Fi is disabled by default. Settings > System > Wi-Fi can enable the
   station, scan nearby networks, connect to open or password-protected
   networks, disconnect, and forget the saved network. The enabled state and
   one saved SSID/passphrase persist in NVS; an enabled station reconnects to
   that network after startup. Settings > About > Service Menu > Debug >
   Network tests pings `1.1.1.1` and resolves then pings `example.com`.
+
+### Clock
+
+The board has no battery-backed RTC. The system clock is initialized before
+MicroSD mounting; a missing retained clock value uses the `00:00 01/01/2000`
+fallback and counts forward while powered. The clock holds local time
+directly; there is no time-zone database.
+
+**Settings > System > Time & date** opens separate numeric **Set time** and
+**Set date** screens. They use a number pad with left/right cursor movement so
+individual digits can be corrected. The clock menu also stores the date
+format, 12/24-hour display format, a manual daylight-saving correction (a
+one-hour shift), and the network time settings:
+
+- **Set time automatically** (on by default) runs a small SNTP query each time
+  Wi-Fi gets an address, trying `pool.ntp.org`, then `time.google.com`, then
+  `time.cloudflare.com`. The clock is set to UTC plus the **Time zone** offset
+  (UTC−12:00 to UTC+14:00 in 15-minute steps) plus the daylight-saving hour.
+  ESP-IDF's own SNTP client is not used, because it would set the clock to UTC.
+- With automatic time off, a daylight-saving setting is cleared after power
+  loss, because the manual shift was lost with the clock. With it on, the
+  setting is kept and applied at the next sync.
+
+### Artwork
+
 - Album art is loaded on demand. Embedded artwork takes priority, and folder
   artwork can come from `cover.jpg`, `folder.jpg`, or `cover.png`. Lyra keeps
   the display image in memory and can retain selected decoded artwork in
-  `/sdcard/.lyra/covers`.
-- Albums, Songs, Queue, playlist details (including Favorites and the Smart
-  Playlists) and search results show a 48x48 thumbnail beside each row
-  (Settings > Display > Album art in lists, on by default). Each cover is
-  decoded once at thumbnail size by a low-priority worker that serves
-  on-screen rows first, then the rows ahead of the scroll, and waits while the
-  player cover is loading. Results, including "no artwork", are appended to a
-  packed cache (`/sdcard/.lyra/covers/thumbs-v2-48.idx` and `.rgb565`). Songs
-  share their album's entry, keyed by folder and album tag; a song without an
-  album tag is keyed by its path, size and modification time. Later visits
-  need one small read per row. A 32-entry PSRAM cache, freed when the list
-  closes, covers scrolling back. Clearing the artwork cache removes the
-  thumbnails too; changed cover art is picked up only after that.
-- Playlist details and search results are single scrolling lists. Search
-  starts only from the keyboard's Search key, which also hides the keyboard;
-  changing the category re-runs the current query.
-- Genre and year song lists are single scrolling lists, like Songs.
-- Settings > System > USB file transfer stops playback, unmounts the card and
-  exposes it to a computer as a USB mass-storage drive (TinyUSB). The
-  ESP32-S3 has one USB PHY, so the USB serial/JTAG port (logs, monitor,
-  flashing) is unavailable until Finish, which restarts Lyra. The mode is
-  never persisted: every boot, crash or power cycle starts normally. The
-  card is never formatted from this mode.
-- Settings > System > Clock > Set time automatically (on by default) queries
-  NTP (`pool.ntp.org`, then `time.google.com`, `time.cloudflare.com`) each
-  time Wi-Fi gets an address, and sets the clock to UTC plus the Time zone
-  offset (UTC-12:00 to UTC+14:00, 15-minute steps) plus the Daylight saving
-  hour. The clock still holds local time; there is no time-zone database.
-- After a panic, watchdog or brownout reset, Lyra writes
-  `/sdcard/.lyra/crash/crash-YYYYMMDD-HHMM.txt` (firmware version, ELF hash,
-  reset and panic reason, task, PC and backtrace) and, when present, the ELF
-  core dump as `...-core.elf`, then erases the flash copy and tells the user
-  once. Core dumps use the 128 KiB `coredump` partition at 0xFE0000; devices
-  updated over the air keep their old partition table and get text reports
-  only.
-- The About screen shows the application version, which ESP-IDF takes from
-  `version.txt` at build time.
-- Text fields show a blinking caret. Swiping along the space bar of any
-  keyboard moves the caret one character per 14 px; typing and backspace act
-  at the caret.
-- Track catalog records capture each file's filesystem modification timestamp
-  and refresh the size/date when file metadata is read, so files created or
-  changed by Lyra receive the active clock date.
+  `/sdcard/.lyra/covers`. The player and list-thumbnail decoders share one
+  JPEG decoder and take turns.
+- Albums, Songs, the Queue, playlist details (including Favorites and the
+  Smart Playlists), genre and year song lists, and search results show a 48x48
+  thumbnail beside each row (Settings > Display > Album art in lists, on by
+  default). Each cover is decoded once at thumbnail size by a low-priority
+  worker that serves on-screen rows first, then the rows ahead of the scroll,
+  and waits while the player cover is loading. Results, including "no
+  artwork", are appended to a packed cache
+  (`/sdcard/.lyra/covers/thumbs-v2-48.idx` and `.rgb565`). Songs share their
+  album's entry, keyed by folder and album tag; a song without an album tag is
+  keyed by its path, size, and modification time. Later visits need one small
+  read per row. A 32-entry PSRAM cache, freed when the list closes, covers
+  scrolling back. Clearing the artwork cache removes the thumbnails too;
+  changed cover art is picked up only after that.
+
+## System services
+
+- **USB file transfer.** Settings > System > USB file transfer stops playback,
+  saves the queue, unmounts the card, and exposes it to a computer as a USB
+  mass-storage drive through TinyUSB. The ESP32-S3 has one USB PHY, so the USB
+  serial/JTAG port (logs, monitor, flashing) is unavailable until **Finish and
+  restart**. The transfer screen sits on LVGL's top layer and blocks all other
+  input. The mode is never persisted: every boot, crash, or power cycle starts
+  normally. The card is never formatted from this mode. Builds without
+  `CONFIG_TINYUSB_MSC_ENABLED` say the feature is unavailable.
+- **Crash reports.** After a panic, watchdog, brownout, or CPU-lockup reset,
+  Lyra writes `/sdcard/.lyra/crash/crash-YYYYMMDD-HHMM.txt` (firmware version,
+  ELF hash, reset and panic reason, task, PC, and backtrace) and, when present,
+  the ELF core dump as `...-core.elf`, then erases the flash copy and tells the
+  user once. Core dumps use the 128 KiB `coredump` partition at 0xFE0000.
+  Devices updated with `update.bin` keep their old partition table and get
+  text reports only.
+- **Firmware updates** are described under Memory and performance below.
 
 ## Playback and UI
 
@@ -140,7 +160,8 @@ path via GPIO42 (BCLK), GPIO2 (LRCK), and GPIO41 (data out); the setting is
 stored in NVS and enabled by default.
 ESP-IDF decoders handle MP3, FLAC, AAC, M4A/ALAC, WAV, OGG, and Opus-in-Ogg;
 Lyra also handles uncompressed AIFF/AIFC PCM. Playback supports play, pause,
-seek, queue navigation, volume, and per-track ReplayGain adjustment.
+seek, queue navigation, volume, playback speed from 0.25× to 2×, and
+per-track ReplayGain adjustment.
 The audio task preloads the queued successor in a second decoder and keeps one
 PCM/I2S output stream across track boundaries. Configured crossfades mix both
 decoded streams before output processing. See
@@ -157,7 +178,10 @@ bottom virtual-control bar provides Menu, Previous, Play/Pause, Next, and
 Back controls for the buttonless development kit. Holding Back returns to the
 Menu from any depth, tapping a page title scrolls its list to the top, and
 tapping the status-bar clock opens Now Playing. Queue additions confirm with
-a short, non-blocking toast.
+a short, non-blocking toast. A screen that redraws itself (a toggle, an
+option, a status refresh) keeps its scroll position; navigating to other
+content, including another playlist, album, or folder, starts at the top, and
+Back returns to the previous position.
 
 **Files** (Menu > Browse Folders, or Apps > Files) lists every non-hidden
 entry of a MicroSD folder, folders first, sortable A–Z, Z–A, or by type. A
@@ -173,33 +197,58 @@ filesystem step holds the SD gate only briefly, so audio reads keep priority.
 Library changes made this way appear in the catalog after the next scan.
 
 **Apps** contains Calculator, Calendar, Stopwatch, Timer, Photos, Ebook,
-Files, Dice, and Dot Link. Dot Link is a path puzzle on 5×5 to 8×8 boards:
-join each pair of matching dots and fill every cell. Boards are generated on
-the device by shuffling a Hamiltonian path with backbite moves and cutting it
-into coloured segments, so every board has a complete solution; the hint
-button reveals one route from it.
+Files, Dot Link, and Dice, all drawn with the shared theme icon set. Dot Link
+is a path puzzle on 5×5 to 8×8 boards: join each pair of matching dots and
+fill every cell. Boards are generated on the device by shuffling a
+Hamiltonian path with backbite moves and cutting it into coloured segments,
+so every board has a complete solution; the hint button reveals one route
+from it.
 
-**Large libraries.** Songs, Albums, Artists, Genres, Years, and the Queue
-scroll as one continuous list instead of pages. Each list keeps a fixed pool
-of about one screen of row widgets. Crossing a row boundary rebinds the
-entering rows and leaves the other widgets in place. The prefetch task fills a
-128-entry text cache, prioritizing the visible rows and then the direction of
-travel. The first screen is fetched synchronously. The media service collects
-compact track summaries during catalog validation and retains group headers
-within a PSRAM budget. Entries outside that budget fall back to the catalog
-file. Recent album and artist track orders are also cached for playback and
-browsing. Songs, Albums, and Artists show a jump strip built from the sort
-jump index — initials for name sorts, two-digit years for date sorts, whole
-minutes for duration, and track numbers — with a bubble showing the full
-value while scrolling, and a jump button that
-opens the page-jump screen (whose sort tab also covers dates and durations)
-and returns to the exact row. The Queue opens at the playing song. The Music
-page starts with Recently played, Recently added, and Favorites shortcuts and
-links to folder browsing. Search runs automatically 650 ms after typing
-pauses and refreshes its results without rebuilding the keyboard.
+**Viewers.** Photos open full screen. A translucent top bar shows the file
+name and pixel size, and a floating pill holds zoom out, the zoom level, zoom
+in, and Fit; 1:1 shows native pixels. Tapping the image hides or shows the
+controls, and dragging pans on both axes. The visible area is decoded again
+from the original file at the current zoom once panning settles. The text
+reader pages through files in 2 KiB blocks with a reading-progress bar and
+previous/next page buttons. Its options sheet sets the text size (three
+sizes), the page colour (light, sepia, or dark), and one bookmark per file,
+stored under `/sdcard/.lyra/bookmarks`.
+
+**Large libraries.** Songs, Albums, Artists, Genres, Years, genre and year
+song lists, playlist details, search results, and the Queue scroll as one
+continuous list instead of pages. Each list keeps a fixed pool of about one
+screen of row widgets. Crossing a row boundary rebinds the entering rows and
+leaves the other widgets in place. The prefetch task fills a 128-entry text
+cache, prioritizing the visible rows and then the direction of travel. The
+first screen is fetched synchronously. Playlist and group song lists resolve
+their tracks once when opened. The media service collects compact track
+summaries during catalog validation and retains group headers within a PSRAM
+budget. Entries outside that budget fall back to the catalog file. Recent
+album and artist track orders are also cached for playback and browsing.
+Songs, Albums, and Artists show a jump strip built from the sort jump index —
+initials for name sorts, two-digit years for date sorts, whole minutes for
+duration, and track numbers — with a bubble showing the full value while
+scrolling, and a jump button that opens the page-jump screen (whose sort tab
+also covers dates and durations) and returns to the exact row. The Queue
+opens at the playing song. The Music page starts with Recently played,
+Recently added, and Favorites shortcuts and links to folder browsing. The
+artist page loads its song and album rows in batches as it scrolls.
+
+**Search** covers songs, albums, artists, and playlist songs. A search starts
+only from the keyboard's Search key, which also hides the keyboard so the
+results fill the screen; changing the category re-runs the current query.
+
+**Text input.** Keyboards are independent of the interface language: English
+(with an accent page), Russian, Korean Hangul, Chinese Pinyin, and Japanese
+kana flick input, plus an optional T9 keypad. Text fields show a blinking
+caret. Edits happen at the caret, including input-method composition, and
+swiping along the space bar of any keyboard moves the caret one character per
+14 px.
 
 Themes with decorative wallpapers rasterize them once into PSRAM (Aura's sky
 and light trails, Zeno's logo tile) and blit the cached pixels on redraw.
+
+## Memory and performance
 
 **Display performance.** The AXS15231B accepts pixel writes only as one
 stream that starts at row zero, so every invalidated area is rounded to full
@@ -225,7 +274,8 @@ available for the audio output task,
 DMA, the display bands and the GUI stack. The I2S DMA rings stay at 186 ms
 each: flash writes stall the output task, and the rings must cover an NVS
 sector erase during playback. Background MicroSD workers (scan, search, sort
-and duration indexing, artwork) never write flash and run on PSRAM stacks. A
+and duration indexing, artwork and thumbnails) never write flash and run on
+PSRAM stacks. A
 firmware update from `/sdcard/update.bin` writes flash, so it runs on the GUI
 task's internal stack after stopping playback and waiting for media work; a
 failed update shows its error and restarts Lyra six seconds later.
@@ -253,6 +303,8 @@ crossfade enabled, and compare the audio underrun counters against the
 previous firmware. Check the boot splash and small status-bar updates for
 color or row corruption, and exercise jump-strip navigation and queue edit
 buttons after scrolling.
+
+## Now Playing
 
 In Now Playing, tapping album art flips to a scrollable lyrics view. Lyrics
 are loaded from embedded metadata first, then a same-stem `.lrc` file, then a

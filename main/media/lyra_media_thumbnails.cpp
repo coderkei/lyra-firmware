@@ -45,6 +45,10 @@ constexpr size_t kRamEntries = 32;
 constexpr size_t kMaxWanted = 32;
 constexpr uint32_t kWorkerStack = 24 * 1024;
 constexpr TickType_t kPlayerArtworkBackoff = pdMS_TO_TICKS(40);
+// Sort indexing runs on the same core at the same priority and reads the
+// catalog file; picture reads and decodes would roughly halve its speed while
+// its progress overlay hides the list anyway.
+constexpr TickType_t kSortBackoff = pdMS_TO_TICKS(250);
 
 struct IndexEntry {
     uint32_t key;    // thumbnail_key() of the source track.
@@ -318,7 +322,7 @@ void write_cached(uint32_t generation, uint32_t key, uint32_t stamp, const uint1
 
 // ---- Worker ------------------------------------------------------------------
 
-enum class LoadResult : uint8_t { Done, Retry, Abandon };
+enum class LoadResult : uint8_t { Done, Retry, WaitForSort, Abandon };
 
 bool source_track(const ThumbnailRequest &request, Track *track)
 {
@@ -337,6 +341,7 @@ LoadResult load_thumbnail(const ThumbnailRequest &request, uint32_t generation, 
     if (!media.mounted || media.scanning || media.catalog_generation != generation) {
         return LoadResult::Abandon;
     }
+    if (media.sorting_indexing) return LoadResult::WaitForSort;
     Track track{};
     if (!source_track(request, &track)) {
         store_ram(generation, request, ThumbnailState::None, nullptr);
@@ -389,6 +394,8 @@ void thumbnail_task(void *)
             const LoadResult result = load_thumbnail(request, generation, scratch);
             if (result == LoadResult::Retry) {
                 vTaskDelay(kPlayerArtworkBackoff);
+            } else if (result == LoadResult::WaitForSort) {
+                vTaskDelay(kSortBackoff);
             } else if (result == LoadResult::Abandon) {
                 // Nothing can load now; a new request will restart the walk.
                 Mutex lock(s_ram_mutex);

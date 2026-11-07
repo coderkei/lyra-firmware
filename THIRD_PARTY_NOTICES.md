@@ -33,6 +33,12 @@ The versions below are the versions locked in `dependencies.lock`:
   `LICENSE` file in an ESP-IDF component-manager checkout. See the
   [versioned component license](https://components.espressif.com/components/espressif/esp_audio_codec/versions/2.6.2/license)
   and the [upstream source](https://github.com/espressif/esp-adf-libs).
+- **espressif/esp_tinyusb 3.0.0** — Apache-2.0. Used for USB file transfer.
+  It bundles the **TinyUSB 0.21.0** USB stack by Ha Thach (tinyusb.org),
+  which is MIT-licensed; retain its copyright and license notice when
+  redistributing a firmware or source bundle. See
+  <https://github.com/espressif/esp-usb/tree/master/device/esp_tinyusb> and
+  <https://github.com/hathach/tinyusb/blob/master/LICENSE>.
 - **espressif/libjpeg-turbo 3.1.1~2** — Independent JPEG Group license,
   modified three-clause BSD license, and zlib license, as applicable to the
   included portions. Retain all upstream notices. Binary distributions must

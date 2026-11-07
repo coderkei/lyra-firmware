@@ -14,6 +14,8 @@ assignees: ""
 
 **I2S codec, DAC, or audio output path:**
 
+**USB wiring (native USB, USB-to-serial chip, or both):**
+
 **Firmware commit and build configuration:**
 
 **Implementation or source branch:**

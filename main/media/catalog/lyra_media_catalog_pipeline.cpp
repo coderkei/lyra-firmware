@@ -1110,9 +1110,13 @@ void start_sort_cache_indexing_locked(SortSection section)
     // Background media workers only read and write the MicroSD card, never
     // flash, so their stacks live in PSRAM like the artwork worker's. A
     // fragmented internal heap must not stop indexing.
+    // Not pinned: the GUI, LCD and touch tasks share the artwork core at
+    // higher priorities, and the progress spinner keeps them busy for the
+    // whole sort, which starved a pinned sort to a few rows a minute. Audio
+    // on the other core still preempts this priority-1 work.
     if (xTaskCreatePinnedToCoreWithCaps(sort_cache_task, "lyra_sort", kSortStack,
                                         reinterpret_cast<void *>(static_cast<uintptr_t>(section)),
-                                        1, nullptr, kArtworkCore,
+                                        1, nullptr, tskNO_AFFINITY,
                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         s_status.sorting_indexing = false;
         ++s_status.sorting_generation;

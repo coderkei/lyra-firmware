@@ -13,7 +13,8 @@ const FLASH_PARTITIONS = [
   { name: 'otadata', label: 'OTA data', type: 'data · ota', offset: 0x19000, size: 0x2000 },
   { name: 'ota_0', label: 'OTA 0', type: 'app · ota_0', offset: 0x20000, size: 0x770000 },
   { name: 'ota_1', label: 'OTA 1', type: 'app · ota_1', offset: 0x790000, size: 0x770000 },
-  { name: 'littlefs', label: 'LittleFS', type: 'data · spiffs', offset: 0xF00000, size: 0x100000 },
+  { name: 'littlefs', label: 'LittleFS', type: 'data · spiffs', offset: 0xF00000, size: 0xE0000 },
+  { name: 'coredump', label: 'Core dump', type: 'data · coredump', offset: 0xFE0000, size: 0x20000 },
 ];
 let sequence = 1;
 let requests = new Map();

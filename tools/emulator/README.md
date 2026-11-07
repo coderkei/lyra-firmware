@@ -30,7 +30,8 @@ its saved flash; choosing a `.bin` or changing the auto-loaded image initializes
 flash from that image.
 
 **Manage Flash** opens a modal for the firmware's `nvs`, `otadata`, `ota_0`,
-`ota_1`, and `littlefs` partitions. Select a partition to clear it to erased
+`ota_1`, `littlefs`, and `coredump` partitions. The list mirrors
+`partitions.csv` and is kept in `app/app.js`; update both together. Select a partition to clear it to erased
 flash (`0xFF`), export its raw bytes as `.bin` or `.img`, or import a raw image
 of the partition's exact size. A partition change restarts the firmware from
 the updated saved flash. **Reset full 16 MiB flash** rebuilds all internal flash
