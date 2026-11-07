@@ -13,6 +13,8 @@ esp_err_t init()
     if (!lyra::sd::init()) return ESP_ERR_NO_MEM;
     if (!s_mutex) s_mutex = xSemaphoreCreateMutex();
     if (!s_mutex) return ESP_ERR_NO_MEM;
+    artwork::init();
+    init_thumbnails();
     static StaticSemaphore_t stats_file_mutex_storage;
     if (!s_playback_stats_file_mutex) {
         s_playback_stats_file_mutex = xSemaphoreCreateMutexStatic(&stats_file_mutex_storage);

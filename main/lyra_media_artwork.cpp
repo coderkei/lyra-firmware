@@ -17,6 +17,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lyra_png.h"
 #include "lyra_progressive_jpeg.h"
@@ -938,9 +939,16 @@ bool extract_mp4_image(FILE *file, ArtworkBlob *blob)
     return false;
 }
 
-bool extract_and_decode(const Track &track, uint16_t **out_pixels,
-                        uint16_t artwork_size, ArtworkDiagnostics *diagnostics,
-                        bool allow_sd_backing, bool *used_sd_backing)
+namespace {
+
+// The JPEG backing-store hooks keep per-decode state in file statics, so the
+// player cover and album-list thumbnails take turns through this gate.
+StaticSemaphore_t s_decode_mutex_storage;
+SemaphoreHandle_t s_decode_mutex;
+
+bool extract_and_decode_unlocked(const Track &track, uint16_t **out_pixels,
+                                 uint16_t artwork_size, ArtworkDiagnostics *diagnostics,
+                                 bool allow_sd_backing, bool *used_sd_backing)
 {
     if (!out_pixels || !diagnostics) return false;
     *out_pixels = nullptr;
@@ -1029,6 +1037,25 @@ bool extract_and_decode(const Track &track, uint16_t **out_pixels,
     free_artwork_blob(&blob);
     *out_pixels = player;
     return true;
+}
+
+} // namespace
+
+void init()
+{
+    if (!s_decode_mutex) s_decode_mutex = xSemaphoreCreateMutexStatic(&s_decode_mutex_storage);
+}
+
+bool extract_and_decode(const Track &track, uint16_t **out_pixels,
+                        uint16_t artwork_size, ArtworkDiagnostics *diagnostics,
+                        bool allow_sd_backing, bool *used_sd_backing)
+{
+    if (!s_decode_mutex) return false;
+    xSemaphoreTake(s_decode_mutex, portMAX_DELAY);
+    const bool decoded = extract_and_decode_unlocked(track, out_pixels, artwork_size, diagnostics,
+                                                     allow_sd_backing, used_sd_backing);
+    xSemaphoreGive(s_decode_mutex);
+    return decoded;
 }
 
 

@@ -54,6 +54,7 @@ idf_component_register(
         "media/lyra_media_lyrics.cpp"
         "media/lyra_media_files.cpp"
         "media/lyra_media_state.cpp"
+        "media/lyra_media_thumbnails.cpp"
         "media/catalog/lyra_media_catalog_settings.cpp"
         "media/catalog/lyra_media_catalog_pipeline.cpp"
         "media/catalog/lyra_media_jump_locations.cpp"

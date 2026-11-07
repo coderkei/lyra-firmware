@@ -375,6 +375,10 @@ bool remove_existing_file(const char *path);
 bool remove_directory_files(const char *directory_path);
 esp_err_t clear_playlists_locked();
 esp_err_t clear_artwork_cache_locked();
+// Forgets every thumbnail and removes the SD thumbnail cache files.
+void invalidate_thumbnails();
+// Creates the thumbnail service locks; called once from media init().
+void init_thumbnails();
 esp_err_t clear_catalog_locked();
 bool load_catalog_file(const char *path, bool verify_checksum = true);
 void load_cached_state();

@@ -30,6 +30,7 @@ constexpr int kStripGap = 3;
 constexpr int kJumpCellHeight = 34;
 constexpr int kLetterHeight = 17;
 constexpr size_t kMaxLetters = 64;
+constexpr size_t kArtworkAhead = 8;
 
 struct CacheEntry {
     size_t position;
@@ -80,6 +81,8 @@ struct ListState {
     size_t letter_count;
     bool letters_pending;
     uint32_t next_letters_ms;
+    uint32_t refresh_stamp;
+    size_t window_hash;
 };
 
 ListState s_list{};
@@ -233,6 +236,61 @@ void bind_slot(size_t slot_index, size_t position)
     lv_obj_remove_flag(widgets.button, LV_OBJ_FLAG_CLICKABLE);
 }
 
+size_t slot_payload(size_t slot)
+{
+    return reinterpret_cast<uintptr_t>(lv_obj_get_user_data(s_list.widgets[slot].button));
+}
+
+bool slot_shown(size_t slot)
+{
+    return s_list.slot_filled[slot] && s_list.widgets[slot].button &&
+           !lv_obj_has_flag(s_list.slots[slot], LV_OBJ_FLAG_HIDDEN);
+}
+
+// Tells the artwork hook which rows are on screen, then which come next in
+// the direction of travel, so their artwork loads in that order.
+void report_window(size_t visible)
+{
+    if (!s_list.spec.window) return;
+    size_t payloads[kMaxSlots + kArtworkAhead];
+    size_t count = 0;
+    const size_t last = std::min(s_list.spec.count, visible + s_list.slot_count);
+    for (size_t position = visible; position < last; ++position) {
+        const size_t slot = position % s_list.slot_count;
+        if (s_list.slot_position[slot] == position && slot_shown(slot)) {
+            payloads[count++] = slot_payload(slot);
+        }
+    }
+    for (size_t step = 1; step <= kArtworkAhead; ++step) {
+        size_t position = 0;
+        if (s_list.forward) {
+            position = last + step - 1;
+            if (position >= s_list.spec.count) break;
+        } else {
+            if (visible < step) break;
+            position = visible - step;
+        }
+        VirtualRow row{};
+        if (cached_row(position, &row) && row.title[0]) payloads[count++] = row.payload;
+    }
+    size_t hash = count;
+    for (size_t i = 0; i < count; ++i) hash = hash * 31u + payloads[i];
+    if (hash == s_list.window_hash) return;
+    s_list.window_hash = hash;
+    s_list.spec.window(payloads, count);
+}
+
+void refresh_artwork()
+{
+    if (!s_list.spec.refresh || !s_list.spec.refresh_stamp) return;
+    const uint32_t stamp = s_list.spec.refresh_stamp();
+    if (stamp == s_list.refresh_stamp) return;
+    s_list.refresh_stamp = stamp;
+    for (size_t slot = 0; slot < s_list.slot_count; ++slot) {
+        if (slot_shown(slot)) s_list.spec.refresh(s_list.widgets[slot]);
+    }
+}
+
 size_t first_visible_position()
 {
     const int32_t offset = lv_obj_get_scroll_y(s_list.body) - s_list.spec.top;
@@ -255,6 +313,7 @@ void update_slots()
         bind_slot(slot, position);
     }
     if (moved) request_window(first, last);
+    report_window(visible);
 }
 
 const lyra::media::SortLocation *mark_at(size_t position)
@@ -349,6 +408,7 @@ void tick_cb(lv_timer_t *)
         s_list.needs_update = false;
         update_slots();
     }
+    refresh_artwork();
     if (s_list.letters_pending && lv_tick_elaps(s_list.next_letters_ms) >= 100) {
         s_list.next_letters_ms = lv_tick_get();
         load_letters();
@@ -393,6 +453,7 @@ void body_event_cb(lv_event_t *event)
                 s_request_fetch = nullptr;
             }
             heap_caps_free(s_list.letters);
+            if (s_list.spec.release) s_list.spec.release();
             s_list = {};
             break;
         default:
@@ -433,6 +494,8 @@ void make_virtual_list(lv_obj_t *body, const VirtualListSpec &spec)
     if (!body || !spec.fetch || !spec.build || spec.pitch <= 0 || !ensure_prefetch()) return;
     if (s_list.body) lv_obj_remove_event_cb(s_list.body, body_event_cb);
     if (s_list.timer) lv_timer_delete(s_list.timer);
+    // A list of the same kind keeps its artwork cache across a re-render.
+    if (s_list.spec.release && s_list.spec.release != spec.release) s_list.spec.release();
     heap_caps_free(s_list.letters);
     s_list = {};
     {
@@ -446,6 +509,8 @@ void make_virtual_list(lv_obj_t *body, const VirtualListSpec &spec)
     s_list.last_first = SIZE_MAX;
     s_list.width = spec.letter_strip ? 306 - kStripWidth - kStripGap : 306;
     s_list.forward = true;
+    s_list.window_hash = SIZE_MAX;
+    if (spec.refresh_stamp) s_list.refresh_stamp = spec.refresh_stamp();
     const int viewport = lv_obj_get_height(body);
     s_list.slot_count = std::min<size_t>(kMaxSlots, static_cast<size_t>(viewport / spec.pitch) + 4);
 

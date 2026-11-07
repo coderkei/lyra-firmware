@@ -4,6 +4,7 @@
  */
 
 #include "../lyra_gui_internal.h"
+#include "src/misc/cache/instance/lv_image_cache.h"
 
 namespace lyra::gui::internal {
 
@@ -190,8 +191,8 @@ void make_album_row(lv_obj_t *parent, int y, size_t group_index)
 {
     lyra::media::Group group{};
     if (!lyra::media::group_at(lyra::media::GroupKind::Album, group_index, &group)) return;
-    // The catalog representative supplies the artist subtitle. Album rows are
-    // intentionally text-only; artwork is reserved for overview and player.
+    // The catalog representative supplies the artist subtitle. These static
+    // rows (artist detail) stay text-only; the Albums list shows thumbnails.
     const size_t representative = group.representative_track;
     lyra::media::Track track{};
     if (!lyra::media::track_at(representative, &track)) return;
@@ -340,22 +341,114 @@ void build_song(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t, const Virtua
     }
 }
 
+// ---- Album thumbnails ----------------------------------------------------------
+// Each album row owns a thumbnail-sized RGB565 buffer. The media service loads
+// covers off the GUI thread, so binding a row only copies a ready image or
+// leaves the placeholder showing until thumbnail_generation() changes.
+
+constexpr int kAlbumThumbInset = 6;
+constexpr int kAlbumThumbRadius = 4;
+constexpr int kAlbumTextX = kAlbumThumbInset * 2 + lyra::media::kThumbnailSize;
+
+struct AlbumThumbView {
+    lv_image_dsc_t descriptor;
+    size_t group;
+    lyra::media::ThumbnailState state;
+    uint16_t pixels[lyra::media::kThumbnailPixels];
+};
+
+void make_unclickable_tree(lv_obj_t *object)
+{
+    // Touches must reach the virtual-list slot, which forwards them to the row.
+    lv_obj_remove_flag(object, LV_OBJ_FLAG_CLICKABLE);
+    const uint32_t children = lv_obj_get_child_count(object);
+    for (uint32_t i = 0; i < children; ++i) make_unclickable_tree(lv_obj_get_child(object, i));
+}
+
+lv_obj_t *make_album_thumb(lv_obj_t *row)
+{
+    constexpr int kSize = lyra::media::kThumbnailSize;
+    lv_obj_t *art = make_box(row, kAlbumThumbInset, kAlbumThumbInset, kSize, kSize,
+                             kArtworkSurface, kAlbumThumbRadius);
+    make_artwork_placeholder(art, kSize, kSize);
+    auto *view = static_cast<AlbumThumbView *>(heap_caps_calloc(
+        1, sizeof(AlbumThumbView), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    lv_obj_t *image = nullptr;
+    if (view) {
+        view->group = SIZE_MAX;
+        view->state = lyra::media::ThumbnailState::Pending;
+        view->descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
+        view->descriptor.header.cf = LV_COLOR_FORMAT_RGB565;
+        view->descriptor.header.w = kSize;
+        view->descriptor.header.h = kSize;
+        view->descriptor.header.stride = kSize * sizeof(uint16_t);
+        view->descriptor.data_size = sizeof(view->pixels);
+        view->descriptor.data = reinterpret_cast<const uint8_t *>(view->pixels);
+        image = lv_image_create(art);
+        lv_obj_set_pos(image, 0, 0);
+        lv_obj_set_size(image, kSize, kSize);
+        lv_obj_set_style_radius(image, s_neon_hud ? 0 : kAlbumThumbRadius, 0);
+        lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_user_data(image, view);
+        lv_obj_add_event_cb(image, [](lv_event_t *event) {
+            auto *owned = static_cast<AlbumThumbView *>(lv_event_get_user_data(event));
+            lv_image_cache_drop(&owned->descriptor);
+            heap_caps_free(owned);
+        }, LV_EVENT_DELETE, view);
+    }
+    make_unclickable_tree(art);
+    return image;
+}
+
+void bind_album_thumb(lv_obj_t *image, size_t group)
+{
+    if (!image) return;
+    auto *view = static_cast<AlbumThumbView *>(lv_obj_get_user_data(image));
+    if (view->group == group && view->state != lyra::media::ThumbnailState::Pending) return;
+    const lyra::media::ThumbnailState state = lyra::media::album_thumbnail(group, view->pixels);
+    if (view->group == group && state == view->state) return;
+    view->group = group;
+    view->state = state;
+    if (state == lyra::media::ThumbnailState::Ready) {
+        // Same descriptor, new pixels: drop any cached decode before redrawing.
+        lv_image_cache_drop(&view->descriptor);
+        lv_image_set_src(image, &view->descriptor);
+        lv_obj_remove_flag(image, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void refresh_album_thumb(VirtualRowWidgets &widgets)
+{
+    bind_album_thumb(widgets.art, row_payload(widgets.button));
+}
+
+void request_album_thumbs(const size_t *groups, size_t count)
+{
+    lyra::media::request_album_thumbnails(groups, count);
+}
+
 void build_album(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t, const VirtualRow &data, int width)
 {
     if (widgets.button) {
         rebind_virtual_row(widgets, data);
+        bind_album_thumb(widgets.art, data.payload);
         return;
     }
     lv_obj_t *row = make_button(slot, 7, 0, width, 60, kSurface, 5, true);
-    const int text_width = width - (s_queue_add_mode ? 70 : 24);
+    lv_obj_t *art = make_album_thumb(row);
+    const int text_width = width - kAlbumTextX - (s_queue_add_mode ? 58 : 12);
     lv_obj_t *title = make_label(row, data.title, kTextPrimary);
     make_marquee(title, text_width);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -10);
+    lv_obj_align(title, LV_ALIGN_LEFT_MID, kAlbumTextX, -10);
     lv_obj_t *sub = make_label(row, data.subtitle, kTextSecondary);
     make_marquee(sub, text_width);
-    lv_obj_align(sub, LV_ALIGN_LEFT_MID, 12, 12);
+    lv_obj_align(sub, LV_ALIGN_LEFT_MID, kAlbumTextX, 12);
     widgets = {row, title, sub, false};
+    widgets.art = art;
     lv_obj_set_user_data(row, reinterpret_cast<void *>(data.payload));
+    bind_album_thumb(art, data.payload);
     lv_obj_add_event_cb(row, [](lv_event_t *event) {
         open_album_detail(row_payload(lv_event_get_current_target_obj(event)));
     }, LV_EVENT_CLICKED, nullptr);
@@ -425,7 +518,14 @@ void render_library_section(LibraryTab section)
     spec.row_height = section == LibraryTab::Albums ? 60 : 54;
     switch (section) {
         case LibraryTab::Songs: spec.fetch = fetch_song; spec.build = build_song; break;
-        case LibraryTab::Albums: spec.fetch = fetch_album; spec.build = build_album; break;
+        case LibraryTab::Albums:
+            spec.fetch = fetch_album;
+            spec.build = build_album;
+            spec.window = request_album_thumbs;
+            spec.refresh_stamp = lyra::media::thumbnail_generation;
+            spec.refresh = refresh_album_thumb;
+            spec.release = lyra::media::release_album_thumbnails;
+            break;
         case LibraryTab::Artists: spec.fetch = fetch_artist; spec.build = build_group; break;
         case LibraryTab::Genres: spec.fetch = fetch_genre; spec.build = build_group; break;
         case LibraryTab::Years: spec.fetch = fetch_year; spec.build = build_group; break;

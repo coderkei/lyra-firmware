@@ -549,6 +549,7 @@ struct VirtualRowWidgets {
     lv_obj_t *subtitle;
     unsigned variant;
     lv_obj_t *number = nullptr;
+    lv_obj_t *art = nullptr;  // Optional row artwork, owned by the builder.
 };
 // Builds the widgets on first use and rebinds them to subsequent rows.
 using VirtualBuild = void (*)(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t position,
@@ -563,6 +564,14 @@ struct VirtualListSpec {
     bool letter_strip;                       // Jump strip (A-Z, years, ...) and bubble.
     lyra::media::SortSection letter_section;
     bool jump_button;                        // Opens the page-jump screen.
+    // Optional row artwork. window receives the payloads of the rows on
+    // screen, top to bottom, then of the rows just ahead of the scroll; it is
+    // called whenever they change. When refresh_stamp() changes, refresh runs
+    // for every shown row. release runs when the list goes away.
+    void (*window)(const size_t *payloads, size_t count) = nullptr;
+    uint32_t (*refresh_stamp)() = nullptr;
+    void (*refresh)(VirtualRowWidgets &widgets) = nullptr;
+    void (*release)() = nullptr;
 };
 void make_virtual_list(lv_obj_t *body, const VirtualListSpec &spec);
 void rebind_virtual_row(VirtualRowWidgets &widgets, const VirtualRow &row);

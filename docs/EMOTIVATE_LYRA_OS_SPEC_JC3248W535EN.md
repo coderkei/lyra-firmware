@@ -88,6 +88,16 @@ while keeping its settings and recovery interface available.
   artwork can come from `cover.jpg`, `folder.jpg`, or `cover.png`. Lyra keeps
   the display image in memory and can retain selected decoded artwork in
   `/sdcard/.lyra/covers`.
+- The Albums list shows a 48x48 thumbnail beside each album, taken from the
+  album's representative track. Each cover is decoded once at thumbnail size
+  by a low-priority worker that serves on-screen rows first, then the rows
+  ahead of the scroll, and waits while the player cover is loading. Results,
+  including "no artwork", are appended to a packed cache
+  (`/sdcard/.lyra/covers/thumbs-v1-48.idx` and `.rgb565`) keyed by track path,
+  size and modification time, so later visits need one small read per row. A
+  32-entry PSRAM cache, freed when the list closes, covers scrolling back.
+  Clearing the artwork cache removes the thumbnails too; a changed folder
+  cover image is picked up only after that.
 - Track catalog records capture each file's filesystem modification timestamp
   and refresh the size/date when file metadata is read, so files created or
   changed by Lyra receive the active clock date.

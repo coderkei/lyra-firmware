@@ -1652,6 +1652,7 @@ esp_err_t clear_playlists_locked()
 
 esp_err_t clear_artwork_cache_locked()
 {
+    invalidate_thumbnails();
     const bool removed = remove_directory_files(kArtworkDir);
     heap_caps_free(s_artwork_pixels);
     s_artwork_pixels = nullptr;
