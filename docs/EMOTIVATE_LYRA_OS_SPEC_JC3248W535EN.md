@@ -82,8 +82,8 @@ while keeping its settings and recovery interface available.
   Station lists can be imported from `.m3u`, `.m3u8`, `.pls`, and `.asx` files.
 - Settings, volume, equalizer preferences, sort choices, time settings, and
   artwork-cache choices use the `lyra` NVS namespace.
-- Wi-Fi is disabled by default. Settings > Wi-Fi (or the Home tile) can enable the
-  station, scan nearby networks, connect to open or password-protected
+- Wi-Fi is disabled by default. Home > Wi-Fi (also in Settings) can enable
+  the station, scan nearby networks, connect to open or password-protected
   networks, disconnect, and forget the saved network. The enabled state and
   one saved SSID/passphrase persist in NVS; an enabled station reconnects to
   that network after startup. Settings > About > Service Menu > Debug >
@@ -172,33 +172,35 @@ The five EQ bands are centred at 60 Hz, 250 Hz, 1 kHz, 4 kHz, and 16 kHz.
 Custom EQ and the included Flat, Full Bass, Full Treble, Bass & Treble, Rock,
 Pop, Jazz, and Classic presets are available in the UI.
 
-**Design.** One design language replaces the former themes: flat dark or
-light pages, rounded cards and rows, two-column tiles with two-tone badges,
-pill choices and switches, bottom sheets for actions, and one of six accent
-colours (blue, orange, yellow, green, purple, pink). Dynamic tint mixes the
-accent into every neutral layer. Headings use an 18 px font (Montserrat with
-the scaled multilingual fallback). The shared pieces live in
-`main/gui/shared/lyra_gui_design.cpp`; the palette is built in
-`apply_theme_palette()`.
+**Design.** The interface uses flat dark or light pages, rounded cards and
+rows, two-column tiles with two-tone badges, pill choices and switches, bottom
+sheets for actions, and one of six accent colours (blue, orange, yellow,
+green, purple, pink). Dynamic tint mixes the accent into every neutral layer.
+Headings use an 18 px font (Montserrat with the scaled multilingual fallback).
+The shared pieces live in `main/gui/shared/lyra_gui_design.cpp`, and the
+palette is built in `apply_theme_palette()`.
 
 **Navigation.** Home shows six tiles: Music, Internet radio, Wi-Fi, Files,
 More and Settings. Music opens a tile page (All songs, Albums, Artists,
 Genres, Year, Favorites, Playlists, Recently played, Recently added, Most
 played, Folders) with Search, Queue and Library settings in its header. More
-holds Photos, Ebook, Queue, Equalizer, Search and Playlists. Because the kit
-has no buttons, gestures carry navigation: a swipe right goes back, a swipe
-left opens Now Playing (from Now Playing it opens the queue), and pulling the
-status bar down draws out the control centre under the finger (clock, brightness,
-volume, the playing song with its transport, and toggles for Wi-Fi, the
-on-board speaker, gapless playback, dark theme, the sleep timer and the
-equalizer). A tap on the status bar does nothing, so a near miss on Back
-never opens it; the panel settles open after a quarter of its height and
-closes the same way when pushed back up, or with a tap on the dimmed page.
-Typing and viewer pages keep horizontal drags for themselves.
+holds Photos, Ebook, Queue, Equalizer, Search and Playlists.
+
+The kit has no buttons, so gestures carry navigation. A swipe right goes
+back, and a swipe left opens Now Playing (from Now Playing, it opens the
+queue). Pulling the status bar down draws out the control centre under the
+finger: the clock, brightness, volume, the playing song with its transport,
+and toggles for Wi-Fi, the on-board speaker, gapless playback, dark theme,
+the sleep timer and the equalizer. A tap on the status bar does nothing, so a
+near miss on Back never opens it. The panel settles open once it has been
+pulled a quarter of its height and closes the same way when pushed back up,
+or with a tap on the dimmed page. Typing and viewer pages keep horizontal
+drags for themselves.
+
 Browsing pages end in a mini player (cover, title, play/pause, next) that
 opens Now Playing when tapped or pushed up; Settings > Appearance can hide
-it. Tapping a page title scrolls its list to the top. Queue additions confirm with
-a short, non-blocking toast. A screen that redraws itself (a toggle, an
+it. Tapping a page title scrolls its list to the top. Queue additions confirm
+with a short, non-blocking toast. A screen that redraws itself (a toggle, an
 option, a status refresh) keeps its scroll position; navigating to other
 content, including another playlist, album, or folder, starts at the top, and
 Back returns to the previous position.

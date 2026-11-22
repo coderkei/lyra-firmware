@@ -198,53 +198,6 @@ void open_folders_cb(lv_event_t *)
     }
 }
 
-void queue_track_cb(lv_event_t *event)
-{
-    play_queue_position(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)), false);
-}
-
-void make_queue_song_row(lv_obj_t *parent, int y, size_t queue_position, bool current)
-{
-    size_t track_index;
-    lyra::media::Track track{};
-    if (!queue_track_at(queue_position, &track_index) || !lyra::media::track_at(track_index, &track)) return;
-    lv_obj_t *row = make_button(parent, kPageInset, y, kScreenWidth - 2 * kPageInset, 54,
-        current ? kAccentSurface : kSurface, kRowRadius);
-    char queue_number_text[16];
-    format_u32(lyra::i18n::StringId::QueueNumber,
-               static_cast<uint32_t>(queue_position + 1),
-               queue_number_text, sizeof(queue_number_text));
-    lv_obj_t *queue_number = make_label(row, queue_number_text, kTextMuted);
-    lv_obj_set_width(queue_number, 40);
-    lv_obj_set_style_text_align(queue_number, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(queue_number, LV_ALIGN_LEFT_MID, 0, 0);
-    if (current) {
-        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, kAccent);
-        lv_obj_align(playing, LV_ALIGN_LEFT_MID, 14, 0);
-        lv_obj_clear_flag(playing, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_flag(queue_number, LV_OBJ_FLAG_HIDDEN);
-    }
-    const int text_x = 42;
-    lv_obj_t *title = make_label(row, track.title, current ? kAccent : kTextPrimary);
-    const int text_width = s_queue_edit_mode ? 132 : 250;
-    make_marquee(title, text_width);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, text_x, -9);
-    lv_obj_t *artist = make_label(row, track.artist, kTextSecondary);
-    make_marquee(artist, text_width);
-    lv_obj_align(artist, LV_ALIGN_LEFT_MID, text_x, 11);
-    if (s_queue_edit_mode) {
-        const lv_color_t up_color = queue_position > 0 ? kTextSecondary : kTextMuted;
-        const lv_color_t down_color = queue_position + 1 < playback_queue_count() ?
-                                      kTextSecondary : kTextMuted;
-        lv_obj_set_user_data(row, reinterpret_cast<void *>(queue_position));
-        add_queue_row_action(row, 188, LV_SYMBOL_UP, up_color, QueueRowAction::MoveUp);
-        add_queue_row_action(row, 220, LV_SYMBOL_DOWN, down_color, QueueRowAction::MoveDown);
-        add_queue_row_action(row, 252, LV_SYMBOL_TRASH, kDangerSurface, QueueRowAction::Remove);
-    }
-    lv_obj_add_event_cb(row, queue_track_cb, LV_EVENT_CLICKED,
-                        reinterpret_cast<void *>(queue_position));
-}
-
 namespace {
 
 // The queue is frozen into this snapshot for the prefetch task, which must

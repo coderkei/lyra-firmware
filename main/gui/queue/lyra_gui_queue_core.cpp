@@ -987,15 +987,6 @@ void show_playback_error(esp_err_t error)
     show_notice(tr(lyra::i18n::StringId::PlaybackFailed), message);
 }
 
-void go_home()
-{
-    if (s_view == View::PlaylistCreate) s_playlist_create_from_queue = false;
-    s_playlist_add_mode = false;
-    s_navigation_depth = 0;
-    s_list_page = 0;
-    if (s_view != View::Menu) render(View::Menu);
-}
-
 uint8_t display_volume_percent(uint8_t volume_percent)
 {
     const uint8_t maximum = lyra::audio::maximum_volume_percent();

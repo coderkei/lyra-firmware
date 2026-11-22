@@ -76,7 +76,7 @@ With Wi-Fi on, you can save and play HTTP(S) radio streams. Station lists can
 be imported from `.m3u`, `.pls` or `.asx` files, and the player shows the
 stream's current title when the station sends one.
 
-### Files and apps
+### Files, photos and books
 
 There's a file manager for the card, so you can rename, copy, move and delete
 files and create folders without pulling the card out. Better still, **USB
@@ -85,7 +85,7 @@ computer, so you can copy music over the cable. One catch: the board has a
 single USB port, so serial logs and flashing pause while transfer mode is on.
 Tapping Finish restarts Lyra and brings them back.
 
-The More page holds the photo viewer and the text and ebook reader, beside
+The More page has the photo viewer and the text and ebook reader, along with
 shortcuts to the queue, equaliser, search and playlists.
 
 The photo viewer opens PNG, BMP and JPEG files full screen with zoom and pan.
@@ -94,21 +94,22 @@ a progress bar and a bookmark per file.
 
 ### Look and feel
 
-LyraOS has one design, made for a small touch screen and in the spirit of
-small-screen music players: large two-column tiles on Home (Music, Internet
-radio, Wi-Fi, Files, More and Settings) and on the Music page, rounded cards
-everywhere else, and a full-bleed cover on Now Playing with a panel tinted by
-the cover's own colour.
+Lyra is made for a small touchscreen. Home is six big tiles (Music, Internet
+radio, Wi-Fi, Files, More and Settings), the Music page works the same way,
+and everything else is rounded cards and lists that are easy to hit with a
+thumb. Now Playing puts the album art edge to edge, with the controls on a
+panel that takes its colour from the cover.
 
-The board has no buttons, so gestures do their work: swipe right to go back,
-swipe left to open Now Playing (and, from Now Playing, the queue), and pull
-the status bar down (it follows your finger) for the control centre with brightness,
-volume, the playing song and quick toggles. A mini player sits under the
-browsing pages.
+The board has no buttons, so gestures do the work: swipe right to go back,
+swipe left to jump to Now Playing (and from there, to the queue), and pull the
+status bar down for the control centre, which follows your finger. It has
+brightness, volume, the current song and quick toggles for Wi-Fi, the speaker,
+gapless playback, dark mode, the sleep timer and the equalizer. A mini player
+sits at the bottom of the browsing pages.
 
-Settings → Appearance chooses a dark or light theme, the clock position, one
-of six accent colours and an optional dynamic tint that washes the interface
-in the accent colour.
+In Settings → Appearance you can pick a dark or light theme, where the clock
+sits, one of six accent colours, and a dynamic tint that washes the whole
+interface in that colour.
 
 The interface is translated into English, French, German, Spanish, Italian,
 Japanese, Korean, Russian, and Simplified and Traditional Chinese. Song

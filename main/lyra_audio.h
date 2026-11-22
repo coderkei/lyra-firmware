@@ -102,9 +102,6 @@ esp_err_t play_stream(const char *url);
 // (ICY/SHOUTcast metadata) into title as UTF-8. The result is empty when the
 // stream has not announced a title or the station does not provide metadata.
 void stream_title(char *title, size_t capacity);
-// Plays a short timer alarm through the active output stream, or starts a
-// temporary tone stream when music is stopped.
-esp_err_t play_timer_alarm();
 // Starts playback from a decoded position. When paused is true, the decoder
 // is prepared at that position without producing audio until the caller
 // resumes it.

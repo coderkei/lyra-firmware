@@ -361,11 +361,6 @@ size_t library_page_size()
     return mini_player_visible() ? lyra::media::kTrackPageSize : 6;
 }
 
-size_t search_page_size()
-{
-    return mini_player_visible() ? kSearchPageSizeWithNav : kSearchPageSizeWithoutNav;
-}
-
 lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int width, int height,
                    lv_color_t color, int radius, bool show_border)
 {
@@ -610,7 +605,6 @@ void style_root()
     s_player_progress_dragging = false;
     s_player_progress_drag_value = 0;
     s_playlist_picker = nullptr;
-    s_volume_popup = nullptr;
     s_status_volume_label = nullptr;
     s_status_time_label = nullptr;
     s_scroll_body = nullptr;

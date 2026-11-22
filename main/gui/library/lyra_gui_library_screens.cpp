@@ -45,11 +45,6 @@ static void open_track_list(size_t selected_group)
     }
 }
 
-void open_track_list_cb(lv_event_t *event)
-{
-    open_track_list(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-}
-
 static void open_album_detail(size_t selected_group)
 {
     lyra::media::Group selected{};
@@ -942,12 +937,6 @@ void delete_playlist_cb(lv_event_t *event)
                                       reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
 }
 
-void remove_playlist_track_cb(lv_event_t *event)
-{
-    show_playlist_manage_confirmation(PlaylistManageAction::RemoveTrack, s_selected_playlist,
-                                      reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-}
-
 void make_playlist_manage_row(lv_obj_t *parent, int y, size_t playlist_index,
                               const lyra::media::Playlist &playlist)
 {
@@ -965,24 +954,6 @@ void make_playlist_manage_row(lv_obj_t *parent, int y, size_t playlist_index,
     lv_obj_center(remove_icon);
     lv_obj_add_event_cb(remove, delete_playlist_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(playlist_index));
-}
-
-void make_playlist_track_manage_row(lv_obj_t *parent, int y, size_t track_index)
-{
-    lyra::media::Track track{};
-    if (!lyra::media::track_at(track_index, &track)) return;
-    lv_obj_t *row = make_button(parent, kPageInset, y, kScreenWidth - 2 * kPageInset, 54, kSurface, 5, true);
-    lv_obj_t *title = make_label(row, track.title, kTextPrimary);
-    make_marquee(title, 220);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -9);
-    lv_obj_t *artist = make_label(row, track.artist, kTextSecondary);
-    make_marquee(artist, 220);
-    lv_obj_align(artist, LV_ALIGN_LEFT_MID, 12, 11);
-    lv_obj_t *remove = make_button(row, 246, 7, 40, 40, kDanger, LV_RADIUS_CIRCLE);
-    lv_obj_t *remove_icon = make_label(remove, LV_SYMBOL_TRASH, kTextOnAccent);
-    lv_obj_center(remove_icon);
-    lv_obj_add_event_cb(remove, remove_playlist_track_cb, LV_EVENT_CLICKED,
-                        reinterpret_cast<void *>(track_index));
 }
 
 void render_playlists(bool detail)

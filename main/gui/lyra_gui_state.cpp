@@ -62,7 +62,6 @@ lv_obj_t *s_sort_overlay = nullptr;
 lv_obj_t *s_sort_progress_label = nullptr;
 lv_obj_t *s_playlist_picker = nullptr;
 lv_obj_t *s_queue_add_popup = nullptr;
-lv_obj_t *s_volume_popup = nullptr;
 lv_obj_t *s_status_volume_label = nullptr;
 lv_obj_t *s_status_time_label = nullptr;
 lv_obj_t *s_screenshot_button = nullptr;

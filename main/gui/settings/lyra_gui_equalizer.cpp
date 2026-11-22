@@ -43,11 +43,6 @@ void equalizer_slider_released_cb(lv_event_t *)
     save_user_settings();
 }
 
-void equalizer_preset_menu_cb(lv_event_t *)
-{
-    navigate_to(View::EqualizerPresets);
-}
-
 void equalizer_preset_option_cb(lv_event_t *event)
 {
     const auto preset = static_cast<EqualizerPreset>(

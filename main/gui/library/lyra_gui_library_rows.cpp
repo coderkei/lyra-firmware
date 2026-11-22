@@ -452,41 +452,6 @@ void play_search_playlist_result(uintptr_t payload)
     navigate_to(View::Player);
 }
 
-void add_search_playlist_route(lv_obj_t *row, size_t track_index, size_t playlist_index)
-{
-    lv_obj_add_event_cb(row, [](lv_event_t *event) {
-        play_search_playlist_result(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-    }, LV_EVENT_CLICKED,
-    reinterpret_cast<void *>(search_playlist_payload(track_index, playlist_index)));
-}
-
-void make_search_playlist_row(lv_obj_t *parent, int y,
-                              const lyra::media::SearchResult &result)
-{
-    lyra::media::Track track{};
-    lyra::media::Playlist playlist{};
-    if (!lyra::media::track_at(result.track_index, &track) ||
-        !lyra::media::playlist_at(result.playlist_index, &playlist)) return;
-    lv_obj_t *row = make_button(parent, kPageInset, y, kScreenWidth - 2 * kPageInset, 54, kSurface, 5, true);
-    lv_obj_t *title = make_label(row, track.title, kTextPrimary);
-    make_marquee(title, 282);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -9);
-    lv_obj_t *source = make_label(row, playlist.name, kTextSecondary);
-    make_marquee(source, 282);
-    lv_obj_align(source, LV_ALIGN_LEFT_MID, 12, 11);
-    add_search_playlist_route(row, result.track_index, result.playlist_index);
-}
-
-void search_album_result_cb(lv_event_t *event)
-{
-    open_search_album_result(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-}
-
-void search_artist_result_cb(lv_event_t *event)
-{
-    open_search_artist_result(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-}
-
 void open_search_album_result(size_t group_index)
 {
     lyra::media::Group group{};
@@ -508,32 +473,6 @@ void open_search_artist_result(size_t group_index)
     s_artist_detail_tab = ArtistDetailTab::Songs;
     copy_ui_text(s_track_list_title, sizeof(s_track_list_title), group.name);
     navigate_to(View::ArtistDetail);
-}
-
-void make_file_row(lv_obj_t *parent, int y, size_t track_index, int height)
-{
-    lyra::media::Track track{};
-    if (!lyra::media::track_at(track_index, &track)) return;
-    const char *filename = std::strrchr(track.path, '/');
-    filename = filename ? filename + 1 : track.path;
-    lv_obj_t *row = make_button(parent, kPageInset, y, kScreenWidth - 2 * kPageInset, height, kSurface, 5, true);
-    lv_obj_t *icon = make_label(row, LV_SYMBOL_FILE, kAccent);
-    lv_obj_align(icon, LV_ALIGN_LEFT_MID, 12, 0);
-    lv_obj_t *name = make_label(row, filename, kTextPrimary);
-    make_marquee(name, s_queue_add_mode ? 202 : 251);
-    lv_obj_align(name, LV_ALIGN_LEFT_MID, 43, -9);
-    char size[24];
-    if (track.size_bytes < 1024u * 1024u) {
-        format_float(lyra::i18n::StringId::SizeKilobytesWhole,
-                     track.size_bytes / 1024.0, size, sizeof(size));
-    } else {
-        format_float(lyra::i18n::StringId::SizeMegabytes,
-                     track.size_bytes / (1024.0 * 1024.0), size, sizeof(size));
-    }
-    lv_obj_t *size_label = make_label(row, size, kTextSecondary);
-    lv_obj_align(size_label, LV_ALIGN_LEFT_MID, 43, 11);
-    add_track_route(row, track_index);
-    if (s_queue_add_mode) add_queue_source_button(row, QueueAddSourceKind::Track, track_index);
 }
 
 void make_album_art(lv_obj_t *parent, int x, int y, int width, int height,

@@ -503,11 +503,6 @@ void destroy_virtual_list(lv_obj_t *body)
     if (body && s_list.body == body) stop_list(true);
 }
 
-int virtual_list_row_width()
-{
-    return s_list.width ? s_list.width : kScreenWidth - 2 * kPageInset;
-}
-
 void make_virtual_list(lv_obj_t *body, const VirtualListSpec &spec)
 {
     if (!body || !spec.fetch || !spec.build || spec.pitch <= 0 || !ensure_prefetch()) return;

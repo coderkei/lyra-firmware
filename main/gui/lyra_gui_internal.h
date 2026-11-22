@@ -123,9 +123,6 @@ enum class QueueInsertMode : uint8_t { PlayNext, AddToEnd };
 enum class DateFormat : uint8_t { DayMonthYear, MonthDayYear, YearMonthDay };
 enum class ClockInputKind : uint8_t { Time, Date };
 
-constexpr size_t kSearchPageSizeWithNav = 4;
-constexpr size_t kSearchPageSizeWithoutNav = 5;
-constexpr size_t kSearchPageCapacity = kSearchPageSizeWithoutNav;
 
 struct NavigationState {
     View view;
@@ -202,7 +199,6 @@ extern lv_obj_t *s_sort_overlay;
 extern lv_obj_t *s_sort_progress_label;
 extern lv_obj_t *s_playlist_picker;
 extern lv_obj_t *s_queue_add_popup;
-extern lv_obj_t *s_volume_popup;
 extern lv_obj_t *s_status_volume_label;
 extern lv_obj_t *s_status_time_label;
 extern lv_obj_t *s_screenshot_button;
@@ -359,7 +355,6 @@ int content_bottom();
 int content_height(int top);
 int library_keyboard_height();
 size_t library_page_size();
-size_t search_page_size();
 lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int width, int height, lv_color_t color, int radius = 0, bool show_border = false);
 lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color);
 // Vector icons drawn on a 20 x 20 grid and scaled.
@@ -509,7 +504,6 @@ void make_queue_add_mode_toggle(lv_obj_t *parent, int x, int y, int width = 40, 
 void dismiss_overlay_cb(lv_event_t *event);
 void show_notice(const char *title_text, const char *message_text);
 void show_toast(const char *text);
-void go_home();
 lv_obj_t *make_row(lv_obj_t *parent, int y, const char *icon_text, const char *title, const char *subtitle, View target, int height = 54);
 lv_obj_t *make_row(lv_obj_t *parent, int y, Icon icon, const char *title, const char *subtitle, View target, int height = 54);
 void release_boot_image();
@@ -527,14 +521,10 @@ void show_queue_add_picker_for_album(size_t group_index);
 void show_queue_add_picker_for_folder(const char *folder_path);
 void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height = 54,
                    bool force_single = false, bool show_play_count = false);
-void add_search_playlist_route(lv_obj_t *row, size_t track_index, size_t playlist_index);
 uintptr_t search_playlist_payload(size_t track_index, size_t playlist_index);
 void play_search_playlist_result(uintptr_t payload);
 void open_search_album_result(size_t group_index);
 void open_search_artist_result(size_t group_index);
-void make_search_playlist_row(lv_obj_t *parent, int y, const lyra::media::SearchResult &result);
-void search_album_result_cb(lv_event_t *event);
-void search_artist_result_cb(lv_event_t *event);
 void render_file_viewer();
 void open_document_file(const char *path, lyra::media::FileKind kind, View back_view);
 View file_viewer_back_view();
@@ -544,7 +534,6 @@ void render_folder_playlist();
 bool play_file_queue(const size_t *indices, size_t count, size_t position);
 void make_document_row(lv_obj_t *parent, int y, const lyra::media::FolderFile &file,
                        View back_view = View::Folders);
-void make_file_row(lv_obj_t *parent, int y, size_t track_index, int height = 54);
 void make_album_art(lv_obj_t *parent, int x, int y, int width, int height, const lyra::media::Track &track, bool preserve_aspect = false);
 void page_cb(lv_event_t *event);
 void make_page_controls(lv_obj_t *parent, int y, size_t total, size_t page_size = lyra::media::kTrackPageSize);
@@ -628,7 +617,6 @@ void build_track_row(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t position
 void refresh_track_row_thumbnail(VirtualRowWidgets &widgets);
 void request_track_row_thumbnails(const size_t *tracks, size_t count);
 void rebind_virtual_row(VirtualRowWidgets &widgets, const VirtualRow &row);
-int virtual_list_row_width();
 void render_page_jump();
 void open_queue_cb(lv_event_t *);
 bool show_now_playing();
@@ -644,12 +632,9 @@ void render_apps();
 void render_app_files();
 void release_app_file_scan(View view);
 void stop_apps_runtime_timers(View next_view);
-void queue_track_cb(lv_event_t *event);
-void make_queue_song_row(lv_obj_t *parent, int y, size_t queue_position, bool current);
 void render_queue();
 View library_section_view(LibraryTab section);
 lyra::media::GroupKind group_kind(LibraryTab section);
-void open_track_list_cb(lv_event_t *event);
 void open_album_detail_cb(lv_event_t *event);
 void open_library_playlists_cb(lv_event_t *);
 // The tiles of the Music page, in their on-screen order.
@@ -695,9 +680,7 @@ void toggle_playlist_manage_cb(lv_event_t *);
 void confirm_playlist_manage_action_cb(lv_event_t *event);
 void show_playlist_manage_confirmation(PlaylistManageAction action, size_t playlist_index, size_t track_index = 0);
 void delete_playlist_cb(lv_event_t *event);
-void remove_playlist_track_cb(lv_event_t *event);
 void make_playlist_manage_row(lv_obj_t *parent, int y, size_t playlist_index, const lyra::media::Playlist &playlist);
-void make_playlist_track_manage_row(lv_obj_t *parent, int y, size_t track_index);
 void render_playlists(bool detail);
 void toggle_favorite_cb(lv_event_t *event);
 void close_playlist_picker();
@@ -781,7 +764,6 @@ void render_player();
 void update_equalizer_gain_label(lv_obj_t *label, int16_t gain_tenths_db, lv_color_t color);
 void equalizer_slider_cb(lv_event_t *event);
 void equalizer_slider_released_cb(lv_event_t *);
-void equalizer_preset_menu_cb(lv_event_t *);
 void equalizer_preset_option_cb(lv_event_t *event);
 void make_equalizer_preset_option(lv_obj_t *parent, int y, EqualizerPreset preset);
 void render_equalizer_presets();
