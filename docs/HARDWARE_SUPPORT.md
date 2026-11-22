@@ -25,7 +25,7 @@ checks on this board that still need physical measurement.
 
 ## Things to work out for a new board
 
-- **Processor and memory:** is there enough for the codecs, themes, artwork and
+- **Processor and memory:** is there enough for the codecs, the interface, artwork and
   features you want?
 - **Display:** controller, bus, colour format, resolution, orientation, and how
   LVGL's flush maps onto it.

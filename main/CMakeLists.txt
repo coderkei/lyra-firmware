@@ -7,20 +7,17 @@ idf_component_register(
         "i18n/lyra_i18n.cpp"
         "gui/lyra_gui_state.cpp"
         "gui/shared/lyra_gui_theme_widgets.cpp"
-        "gui/shared/lyra_gui_hud.cpp"
         "gui/shared/lyra_gui_icons.cpp"
-        "gui/shared/lyra_gui_cute.cpp"
-        "gui/shared/lyra_gui_aura.cpp"
-        "gui/shared/lyra_gui_zeno.cpp"
-        "gui/shared/lyra_gui_zeno_font.cpp"
+        "gui/shared/lyra_gui_fonts.cpp"
+        "gui/shared/lyra_gui_design.cpp"
         "gui/shared/lyra_gui_status_artwork.cpp"
         "gui/shared/lyra_gui_virtual_list.cpp"
         "gui/shared/lyra_gui_thumbnails.cpp"
         "gui/queue/lyra_gui_queue_core.cpp"
         "gui/queue/lyra_gui_queue_view.cpp"
         "gui/apps/lyra_gui_apps.cpp"
-        "gui/apps/lyra_gui_dot_link.cpp"
-        "gui/apps/lyra_gui_dice.cpp"
+        "gui/home/lyra_gui_home.cpp"
+        "gui/home/lyra_gui_shell.cpp"
         "gui/library/lyra_gui_library_rows.cpp"
         "gui/library/lyra_gui_file_viewer.cpp"
         "gui/library/lyra_gui_folder_playlist.cpp"
@@ -80,7 +77,6 @@ idf_component_register(
     EMBED_FILES
         "../graphics/boot.png"
         "../graphics/boot_light.png"
-        "../graphics/cute_pink_background.png"
     REQUIRES
         lyra_board
         lvgl

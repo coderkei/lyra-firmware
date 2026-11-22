@@ -77,11 +77,12 @@ void toggle_queue_edit_mode_cb(lv_event_t *)
 
 void make_queue_edit_mode_toggle(lv_obj_t *header)
 {
-    lv_obj_t *button = make_button(header, 274, 4, 40, 36,
-        s_queue_edit_mode ? kAccentDark : kBackground, 5);
+    lv_obj_t *button = make_button(header, 274, 2, 40, 40,
+        s_queue_edit_mode ? kAccent : kSurfaceRaised, LV_RADIUS_CIRCLE);
+    if (!s_queue_edit_mode) lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, 0);
     lv_obj_t *icon = make_label(button,
         s_queue_edit_mode ? LV_SYMBOL_CLOSE : LV_SYMBOL_EDIT,
-        s_queue_edit_mode ? kTextOnAccent : kTextSecondary);
+        s_queue_edit_mode ? kTextOnAccent : kTextPrimary);
     lv_obj_center(icon);
     lv_obj_add_event_cb(button, [](lv_event_t *event) {
         lv_event_stop_bubbling(event);
@@ -128,7 +129,7 @@ void add_queue_row_action(lv_obj_t *row, int x, const char *symbol, lv_color_t c
 void add_queue_toolbar_button(lv_obj_t *parent, int x, const char *text,
                               lv_event_cb_t callback)
 {
-    lv_obj_t *button = make_button(parent, x, 0, 148, 40, kSurfaceRaised, 6, true);
+    lv_obj_t *button = make_button(parent, x, 0, 146, 40, kSurface, LV_RADIUS_CIRCLE);
     lv_obj_t *label = make_label(button, text, kAccent);
     make_marquee(label, 132);
     lv_obj_center(label);
@@ -197,470 +198,6 @@ void open_folders_cb(lv_event_t *)
     }
 }
 
-namespace {
-
-struct MenuEntry {
-    lyra::i18n::StringId label;
-    View view;
-    Icon icon;
-};
-
-constexpr MenuEntry kListeningDestinations[] = {
-    {lyra::i18n::StringId::MusicLibrary, View::Library, Icon::Music},
-    {lyra::i18n::StringId::Search, View::Search, Icon::Search},
-    {lyra::i18n::StringId::Queue, View::Queue, Icon::Queue},
-    {lyra::i18n::StringId::Apps, View::Apps, Icon::Apps},
-};
-
-constexpr MenuEntry kUtilityDestinations[] = {
-    {lyra::i18n::StringId::BrowseFolders, View::Folders, Icon::Folder},
-    {lyra::i18n::StringId::Equalizer, View::Equalizer, Icon::Equalizer},
-    {lyra::i18n::StringId::Settings, View::Settings, Icon::Settings},
-};
-
-constexpr MenuEntry kClassicDestinations[] = {
-    {lyra::i18n::StringId::NowPlaying, View::Player, Icon::NowPlaying},
-    {lyra::i18n::StringId::MusicLibrary, View::Library, Icon::Music},
-    {lyra::i18n::StringId::BrowseFolders, View::Folders, Icon::Folder},
-    {lyra::i18n::StringId::Queue, View::Queue, Icon::Queue},
-    {lyra::i18n::StringId::Equalizer, View::Equalizer, Icon::Equalizer},
-    {lyra::i18n::StringId::Search, View::Search, Icon::Search},
-    {lyra::i18n::StringId::Apps, View::Apps, Icon::Apps},
-    {lyra::i18n::StringId::Settings, View::Settings, Icon::Settings},
-};
-
-constexpr uint32_t kCutePrimaryColors[] = {0xFFD6ED, 0xF3EDFF, 0xEDF7FF, 0xEDF9F5};
-constexpr uint32_t kCuteUtilityColors[] = {0xF6EEFF, 0xEEF5FF, 0xFFF0F7};
-
-void menu_destination_cb(lv_event_t *event)
-{
-    const View destination = static_cast<View>(
-        reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-    switch (destination) {
-        case View::Player: show_now_playing(); break;
-        case View::Library: open_library_cb(event); break;
-        case View::Folders: open_folders_cb(event); break;
-        case View::Queue: open_queue_cb(event); break;
-        case View::Playlists:
-            s_playlists_from_library = false;
-            navigate_to(View::Playlists);
-            break;
-        default: navigate_to(destination); break;
-    }
-}
-
-lv_obj_t *make_menu_action(lv_obj_t *parent, const MenuEntry &entry,
-                           int x, int y, int width, int height,
-                           lv_color_t fill, bool primary, bool centered = false)
-{
-    const int radius = s_neon_hud ? 0 : is_cute_theme() ? 18 : is_aura_theme() ? 12 : 7;
-    lv_obj_t *button = make_button(parent, x, y, width, height, fill, radius, true);
-    lv_obj_add_event_cb(button, menu_destination_cb, LV_EVENT_CLICKED,
-                        reinterpret_cast<void *>(static_cast<uintptr_t>(entry.view)));
-
-    if (is_cute_theme() && primary) {
-        make_cute_menu_icon(button, entry.view);
-        lv_obj_t *icon = lv_obj_get_child(button, lv_obj_get_child_count(button) - 1);
-        lv_obj_set_pos(icon, (width - 32) / 2, 5);
-        lv_obj_t *label = make_label(button, tr(entry.label), kTextPrimary);
-        make_marquee(label, width - 12);
-        lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -7);
-        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-        return button;
-    }
-
-    const bool icon_above = centered;
-    const lv_color_t icon_color = s_neon_hud ? kTextSecondary : kAccent;
-    lv_obj_t *icon = make_icon(button, entry.icon, icon_color);
-    if (icon_above) {
-        lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, is_aura_theme() ? 9 : 8);
-    } else {
-        lv_obj_align(icon, LV_ALIGN_LEFT_MID, 11, 0);
-    }
-
-    const lv_color_t label_color = lv_color_eq(fill, kAccentSurface) && !is_cute_theme() ?
-                                   kTextOnAccent : kTextPrimary;
-    lv_obj_t *label = make_label(button, tr(entry.label), label_color);
-    if (icon_above) {
-        make_marquee(label, width - 10);
-        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -5);
-    } else {
-        make_marquee(label, width - 48);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, 39, 0);
-    }
-    return button;
-}
-
-// The home screen stays up while playback changes underneath it. These track
-// what its now-playing card was built for, so update_menu_playback() can
-// refresh it; each pointer is cleared when its label is deleted.
-lv_obj_t *s_menu_playback_state = nullptr;
-lv_obj_t *s_menu_live_label = nullptr;
-char s_menu_playback_path[sizeof(lyra::audio::Status::path)] = "";
-bool s_menu_playback_playing = false;
-
-void clear_menu_pointer_cb(lv_event_t *event)
-{
-    lv_obj_t *target = lv_event_get_current_target_obj(event);
-    if (target == s_menu_playback_state) s_menu_playback_state = nullptr;
-    if (target == s_menu_live_label) s_menu_live_label = nullptr;
-}
-
-lyra::i18n::StringId playback_state_id(const lyra::audio::Status &playback)
-{
-    return !playback.playing ? lyra::i18n::StringId::PlaybackIdle :
-           playback.paused ? lyra::i18n::StringId::PlaybackPaused :
-                             lyra::i18n::StringId::PlaybackPlaying;
-}
-
-void make_menu_playback_entry(lv_obj_t *parent, int x, int y, int width, int height)
-{
-    const lv_color_t fill = is_cute_theme() ? kAccentSurface :
-                            is_aura_theme() ? kAccentSurface :
-                            s_neon_hud ? kSurface : kSurfaceRaised;
-    const int radius = s_neon_hud ? 0 : is_cute_theme() ? 20 : is_aura_theme() ? 12 : 7;
-    lv_obj_t *entry = make_button(parent, x, y, width, height, fill, radius, true);
-    lv_obj_add_event_cb(entry, menu_destination_cb, LV_EVENT_CLICKED,
-                        reinterpret_cast<void *>(static_cast<uintptr_t>(View::Player)));
-    if (s_neon_hud) {
-        add_hud_frame(entry, true);
-    }
-
-    lyra::media::Track track{};
-    const lyra::audio::Status playback = lyra::audio::status();
-    // A radio stream leaves s_current_track on the last MicroSD song. Show
-    // the station instead of that song's title, album and cover.
-    const bool radio = playback.playing && is_radio_stream(playback.path);
-    const bool has_track = !radio && (s_has_active_queue || playback.playing) &&
-                           lyra::media::track_at(s_current_track, &track) && track.title[0];
-    const char *title_text = radio ? radio_station_name(playback.path) :
-                             has_track ? track.title : tr(lyra::i18n::StringId::NowPlaying);
-    const char *state_text = tr(playback_state_id(playback));
-    const bool detailed_overview = height >= 96;
-    const bool show_album = detailed_overview && has_track && track.album[0];
-    // The card is not refreshed while a station plays, so name the source
-    // rather than a stream title that would go stale.
-    const char *artist_text = radio ? tr(lyra::i18n::StringId::InternetRadio) : track.artist;
-    const bool show_artist = detailed_overview && (has_track || radio) && artist_text[0];
-    const bool accent_fill = lv_color_eq(fill, kAccentSurface) && !is_cute_theme();
-    const lv_color_t title_color = accent_fill ? kTextOnAccent : kTextPrimary;
-    const lv_color_t state_color = accent_fill ? kTextOnAccent :
-                                   s_neon_hud ? lv_color_hex(kHudCyanRgb) : kAccent;
-    const int artwork_size = detailed_overview ? 80 : 48;
-    constexpr int kArtworkX = 10;
-    const int artwork_y = (height - artwork_size) / 2;
-    const int text_x = kArtworkX + artwork_size + 10;
-    const int text_width = width - text_x - 12;
-    const int artwork_radius = s_neon_hud ? 0 : is_cute_theme() ? 8 : 6;
-    lv_obj_t *artwork = make_box(entry, kArtworkX, artwork_y, artwork_size,
-                                 artwork_size, kArtworkSurface, artwork_radius);
-    if (has_track) {
-        make_artwork_contents(artwork, artwork_size, artwork_size, track,
-                              artwork_radius, true);
-    } else if (radio) {
-        // Matches the station artwork on the Internet radio screen.
-        lv_obj_t *icon = make_label(artwork, LV_SYMBOL_WIFI, kAccent);
-        lv_obj_set_style_text_font(icon, detailed_overview ? &lv_font_montserrat_28 :
-                                         lyra::font::ui(), 0);
-        lv_obj_center(icon);
-    } else {
-        make_artwork_placeholder(artwork, artwork_size, artwork_size);
-    }
-    add_hud_brackets(artwork);
-    lv_obj_t *title = make_label(entry, title_text, title_color);
-    make_marquee(title, text_width, MarqueeMode::Focus);
-    lv_obj_set_style_text_color(title, title_color, 0);
-    lv_obj_t *state = make_label(entry, state_text, state_color);
-    lv_obj_set_width(state, text_width);
-    lv_label_set_long_mode(state, LV_LABEL_LONG_MODE_DOTS);
-    s_menu_playback_state = state;
-    lv_obj_add_event_cb(state, clear_menu_pointer_cb, LV_EVENT_DELETE, nullptr);
-    copy_ui_text(s_menu_playback_path, sizeof(s_menu_playback_path), playback.path);
-    s_menu_playback_playing = playback.playing;
-    if (detailed_overview) {
-        constexpr int kOverviewLineHeight = 24;
-        const int line_count = 2 + static_cast<int>(show_album) +
-                               static_cast<int>(show_artist);
-        int line_y = (height - line_count * kOverviewLineHeight) / 2;
-        lv_obj_align(title, LV_ALIGN_TOP_LEFT, text_x, line_y);
-        line_y += kOverviewLineHeight;
-        if (show_album) {
-            lv_obj_t *album = make_label(entry, track.album,
-                accent_fill ? kTextOnAccent : kTextMuted);
-            make_marquee(album, text_width, MarqueeMode::Focus);
-            lv_obj_align(album, LV_ALIGN_TOP_LEFT, text_x, line_y);
-            line_y += kOverviewLineHeight;
-        }
-        if (show_artist) {
-            lv_obj_t *artist = make_label(entry, artist_text,
-                accent_fill ? kTextOnAccent : kTextSecondary);
-            make_marquee(artist, text_width, MarqueeMode::Focus);
-            lv_obj_align(artist, LV_ALIGN_TOP_LEFT, text_x, line_y);
-            line_y += kOverviewLineHeight;
-        }
-        lv_obj_align(state, LV_ALIGN_TOP_LEFT, text_x, line_y);
-    } else {
-        lv_obj_align(title, LV_ALIGN_TOP_LEFT, text_x, 10);
-        lv_obj_align(state, LV_ALIGN_BOTTOM_LEFT, text_x, -10);
-    }
-}
-
-void render_classic_zeno_menu()
-{
-    lv_obj_t *body = make_scroll_body(kStatusHeight);
-    constexpr MenuEntry items[] = {
-        {lyra::i18n::StringId::Music, View::Library, Icon::Music},
-        {lyra::i18n::StringId::NowPlaying, View::Player, Icon::NowPlaying},
-        // The short label fits the large type on one line.
-        {lyra::i18n::StringId::Folders, View::Folders, Icon::Folder},
-        {lyra::i18n::StringId::Queue, View::Queue, Icon::Queue},
-        {lyra::i18n::StringId::Search, View::Search, Icon::Search},
-        {lyra::i18n::StringId::Apps, View::Apps, Icon::Apps},
-        {lyra::i18n::StringId::Settings, View::Settings, Icon::Settings},
-        {lyra::i18n::StringId::Equalizer, View::Equalizer, Icon::Equalizer},
-    };
-    // Zune-style home: every destination in the large lowercase face, flush
-    // left and stacked tight. Now Playing lights up while music is playing.
-    const lyra::audio::Status playback = lyra::audio::status();
-    const bool playing = playback.playing && !playback.paused;
-    constexpr int kPitch = 54;
-    for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
-        lv_obj_t *row = make_button(body, 0, 10 + static_cast<int>(i) * kPitch,
-                                    320, kPitch - 2, kBackground, 0);
-        lv_obj_set_style_border_width(row, 0, 0);
-        lv_obj_t *label = make_zeno_label(row, tr(items[i].label), true);
-        make_marquee(label, 296);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, 14, 0);
-        const bool live = items[i].view == View::Player && playing;
-        lv_obj_set_style_text_color(label, live ? kAccent : kTextPrimary, 0);
-        if (items[i].view == View::Player) {
-            s_menu_live_label = label;
-            lv_obj_add_event_cb(label, clear_menu_pointer_cb, LV_EVENT_DELETE, nullptr);
-        }
-        lv_obj_add_event_cb(row, menu_destination_cb, LV_EVENT_CLICKED,
-            reinterpret_cast<void *>(static_cast<uintptr_t>(items[i].view)));
-    }
-    lv_obj_t *brand = make_label(body, "Emotivate Lyra", kTextMuted);
-    lv_obj_set_style_text_letter_space(brand, 2, 0);
-    lv_obj_set_pos(brand, 16, 10 + 8 * kPitch + 12);
-}
-
-void render_classic_menu()
-{
-    if (is_zeno_theme()) {
-        render_classic_zeno_menu();
-        return;
-    }
-    if (is_aura_theme()) {
-        lv_obj_t *banner = make_box(s_screen, 0, kStatusHeight, kScreenWidth, 68, kBackground);
-        lv_obj_set_style_bg_opa(banner, LV_OPA_TRANSP, 0);
-        lv_obj_t *brand = make_label(banner, "Lyra", kAccent);
-        lv_obj_set_style_text_font(brand, &lv_font_montserrat_28, 0);
-        lv_obj_set_pos(brand, 16, 5);
-        lv_obj_t *subtitle = make_label(banner, "Emotivate", kTextSecondary);
-        lv_obj_set_pos(subtitle, 18, 37);
-        lv_obj_t *play = make_button(banner, 250, 7, 52, 52, kSurface, LV_RADIUS_CIRCLE);
-        lv_obj_t *icon = make_label(play, LV_SYMBOL_PLAY, kAccent);
-        lv_obj_set_style_text_font(icon, &lv_font_montserrat_28, 0);
-        lv_obj_center(icon);
-        lv_obj_add_event_cb(play, [](lv_event_t *) { show_now_playing(); },
-                            LV_EVENT_CLICKED, nullptr);
-    } else {
-        make_header(tr(lyra::i18n::StringId::Menu), View::Menu);
-    }
-
-    lv_obj_t *body = make_scroll_body(is_aura_theme() ? 96 : 72);
-    constexpr uint32_t cute_row_colors[] = {
-        0xFFD6ED, 0xF3EDFF, 0xEDF7FF, 0xEDF9F5,
-        0xF6EEFF, 0xEEF5FF, 0xFFF0F7, 0xEAF7F4,
-    };
-    for (size_t i = 0; i < sizeof(kClassicDestinations) / sizeof(kClassicDestinations[0]); ++i) {
-        const MenuEntry &entry = kClassicDestinations[i];
-        lv_obj_t *row = make_row(body, static_cast<int>(i) * (is_aura_theme() ? 46 : 56),
-                                 entry.icon, tr(entry.label), nullptr, entry.view,
-                                 is_aura_theme() ? 44 : 51);
-        if (is_aura_theme() && entry.view == View::Player) {
-            lv_obj_set_style_bg_color(row, kAccentSurface, 0);
-            lv_obj_set_style_bg_grad_color(row, kAccent, 0);
-            for (uint32_t child = 0; child < lv_obj_get_child_count(row); ++child) {
-                lv_obj_set_style_text_color(lv_obj_get_child(row, child), kTextOnAccent, 0);
-            }
-            lv_obj_set_style_bg_color(row, kAccent, LV_STATE_PRESSED);
-            lv_obj_set_style_bg_grad_color(row, kAccentDark, LV_STATE_PRESSED);
-        }
-        if (is_cute_theme()) {
-            lv_obj_set_style_bg_color(row, lv_color_hex(cute_row_colors[i]), 0);
-            lv_obj_add_flag(lv_obj_get_child(row, 0), LV_OBJ_FLAG_HIDDEN);
-            if (entry.view == View::Player) {
-                lv_obj_set_style_border_color(row, kAccent, 0);
-                lv_obj_set_style_text_color(lv_obj_get_child(row, 1), kAccent, 0);
-            }
-            make_cute_menu_icon(row, entry.view);
-        }
-        lv_obj_remove_event_cb(row, route_cb);
-        lv_obj_add_event_cb(row, menu_destination_cb, LV_EVENT_CLICKED,
-            reinterpret_cast<void *>(static_cast<uintptr_t>(entry.view)));
-    }
-}
-
-void render_standard_menu(lv_obj_t *body)
-{
-    make_menu_playback_entry(body, 8, 5, 304, 104);
-    constexpr int x[] = {9, 164, 9, 164};
-    constexpr int y[] = {116, 116, 194, 194};
-    for (size_t i = 0; i < 4; ++i) {
-        make_menu_action(body, kListeningDestinations[i], x[i], y[i], 147, 70,
-                         kSurface, true);
-    }
-    for (size_t i = 0; i < 3; ++i) {
-        make_menu_action(body, kUtilityDestinations[i], 8 + static_cast<int>(i) * 103,
-                         275, 98, 66, kSurface, false, true);
-    }
-}
-
-void render_cute_menu(lv_obj_t *body)
-{
-    make_menu_playback_entry(body, 8, 5, 304, 104);
-    constexpr int x[] = {9, 164, 9, 164};
-    constexpr int y[] = {116, 116, 194, 194};
-    for (size_t i = 0; i < 4; ++i) {
-        make_menu_action(body, kListeningDestinations[i], x[i], y[i], 147, 70,
-                         lv_color_hex(kCutePrimaryColors[i]), true);
-    }
-    for (size_t i = 0; i < 3; ++i) {
-        lv_obj_t *button = make_button(body, 8 + static_cast<int>(i) * 103, 275,
-            98, 66, lv_color_hex(kCuteUtilityColors[i]), 18, true);
-        lv_obj_add_event_cb(button, menu_destination_cb, LV_EVENT_CLICKED,
-            reinterpret_cast<void *>(static_cast<uintptr_t>(kUtilityDestinations[i].view)));
-        lv_obj_t *label = make_label(button, tr(kUtilityDestinations[i].label), kTextPrimary);
-        make_marquee(label, 88);
-        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_center(label);
-    }
-}
-
-void render_aura_menu(lv_obj_t *body)
-{
-    make_menu_playback_entry(body, 8, 5, 304, 104);
-    constexpr int x[] = {9, 164, 9, 164};
-    constexpr int y[] = {116, 116, 194, 194};
-    for (size_t i = 0; i < 4; ++i) {
-        make_menu_action(body, kListeningDestinations[i], x[i], y[i], 147, 70,
-                         i == 0 ? kAccentSurface : kSurface, true, true);
-    }
-    for (size_t i = 0; i < 3; ++i) {
-        make_menu_action(body, kUtilityDestinations[i], 8 + static_cast<int>(i) * 103,
-                         275, 98, 66, kSurfaceRaised, false, true);
-    }
-}
-
-constexpr MenuEntry kHudDestinations[] = {
-    {lyra::i18n::StringId::NowPlaying, View::Player, Icon::NowPlaying},
-    {lyra::i18n::StringId::MusicLibrary, View::Library, Icon::Music},
-    {lyra::i18n::StringId::Search, View::Search, Icon::Search},
-    {lyra::i18n::StringId::Queue, View::Queue, Icon::Queue},
-    {lyra::i18n::StringId::BrowseFolders, View::Folders, Icon::Folder},
-    {lyra::i18n::StringId::Equalizer, View::Equalizer, Icon::Equalizer},
-    {lyra::i18n::StringId::Apps, View::Apps, Icon::Apps},
-    {lyra::i18n::StringId::Settings, View::Settings, Icon::Settings},
-};
-constexpr int kHudBannerHeight = 56;
-
-void make_hud_banner()
-{
-    lv_obj_t *banner = make_box(s_screen, 0, kStatusHeight, kScreenWidth, kHudBannerHeight, kBackground);
-    // A chromatic-split wordmark: cyan and red ghosts behind the yellow brand.
-    char brand[8];
-    const char *text = hud_heading_text("Lyra", brand, sizeof(brand));
-    constexpr struct { int dx, dy; uint32_t rgb; } layers[] = {
-        {-2, 0, kHudCyanRgb}, {2, 1, 0xFF4D42}, {0, 0, kHudYellowRgb},
-    };
-    for (const auto &layer : layers) {
-        lv_obj_t *mark = make_label(banner, text, lv_color_hex(layer.rgb));
-        lv_obj_set_style_text_font(mark, &lv_font_montserrat_28, 0);
-        lv_obj_set_style_text_letter_space(mark, 4, 0);
-        lv_obj_set_pos(mark, 16 + layer.dx, 10 + layer.dy);
-    }
-    decorate_hud_banner(banner);
-}
-
-void make_hud_menu_row(lv_obj_t *body, int y, size_t index, const MenuEntry &entry)
-{
-    lv_obj_t *row = make_button(body, 8, y, 304, 46, kSurface, 4, true);
-    lv_obj_add_event_cb(row, menu_destination_cb, LV_EVENT_CLICKED,
-                        reinterpret_cast<void *>(static_cast<uintptr_t>(entry.view)));
-    char number[8];
-    std::snprintf(number, sizeof(number), "%02u", static_cast<unsigned>(index + 1));
-    lv_obj_t *ordinal = make_label(row, number, kTextMuted);
-    lv_obj_set_style_text_font(ordinal, &lv_font_montserrat_14, 0);
-    lv_obj_align(ordinal, LV_ALIGN_LEFT_MID, 12, 0);
-    lv_obj_t *icon = make_icon(row, entry.icon, kAccent);
-    lv_obj_align(icon, LV_ALIGN_LEFT_MID, 38, 0);
-    char heading[64];
-    lv_obj_t *label = make_label(row, hud_heading_text(tr(entry.label), heading, sizeof(heading)),
-                                 kTextPrimary);
-    lv_obj_set_style_text_letter_space(label, 1, 0);
-    make_marquee(label, 206);
-    lv_obj_align(label, LV_ALIGN_LEFT_MID, 68, 0);
-    lv_obj_t *chevron = make_label(row, LV_SYMBOL_RIGHT, kTextMuted);
-    lv_obj_align(chevron, LV_ALIGN_RIGHT_MID, -16, 0);
-}
-
-// Night City list menu: a numbered, MP3-player-style list under a deck that
-// shows what is playing. Everything is one tap from the first screen.
-void render_hud_menu()
-{
-    make_hud_banner();
-    lv_obj_t *body = make_scroll_body(kStatusHeight + kHudBannerHeight);
-    int y = 8;
-    size_t first = 0;
-    if (s_listening_hub) {
-        make_menu_playback_entry(body, 8, y, 304, 96);
-        y += 106;
-        first = 1; // The deck above already opens Now Playing.
-    }
-    for (size_t i = first; i < sizeof(kHudDestinations) / sizeof(kHudDestinations[0]); ++i) {
-        make_hud_menu_row(body, y, i - first, kHudDestinations[i]);
-        y += 50;
-    }
-}
-
-} // namespace
-
-void update_menu_playback()
-{
-    if (!s_menu_playback_state && !s_menu_live_label) return;
-    const lyra::audio::Status playback = lyra::audio::status();
-    if (s_menu_live_label) {
-        lv_obj_set_style_text_color(s_menu_live_label,
-            playback.playing && !playback.paused ? kAccent : kTextPrimary, 0);
-    }
-    if (!s_menu_playback_state) return;
-    if (playback.playing != s_menu_playback_playing ||
-        std::strcmp(playback.path, s_menu_playback_path) != 0) {
-        // A new track or station, or playback starting or stopping, changes
-        // the title, cover and details: rebuild the card where it scrolled to.
-        if (s_view == View::Menu) {
-            if (s_scroll_body) s_pending_scroll_restore_y = lv_obj_get_scroll_y(s_scroll_body);
-            render(View::Menu);
-        }
-        return;
-    }
-    set_label_text_if_changed(s_menu_playback_state, tr(playback_state_id(playback)));
-}
-
-void render_menu()
-{
-    if (s_neon_hud) { render_hud_menu(); return; }
-    if (!s_listening_hub || is_zeno_theme()) { render_classic_menu(); return; }
-    make_header(tr(lyra::i18n::StringId::Menu), View::Menu);
-    lv_obj_t *body = make_scroll_body(72);
-    if (is_cute_theme()) render_cute_menu(body);
-    else if (is_aura_theme()) render_aura_menu(body);
-    else render_standard_menu(body);
-}
-
 void queue_track_cb(lv_event_t *event)
 {
     play_queue_position(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)), false);
@@ -671,31 +208,28 @@ void make_queue_song_row(lv_obj_t *parent, int y, size_t queue_position, bool cu
     size_t track_index;
     lyra::media::Track track{};
     if (!queue_track_at(queue_position, &track_index) || !lyra::media::track_at(track_index, &track)) return;
-    lv_obj_t *row = make_button(parent, 7, y, 306, 54,
-        current ? (!is_standard_theme() ? kAccentSurface : kAccentDark) : kSurface, 5);
+    lv_obj_t *row = make_button(parent, kPageInset, y, kScreenWidth - 2 * kPageInset, 54,
+        current ? kAccentSurface : kSurface, kRowRadius);
     char queue_number_text[16];
     format_u32(lyra::i18n::StringId::QueueNumber,
                static_cast<uint32_t>(queue_position + 1),
                queue_number_text, sizeof(queue_number_text));
-    lv_obj_t *queue_number = make_label(row, queue_number_text,
-                                        current ? kTextOnAccent : kTextMuted);
+    lv_obj_t *queue_number = make_label(row, queue_number_text, kTextMuted);
     lv_obj_set_width(queue_number, 40);
     lv_obj_set_style_text_align(queue_number, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(queue_number, LV_ALIGN_LEFT_MID, 0, 0);
     if (current) {
-        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, !is_standard_theme() ? kAccent : kTextOnAccent);
-        lv_obj_align(playing, LV_ALIGN_LEFT_MID, 10, 0);
+        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, kAccent);
+        lv_obj_align(playing, LV_ALIGN_LEFT_MID, 14, 0);
         lv_obj_clear_flag(playing, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(queue_number, LV_OBJ_FLAG_HIDDEN);
     }
     const int text_x = 42;
-    lv_obj_t *title = make_label(row, track.title,
-        current ? (!is_standard_theme() ? kAccent : kTextOnAccent) : kTextPrimary);
+    lv_obj_t *title = make_label(row, track.title, current ? kAccent : kTextPrimary);
     const int text_width = s_queue_edit_mode ? 132 : 250;
     make_marquee(title, text_width);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, text_x, -9);
-    lv_obj_t *artist = make_label(row, track.artist,
-        current && is_standard_theme() ? kTextOnAccent : kTextSecondary);
+    lv_obj_t *artist = make_label(row, track.artist, kTextSecondary);
     make_marquee(artist, text_width);
     lv_obj_align(artist, LV_ALIGN_LEFT_MID, text_x, 11);
     if (s_queue_edit_mode) {
@@ -792,17 +326,17 @@ void build_queue_row(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t position
         return;
     }
     if (widgets.button) lv_obj_delete(widgets.button);
-    lv_obj_t *row = make_button(slot, 7, 0, width, 54,
-        current ? (!is_standard_theme() ? kAccentSurface : kAccentDark) : kSurface, 5);
+    lv_obj_t *row = make_button(slot, kPageInset, 0, width, 54,
+        current ? kAccentSurface : kSurface, kRowRadius);
     lv_obj_set_user_data(row, reinterpret_cast<void *>(position));
-    lv_obj_t *queue_number = make_label(row, queue_number_text, current ? kTextOnAccent : kTextMuted);
+    lv_obj_t *queue_number = make_label(row, queue_number_text, kTextMuted);
     lv_obj_set_width(queue_number, 40);
     lv_label_set_long_mode(queue_number, LV_LABEL_LONG_MODE_CLIP);
     lv_obj_set_style_text_align(queue_number, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(queue_number, LV_ALIGN_LEFT_MID, 0, 0);
     if (current) {
-        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, !is_standard_theme() ? kAccent : kTextOnAccent);
-        lv_obj_align(playing, LV_ALIGN_LEFT_MID, 10, 0);
+        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, kAccent);
+        lv_obj_align(playing, LV_ALIGN_LEFT_MID, 14, 0);
         lv_obj_add_flag(queue_number, LV_OBJ_FLAG_HIDDEN);
     }
     // Queue number, then the optional cover, then the text.
@@ -813,12 +347,10 @@ void build_queue_row(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t position
                                         kNumberWidth;
     // Edit mode keeps the move and remove buttons from x = 188.
     const int text_width = s_queue_edit_mode ? 188 - 4 - text_x : width - text_x - 14;
-    lv_obj_t *title = make_label(row, data.title,
-        current ? (!is_standard_theme() ? kAccent : kTextOnAccent) : kTextPrimary);
+    lv_obj_t *title = make_label(row, data.title, current ? kAccent : kTextPrimary);
     make_marquee(title, text_width);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, text_x, -9);
-    lv_obj_t *artist = make_label(row, data.subtitle,
-        current && is_standard_theme() ? kTextOnAccent : kTextSecondary);
+    lv_obj_t *artist = make_label(row, data.subtitle, kTextSecondary);
     make_marquee(artist, text_width);
     lv_obj_align(artist, LV_ALIGN_LEFT_MID, text_x, 11);
     widgets = {row, title, artist, variant, queue_number};
@@ -842,13 +374,13 @@ void build_queue_row(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t position
 void render_queue()
 {
     const size_t count = s_has_active_queue ? playback_queue_count() : 0;
-    lv_obj_t *header = make_header(tr(lyra::i18n::StringId::Queue), View::Menu, true, "");
+    lv_obj_t *header = make_header(tr(lyra::i18n::StringId::Queue), View::Player, true, "");
     make_queue_edit_mode_toggle(header);
     lv_obj_t *list = make_scroll_body(72);
     const int rows_top = s_queue_edit_mode ? 48 : 0;
     if (s_queue_edit_mode) {
-        add_queue_toolbar_button(list, 7, tr(lyra::i18n::StringId::Clear), clear_queue_cb);
-        add_queue_toolbar_button(list, 165,
+        add_queue_toolbar_button(list, kPageInset, tr(lyra::i18n::StringId::Clear), clear_queue_cb);
+        add_queue_toolbar_button(list, kScreenWidth - kPageInset - 146,
                                  tr(lyra::i18n::StringId::SaveQueueAsPlaylist),
                                  save_queue_as_playlist_cb);
     }

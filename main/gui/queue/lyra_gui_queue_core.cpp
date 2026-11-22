@@ -767,8 +767,9 @@ bool move_in_playback_queue(int direction, bool automatic)
     s_audio_eof_seen = false;
     if (!automatic || s_view == View::Player) {
         render(View::Player);
-    } else if (s_view == View::Menu && s_listening_hub && !is_zeno_theme()) {
-        render(View::Menu);
+    } else {
+        // The mini player follows the new track without a page rebuild.
+        update_menu_playback();
     }
     return true;
 }
@@ -890,8 +891,9 @@ void sync_audio_handoff(const lyra::audio::Status &audio_status)
     }
     if (s_view == View::Player) {
         render(View::Player);
-    } else if (s_view == View::Menu && s_listening_hub && !is_zeno_theme()) {
-        render(View::Menu);
+    } else {
+        // The mini player follows the new track without a page rebuild.
+        update_menu_playback();
     }
 }
 
@@ -944,18 +946,6 @@ void nav_play_cb(lv_event_t *)
     update_menu_playback();
 }
 
-namespace {
-lv_obj_t *s_nav_play_icon = nullptr;
-}
-
-void update_nav_play_icon()
-{
-    if (!s_nav_play_icon) return;
-    const lyra::audio::Status status = lyra::audio::status();
-    set_label_text_if_changed(s_nav_play_icon,
-                              status.playing && !status.paused ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
-}
-
 void nav_previous_cb(lv_event_t *event)
 {
     nav_button_event(event, -1, s_previous_hold);
@@ -997,59 +987,6 @@ void show_playback_error(esp_err_t error)
     show_notice(tr(lyra::i18n::StringId::PlaybackFailed), message);
 }
 
-void make_virtual_nav()
-{
-    lv_obj_t *dock = make_box(s_screen, 0, kScreenHeight - kNavHeight,
-                              kScreenWidth, kNavHeight, kNavSurface);
-    make_box(dock, 0, 0, kScreenWidth, 1, s_neon_hud ? kAccent : kAccentDark);
-    const char *icons[] = {LV_SYMBOL_BARS, LV_SYMBOL_PREV, LV_SYMBOL_PLAY, LV_SYMBOL_NEXT, LV_SYMBOL_LEFT};
-    for (int i = 0; i < 5; ++i) {
-        lv_obj_t *button = make_button(dock, 5 + i * 63, 4, 58, 36, kSurface, 6);
-        if (s_neon_hud && i == 2) {
-            lv_obj_set_style_bg_color(button, kAccentSurface, 0);
-            add_hud_frame(button, true);
-        }
-        if (is_cute_theme() && i == 2) {
-            lv_obj_set_style_bg_color(button, kAccentSurface, 0);
-            lv_obj_set_style_border_color(button, kAccent, 0);
-            lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, 0);
-        }
-        lv_obj_t *icon = make_label(button, icons[i],
-            (i == 0 && s_view == View::Menu) || (!is_standard_theme() && i == 2) ? kAccent : kTextSecondary);
-        if (s_neon_hud && i == 2) lv_obj_set_style_text_color(icon, lv_color_hex(kHudCyanRgb), 0);
-        lv_obj_center(icon);
-        if (i == 2) {
-            // The playback poll keeps this in step with playback on every page.
-            s_nav_play_icon = icon;
-            lv_obj_add_event_cb(icon, [](lv_event_t *) { s_nav_play_icon = nullptr; },
-                                LV_EVENT_DELETE, nullptr);
-            update_nav_play_icon();
-        }
-        if (i == 0) {
-            add_route(button, View::Menu);
-        } else if (i == 1) {
-            lv_obj_add_event_cb(button, nav_previous_cb, LV_EVENT_PRESSED, nullptr);
-            lv_obj_add_event_cb(button, nav_previous_cb, LV_EVENT_PRESSING, nullptr);
-            lv_obj_add_event_cb(button, nav_previous_cb, LV_EVENT_RELEASED, nullptr);
-            lv_obj_add_event_cb(button, nav_previous_cb, LV_EVENT_PRESS_LOST, nullptr);
-        } else if (i == 2) {
-            lv_obj_add_event_cb(button, nav_play_cb, LV_EVENT_CLICKED, nullptr);
-        } else if (i == 3) {
-            lv_obj_add_event_cb(button, nav_next_cb, LV_EVENT_PRESSED, nullptr);
-            lv_obj_add_event_cb(button, nav_next_cb, LV_EVENT_PRESSING, nullptr);
-            lv_obj_add_event_cb(button, nav_next_cb, LV_EVENT_RELEASED, nullptr);
-            lv_obj_add_event_cb(button, nav_next_cb, LV_EVENT_PRESS_LOST, nullptr);
-        } else {
-            lv_obj_add_event_cb(button, nav_back_cb, LV_EVENT_CLICKED, nullptr);
-            // Holding Back jumps straight home from any depth.
-            lv_obj_add_event_cb(button, [](lv_event_t *) {
-                lv_indev_wait_release(lv_indev_active());
-                go_home();
-            }, LV_EVENT_LONG_PRESSED, nullptr);
-        }
-    }
-}
-
 void go_home()
 {
     if (s_view == View::PlaylistCreate) s_playlist_create_from_queue = false;
@@ -1081,89 +1018,6 @@ void update_status_volume_label(uint8_t volume_percent)
     std::snprintf(volume_text, sizeof(volume_text), "%s %u", LV_SYMBOL_VOLUME_MID,
                   static_cast<unsigned>(display_volume_percent(volume_percent)));
     lv_label_set_text(s_status_volume_label, volume_text);
-}
-
-void close_volume_popup()
-{
-    if (!s_volume_popup) return;
-    const esp_err_t result = lyra::audio::save_volume();
-    if (result != ESP_OK) ESP_LOGW(kTag, "could not save volume: %s", esp_err_to_name(result));
-    lv_obj_delete(s_volume_popup);
-    s_volume_popup = nullptr;
-}
-
-void volume_popup_slider_cb(lv_event_t *event)
-{
-    lv_obj_t *slider = lv_event_get_current_target_obj(event);
-    const uint8_t display_value = static_cast<uint8_t>(lv_slider_get_value(slider));
-    const uint8_t audio_value = audio_volume_percent_from_display(display_value);
-    lyra::audio::set_volume(audio_value);
-    update_status_volume_label(audio_value);
-    lv_obj_t *value_label = static_cast<lv_obj_t *>(lv_obj_get_user_data(slider));
-    if (value_label) {
-        char text[16];
-        std::snprintf(text, sizeof(text), "%u%%",
-                      static_cast<unsigned>(display_value));
-        lv_label_set_text(value_label, text);
-    }
-}
-
-void volume_popup_slider_released_cb(lv_event_t *)
-{
-    const esp_err_t result = lyra::audio::save_volume();
-    if (result != ESP_OK) ESP_LOGW(kTag, "could not save volume: %s", esp_err_to_name(result));
-}
-
-void show_volume_popup_cb(lv_event_t *)
-{
-    if (s_volume_popup) {
-        lv_obj_move_foreground(s_volume_popup);
-        return;
-    }
-
-    const lyra::audio::Status audio_status = lyra::audio::status();
-    s_volume_popup = make_box(s_screen, 8, kStatusHeight + 4, 224, 104, kSurfaceRaised, 10);
-    lv_obj_set_style_border_width(s_volume_popup, 1, 0);
-    lv_obj_set_style_border_color(s_volume_popup, kAccentDark, 0);
-    lv_obj_set_style_shadow_width(s_volume_popup, s_neon_hud ? 0 : 12, 0);
-    lv_obj_set_style_shadow_color(s_volume_popup, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_shadow_opa(s_volume_popup, LV_OPA_40, 0);
-    lv_obj_move_foreground(s_volume_popup);
-
-    lv_obj_t *title = make_label(s_volume_popup, tr(lyra::i18n::StringId::Volume), kTextPrimary);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, 12);
-    char value_text[16];
-    std::snprintf(value_text, sizeof(value_text), "%u%%",
-                  static_cast<unsigned>(display_volume_percent(audio_status.volume_percent)));
-    lv_obj_t *value = make_label(s_volume_popup, value_text,
-                                 s_neon_hud ? lv_color_hex(kHudCyanRgb) : kAccent);
-    lv_obj_align(value, LV_ALIGN_TOP_RIGHT, -52, 12);
-    lv_obj_t *close = make_button(s_volume_popup, 184, 7, 32, 32, kSurface, 16);
-    lv_obj_t *close_icon = make_label(close, LV_SYMBOL_CLOSE, kTextSecondary);
-    lv_obj_center(close_icon);
-    lv_obj_add_event_cb(close, [](lv_event_t *) { close_volume_popup(); },
-                        LV_EVENT_CLICKED, nullptr);
-
-    lv_obj_t *slider = lv_slider_create(s_volume_popup);
-    lv_obj_set_pos(slider, 14, 60);
-    lv_obj_set_size(slider, 196, 14);
-    lv_slider_set_range(slider, 0, 100);
-    lv_slider_set_value(slider, display_volume_percent(audio_status.volume_percent), LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(slider, kDivider, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(slider, kAccentDark, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(slider, kTextOnAccent, LV_PART_KNOB);
-    lv_obj_set_style_border_color(slider, kAccent, LV_PART_KNOB);
-    lv_obj_set_style_border_width(slider, 2, LV_PART_KNOB);
-    lv_obj_set_user_data(slider, value);
-    lv_obj_add_event_cb(slider, volume_popup_slider_cb, LV_EVENT_VALUE_CHANGED, nullptr);
-    lv_obj_add_event_cb(slider, volume_popup_slider_released_cb, LV_EVENT_RELEASED, nullptr);
-    lv_obj_add_event_cb(slider, volume_popup_slider_released_cb, LV_EVENT_PRESS_LOST, nullptr);
-    if (s_neon_hud) {
-        lv_obj_set_style_border_width(s_volume_popup, 0, 0);
-        style_hud_controls(s_volume_popup);
-    }
-    if (is_cute_theme()) style_cute_controls(s_volume_popup);
-    if (is_aura_theme()) style_aura_controls(s_volume_popup);
 }
 
 } // namespace lyra::gui::internal

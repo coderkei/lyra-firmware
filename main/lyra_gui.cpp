@@ -99,10 +99,10 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     s_use_24_hour = true;
     s_dst_enabled = false;
     s_dark_mode = true;
-    s_listening_hub = true;
-    s_theme = Theme::Standard;
-    s_neon_hud = false;
     s_accent_colour = 0;
+    s_dynamic_tint = false;
+    s_clock_position = ClockPosition::Centre;
+    s_show_nav = true;
     s_speaker_output_enabled = lyra::audio::kDefaultSpeakerOutputEnabled;
     s_equalizer_preset = EqualizerPreset::Custom;
     std::memset(s_equalizer_custom_bands, 0, sizeof(s_equalizer_custom_bands));
@@ -152,6 +152,7 @@ esp_err_t lyra_gui_start(lv_display_t *display)
     s_seen_duration_generation = status.duration_generation;
     s_seen_sorting_generation = status.sorting_generation;
     s_seen_search_generation = lyra::media::search_status().generation;
+    install_gesture_navigation();
     render(s_setup_pending ? View::SetupWelcome : View::Menu);
     lv_timer_create(player_progress_poll_cb, 250, nullptr);
     // The crossfade envelope must not force full player-screen redraws. Keep

@@ -112,13 +112,12 @@ void toggle_bool_cb(lv_event_t *event)
 {
     lv_obj_t *toggle = static_cast<lv_obj_t *>(lv_event_get_user_data(event));
     bool *value = static_cast<bool *>(lv_obj_get_user_data(toggle));
-    if (!is_standard_theme() && value == &s_dark_mode) return;
     *value = !*value;
     if (value == &s_gapless || value == &s_replay_gain || value == &s_quick_seek) {
         save_user_settings();
         if (value == &s_replay_gain) apply_replay_gain_to_current_track();
     }
-    if (value == &s_timer_alarm_enabled || value == &s_t9_input) {
+    if (value == &s_t9_input) {
         save_user_settings();
         render(s_view);
         return;
@@ -132,19 +131,15 @@ void toggle_bool_cb(lv_event_t *event)
         // Lists build their rows with or without artwork; free the cache now.
         if (!s_list_artwork) lyra::media::release_thumbnails();
     }
-    if (value == &s_dark_mode) {
+    if (value == &s_dynamic_tint) {
         apply_theme_palette();
         save_user_settings();
         render(s_view);
         return;
     }
-    if (value == &s_listening_hub) {
-        save_user_settings();
-        render(View::DisplaySettings);
-        return;
-    }
     if (value == &s_show_nav) {
-        // This setting changes the usable page height and dock object tree.
+        // The mini player changes the usable page height of browsing pages.
+        save_user_settings();
         render(s_view);
         return;
     }
@@ -158,43 +153,53 @@ void toggle_bool_cb(lv_event_t *event)
         }
         save_user_settings();
     }
-
-    lv_obj_set_style_bg_color(toggle, *value ? kAccent : kDivider, 0);
-    lv_obj_set_x(lv_obj_get_child(toggle, 0), *value ? 21 : 3);
+    set_switch(toggle, *value);
 }
+
+namespace {
+
+constexpr int kSettingsRowWidth = kScreenWidth - 2 * kPageInset;
+
+// A settings row: title (and an optional muted description) on the left, a
+// switch on the right. The whole row toggles.
+lv_obj_t *make_switch_row(lv_obj_t *parent, int y, const char *title, const char *subtitle,
+                          bool checked, bool enabled)
+{
+    const int height = subtitle ? 62 : 52;
+    lv_obj_t *row = make_button(parent, kPageInset, y, kSettingsRowWidth, height,
+                                kSurface, kRowRadius);
+    lv_obj_t *title_label = make_label(row, title, enabled ? kTextPrimary : kTextMuted);
+    make_marquee(title_label, kSettingsRowWidth - 86);
+    lv_obj_align(title_label, LV_ALIGN_LEFT_MID, 16, subtitle == nullptr ? 0 : -10);
+    if (subtitle != nullptr) {
+        lv_obj_t *sub = make_label(row, subtitle, kTextMuted);
+        make_marquee(sub, kSettingsRowWidth - 86);
+        lv_obj_align(sub, LV_ALIGN_LEFT_MID, 16, 12);
+    }
+    lv_obj_t *track = make_switch(row, enabled && checked);
+    lv_obj_align(track, LV_ALIGN_RIGHT_MID, -14, 0);
+    if (!enabled) {
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_opa(row, LV_OPA_60, 0);
+    }
+    return track;
+}
+
+} // namespace
 
 void make_setting_toggle(lv_obj_t *parent, int y, const char *title, const char *subtitle,
                          bool *value, bool enabled)
 {
-    const bool checked = enabled && *value;
-    lv_obj_t *row = make_button(parent, 7, y, 306, 62,
-                                enabled ? kSurface : kBackground, 6, enabled);
-    lv_obj_t *title_label = make_label(row, title, enabled ? kTextPrimary : kTextMuted);
-    make_marquee(title_label, 220);
-    lv_obj_align(title_label, LV_ALIGN_LEFT_MID, 12, subtitle == nullptr ? 0 : -10);
-    if (subtitle != nullptr) {
-        lv_obj_t *sub = make_label(row, subtitle, kTextMuted);
-        make_marquee(sub, 220);
-        lv_obj_align(sub, LV_ALIGN_LEFT_MID, 12, 12);
-    }
-    lv_obj_t *toggle = make_box(row, 250, 17, 42, 24, checked ? kAccent : kDivider, 12);
-    make_box(toggle, checked ? 21 : 3, 3, 18, 18,
-             checked ? kTextOnAccent : enabled ? kTextPrimary : kTextMuted, 9);
-    if (enabled) {
-        lv_obj_set_user_data(toggle, value);
-        lv_obj_add_event_cb(row, toggle_bool_cb, LV_EVENT_CLICKED, toggle);
-    } else {
-        lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_style_opa(row, LV_OPA_60, 0);
-    }
+    lv_obj_t *track = make_switch_row(parent, y, title, subtitle, *value, enabled);
+    if (!enabled) return;
+    lv_obj_set_user_data(track, value);
+    lv_obj_add_event_cb(lv_obj_get_parent(track), toggle_bool_cb, LV_EVENT_CLICKED, track);
 }
 
 void accent_colour_cb(lv_event_t *event)
 {
-    if (!is_standard_theme()) return;
     const uintptr_t index = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
-    if (index >= kAccentPaletteCount) return;
-    if (s_accent_colour == index) return;
+    if (index >= kAccentPaletteCount || s_accent_colour == index) return;
     s_accent_colour = static_cast<uint8_t>(index);
     apply_theme_palette();
     save_user_settings();
@@ -203,57 +208,27 @@ void accent_colour_cb(lv_event_t *event)
 
 void make_accent_selector(lv_obj_t *parent, int y)
 {
-    lv_obj_t *card = make_box(parent, 7, y, 306, 110, kSurface, 6);
+    lv_obj_t *card = make_card(parent, kPageInset, y, kSettingsRowWidth, 96);
     lv_obj_t *title = make_label(card, tr(lyra::i18n::StringId::AccentColour), kTextPrimary);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 12, 9);
-
+    make_marquee(title, kSettingsRowWidth - 32);
+    lv_obj_set_pos(title, 16, 12);
+    constexpr int kSwatch = 34;
+    constexpr int kSpacing = (kSettingsRowWidth - 32 - kSwatch) /
+                             static_cast<int>(kAccentPaletteCount - 1);
     for (size_t index = 0; index < kAccentPaletteCount; ++index) {
-        const int column = static_cast<int>(index % 4);
-        const int row = static_cast<int>(index / 4);
-        const AccentPalette &accent = kAccentPalettes[index];
-        const uint32_t rgb = s_dark_mode ? accent.dark_rgb : accent.light_rgb;
-        lv_obj_t *swatch = make_box(card, 14 + column * 72, 42 + row * 36, 28, 28,
-                                    lv_color_hex(rgb), 14);
-        lv_obj_set_style_border_width(swatch, s_accent_colour == index ? 3 : 1, 0);
-        lv_obj_set_style_border_color(swatch,
-                                      s_accent_colour == index ? kTextPrimary : kDivider, 0);
-        lv_obj_add_flag(swatch, LV_OBJ_FLAG_CLICKABLE);
+        const bool active = s_accent_colour == index;
+        lv_obj_t *swatch = make_button(card, 16 + static_cast<int>(index) * kSpacing, 46,
+                                       kSwatch, kSwatch, accent_color(index), LV_RADIUS_CIRCLE);
+        // The chosen colour wears a ring in the page colour.
+        lv_obj_set_style_border_width(swatch, active ? 3 : 0, 0);
+        lv_obj_set_style_border_color(swatch, kTextPrimary, 0);
+        lv_obj_set_ext_click_area(swatch, 4);
+        if (active) {
+            lv_obj_t *check = make_label(swatch, LV_SYMBOL_OK, kTextOnAccent);
+            lv_obj_center(check);
+        }
         lv_obj_add_event_cb(swatch, accent_colour_cb, LV_EVENT_CLICKED,
                             reinterpret_cast<void *>(static_cast<uintptr_t>(index)));
-    }
-}
-
-void select_theme_cb(lv_event_t *event)
-{
-    const uintptr_t selection = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
-    if (selection >= static_cast<uintptr_t>(Theme::Count)) return;
-    s_theme = static_cast<Theme>(selection);
-    apply_theme_palette();
-    save_user_settings();
-    navigate_back(View::DisplaySettings);
-}
-
-void render_theme_options()
-{
-    make_header(tr(lyra::i18n::StringId::Theme), View::DisplaySettings, true);
-    lv_obj_t *body = make_scroll_body(72);
-    for (uintptr_t selection = 0; selection < static_cast<uintptr_t>(Theme::Count); ++selection) {
-        const Theme theme = static_cast<Theme>(selection);
-        const bool active = s_theme == theme;
-        lv_obj_t *row = make_button(body, 7, static_cast<int>(selection) * 66,
-            306, 62, active ? kAccentSurface : kSurface, 6, true);
-        lv_obj_t *label = make_label(row,
-            theme_name(theme),
-            active ? kAccent : kTextPrimary);
-        make_marquee(label, 180);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, 12, 0);
-        make_theme_swatches(row, theme, -40);
-        if (active) {
-            lv_obj_t *check = make_label(row, LV_SYMBOL_OK, kAccent);
-            lv_obj_align(check, LV_ALIGN_RIGHT_MID, -12, 0);
-        }
-        lv_obj_add_event_cb(row, select_theme_cb, LV_EVENT_CLICKED,
-                            reinterpret_cast<void *>(selection));
     }
 }
 
@@ -270,24 +245,15 @@ void artwork_setting_cb(lv_event_t *event)
     if (result != ESP_OK) {
         ESP_LOGW(kTag, "could not save artwork setting: %s", esp_err_to_name(result));
     }
-    render(View::SystemSettings);
+    render(View::LibrarySettings);
 }
 
 void make_artwork_setting_toggle(lv_obj_t *parent, int y, const char *title,
                                  const char *subtitle, bool value,
                                  ArtworkSetting setting)
 {
-    lv_obj_t *row = make_button(parent, 7, y, 306, 62, kSurface, 6, true);
-    lv_obj_t *title_label = make_label(row, title, kTextPrimary);
-    make_marquee(title_label, 220);
-    lv_obj_align(title_label, LV_ALIGN_LEFT_MID, 12, -10);
-    lv_obj_t *sub = make_label(row, subtitle, kTextMuted);
-    make_marquee(sub, 220);
-    lv_obj_align(sub, LV_ALIGN_LEFT_MID, 12, 12);
-    lv_obj_t *toggle = make_box(row, 250, 17, 42, 24, value ? kAccent : kDivider, 12);
-    make_box(toggle, value ? 21 : 3, 3, 18, 18,
-             value ? kTextOnAccent : kTextPrimary, 9);
-    lv_obj_add_event_cb(row, artwork_setting_cb, LV_EVENT_CLICKED,
+    lv_obj_t *track = make_switch_row(parent, y, title, subtitle, value, true);
+    lv_obj_add_event_cb(lv_obj_get_parent(track), artwork_setting_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(setting)));
 }
 
@@ -313,29 +279,39 @@ void volume_slider_released_cb(lv_event_t *)
     if (result != ESP_OK) ESP_LOGW(kTag, "could not save volume: %s", esp_err_to_name(result));
 }
 
+namespace {
+
+// A card with a title, its value on the right and a slider underneath.
+lv_obj_t *make_slider_card(lv_obj_t *parent, int y, const char *title, const char *value,
+                           int minimum, int current, lv_obj_t **value_out)
+{
+    lv_obj_t *card = make_card(parent, kPageInset, y, kSettingsRowWidth, 84);
+    lv_obj_t *title_label = make_label(card, title, kTextPrimary);
+    make_marquee(title_label, kSettingsRowWidth - 100);
+    lv_obj_set_pos(title_label, 16, 12);
+    lv_obj_t *value_label = make_label(card, value, kAccent);
+    lv_obj_align(value_label, LV_ALIGN_TOP_RIGHT, -16, 12);
+    lv_obj_t *slider = lv_slider_create(card);
+    lv_obj_set_pos(slider, 20, 52);
+    lv_obj_set_size(slider, kSettingsRowWidth - 40, 12);
+    lv_slider_set_range(slider, minimum, 100);
+    lv_slider_set_value(slider, current, LV_ANIM_OFF);
+    style_slider(slider);
+    lv_obj_set_user_data(slider, value_label);
+    if (value_out) *value_out = value_label;
+    return slider;
+}
+
+} // namespace
+
 void make_volume_control(lv_obj_t *parent, int y)
 {
     const lyra::audio::Status audio_status = lyra::audio::status();
-    lv_obj_t *card = make_box(parent, 7, y, 306, 84, kSurface, 6);
-    lv_obj_t *title = make_label(card, tr(lyra::i18n::StringId::Volume), kTextPrimary);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 12, 10);
+    const uint8_t volume = display_volume_percent(audio_status.volume_percent);
     char value_text[32];
-    std::snprintf(value_text, sizeof(value_text), "%u%%",
-                  static_cast<unsigned>(display_volume_percent(audio_status.volume_percent)));
-    lv_obj_t *value_label = make_label(card, value_text, kAccent);
-    lv_obj_align(value_label, LV_ALIGN_TOP_RIGHT, -12, 10);
-
-    lv_obj_t *slider = lv_slider_create(card);
-    lv_obj_set_pos(slider, 12, 54);
-    lv_obj_set_size(slider, 282, 14);
-    lv_slider_set_range(slider, 0, 100);
-    lv_slider_set_value(slider, display_volume_percent(audio_status.volume_percent), LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(slider, kDivider, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(slider, kAccentDark, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(slider, kTextOnAccent, LV_PART_KNOB);
-    lv_obj_set_style_border_color(slider, kAccent, LV_PART_KNOB);
-    lv_obj_set_style_border_width(slider, 2, LV_PART_KNOB);
-    lv_obj_set_user_data(slider, value_label);
+    std::snprintf(value_text, sizeof(value_text), "%u%%", static_cast<unsigned>(volume));
+    lv_obj_t *slider = make_slider_card(parent, y, tr(lyra::i18n::StringId::Volume), value_text,
+                                        0, volume, nullptr);
     lv_obj_add_event_cb(slider, volume_slider_cb, LV_EVENT_VALUE_CHANGED, nullptr);
     lv_obj_add_event_cb(slider, volume_slider_released_cb, LV_EVENT_RELEASED, nullptr);
     lv_obj_add_event_cb(slider, volume_slider_released_cb, LV_EVENT_PRESS_LOST, nullptr);
@@ -364,25 +340,10 @@ void brightness_slider_released_cb(lv_event_t *)
 
 void make_brightness_control(lv_obj_t *parent, int y)
 {
-    lv_obj_t *card = make_box(parent, 7, y, 306, 84, kSurface, 6);
-    lv_obj_t *title = make_label(card, tr(lyra::i18n::StringId::Brightness), kTextPrimary);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 12, 10);
     char value_text[16];
     std::snprintf(value_text, sizeof(value_text), "%u%%", static_cast<unsigned>(s_brightness_percent));
-    lv_obj_t *value_label = make_label(card, value_text, kAccent);
-    lv_obj_align(value_label, LV_ALIGN_TOP_RIGHT, -12, 10);
-
-    lv_obj_t *slider = lv_slider_create(card);
-    lv_obj_set_pos(slider, 12, 54);
-    lv_obj_set_size(slider, 282, 14);
-    lv_slider_set_range(slider, 1, 100);
-    lv_slider_set_value(slider, s_brightness_percent, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(slider, kDivider, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(slider, kAccentDark, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(slider, kTextOnAccent, LV_PART_KNOB);
-    lv_obj_set_style_border_color(slider, kAccent, LV_PART_KNOB);
-    lv_obj_set_style_border_width(slider, 2, LV_PART_KNOB);
-    lv_obj_set_user_data(slider, value_label);
+    lv_obj_t *slider = make_slider_card(parent, y, tr(lyra::i18n::StringId::Brightness), value_text,
+                                        1, s_brightness_percent, nullptr);
     lv_obj_add_event_cb(slider, brightness_slider_cb, LV_EVENT_VALUE_CHANGED, nullptr);
     lv_obj_add_event_cb(slider, brightness_slider_released_cb, LV_EVENT_RELEASED, nullptr);
     lv_obj_add_event_cb(slider, brightness_slider_released_cb, LV_EVENT_PRESS_LOST, nullptr);
@@ -439,7 +400,7 @@ void sorting_option_cb(lv_event_t *event)
 
 void render_sorting_settings()
 {
-    make_header(tr(lyra::i18n::StringId::Sorting), View::Settings, true);
+    make_header(tr(lyra::i18n::StringId::Sorting), View::LibrarySettings, true);
     lv_obj_t *body = make_scroll_body(72);
     constexpr lyra::media::SortSection sections[] = {
         lyra::media::SortSection::Songs,
@@ -452,9 +413,9 @@ void render_sorting_settings()
         tr(lyra::i18n::StringId::ChooseArtistOrder),
     };
     for (size_t index = 0; index < 3; ++index) {
-        lv_obj_t *row = make_row(body, static_cast<int>(index) * 58, Icon::Sorting,
+        lv_obj_t *row = make_row(body, 4 + static_cast<int>(index) * 66, Icon::Sorting,
                                  sort_section_name(sections[index]), subtitles[index],
-                                 View::SortingOptions, 54);
+                                 View::SortingOptions, 60);
         lv_obj_remove_event_cb(row, route_cb);
         lv_obj_add_event_cb(row, sorting_section_cb, LV_EVENT_CLICKED,
                             reinterpret_cast<void *>(static_cast<uintptr_t>(sections[index])));
@@ -466,8 +427,8 @@ void make_sorting_option_row(lv_obj_t *parent, int y, lyra::media::SortField fie
                              const lyra::media::SortSetting &selected)
 {
     const bool active = selected.field == field && selected.direction == direction;
-    lv_obj_t *row = make_button(parent, 7, y, 306, 54,
-                                active ? kAccentSurface : kSurface, 6);
+    lv_obj_t *row = make_button(parent, kPageInset, y, kScreenWidth - 2 * kPageInset, 52,
+                                active ? kAccentSurface : kSurface, kRowRadius);
     char title[64];
     format_text_text(lyra::i18n::StringId::SortFieldDirection,
                      sort_field_name(field), sort_direction_name(direction),
@@ -625,7 +586,7 @@ void utc_offset_step_cb(lv_event_t *event)
 
 void make_utc_offset_row(lv_obj_t *parent, int y)
 {
-    lv_obj_t *row = make_box(parent, 7, y, 306, 62, kSurface, 6, true);
+    lv_obj_t *row = make_box(parent, kPageInset, y, kScreenWidth - 2 * kPageInset, 62, kSurface, 6, true);
     lv_obj_t *title = make_label(row, tr(lyra::i18n::StringId::TimeZone), kTextPrimary);
     make_marquee(title, 160);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -10);
@@ -849,15 +810,14 @@ void render_clock_date_settings()
 
 void render_clock_settings()
 {
-    make_header(tr(lyra::i18n::StringId::Clock), View::SystemSettings, true);
-    lv_obj_t *body = make_scroll_body(72);
-    lv_obj_t *summary = make_box(body, 7, 0, 306, 58, kAccentSurface, 6);
-    lv_obj_t *summary_title = make_label(summary, tr(lyra::i18n::StringId::TimeAndDate), kTextPrimary);
-    lv_obj_align(summary_title, LV_ALIGN_LEFT_MID, 12, -10);
+    make_header(tr(lyra::i18n::StringId::TimeAndDate), View::Settings, true);
+    lv_obj_t *body = make_scroll_body(kContentTop);
+    lv_obj_t *summary = make_card(body, kPageInset, 0, kScreenWidth - 2 * kPageInset, 58);
     char summary_value[32];
     format_clock_date_time(lyra::clock::now(), summary_value, sizeof(summary_value));
-    lv_obj_t *summary_label = make_label(summary, summary_value, kAccent);
-    lv_obj_align(summary_label, LV_ALIGN_LEFT_MID, 12, 12);
+    lv_obj_t *summary_label = make_label(summary, summary_value, kTextPrimary);
+    lv_obj_set_style_text_font(summary_label, title_font(), 0);
+    lv_obj_align(summary_label, LV_ALIGN_LEFT_MID, 16, 0);
 
     lv_obj_t *time = make_row(body, 64, Icon::Clock,
                               tr(lyra::i18n::StringId::SetTime), nullptr,
@@ -917,7 +877,7 @@ void language_option_cb(lv_event_t *event)
 
 void render_language_options()
 {
-    make_header(tr(lyra::i18n::StringId::Language), View::SystemSettings, true);
+    make_header(tr(lyra::i18n::StringId::Language), View::Settings, true);
     lv_obj_t *body = make_scroll_body(72);
     for (size_t index = 0; index < lyra::i18n::kLanguageCount; ++index) {
         const auto language = static_cast<lyra::i18n::Language>(index);
@@ -931,10 +891,11 @@ void render_language_options()
 void make_playback_option_row(lv_obj_t *parent, int y, const char *title, bool active,
                               lv_event_cb_t callback, uintptr_t value)
 {
-    lv_obj_t *row = make_button(parent, 7, y, 306, 54,
-                                active ? kAccentSurface : kSurface, 6);
+    lv_obj_t *row = make_button(parent, kPageInset, y, kScreenWidth - 2 * kPageInset, 52,
+                                active ? kAccentSurface : kSurface, kRowRadius);
     lv_obj_t *label = make_label(row, title, active ? kAccent : kTextPrimary);
-    lv_obj_align(label, LV_ALIGN_LEFT_MID, 12, 0);
+    make_marquee(label, kScreenWidth - 2 * kPageInset - 60);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, 16, 0);
     if (active) {
         lv_obj_t *check = make_label(row, LV_SYMBOL_OK, kAccent);
         lv_obj_align(check, LV_ALIGN_RIGHT_MID, -14, 0);
@@ -1001,17 +962,163 @@ void render_sleep_timer_options()
     }
 }
 
+namespace {
+
+constexpr int kHubRowHeight = 52;
+
+void hub_route_cb(lv_event_t *event)
+{
+    const View target = static_cast<View>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    if (target == View::ClockSettings) {
+        clock_settings_cb(event);
+        return;
+    }
+    navigate_to(target);
+}
+
+// One row of a settings group: a coloured icon badge, the name, an optional
+// current value and a chevron.
+void make_hub_row(lv_obj_t *card, int y, Icon icon, uint32_t hue, const char *title,
+                  const char *value, View target, bool last)
+{
+    constexpr int kRowWidth = kScreenWidth - 2 * kPageInset;
+    lv_obj_t *row = make_button(card, 0, y, kRowWidth, kHubRowHeight, kSurface, kRowRadius);
+    lv_obj_t *badge = make_box(row, 12, (kHubRowHeight - 30) / 2, 30, 30, lv_color_hex(hue), 9);
+    lv_obj_remove_flag(badge, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *glyph = make_icon(badge, icon, lv_color_white(), 18);
+    lv_obj_center(glyph);
+    lv_obj_t *name = make_label(row, title, kTextPrimary);
+    make_marquee(name, value ? 140 : kRowWidth - 90);
+    lv_obj_align(name, LV_ALIGN_LEFT_MID, 54, 0);
+    if (value) {
+        lv_obj_t *value_label = make_label(row, value, kTextMuted);
+        make_marquee(value_label, kRowWidth - 54 - 140 - 40);
+        lv_obj_set_style_text_align(value_label, LV_TEXT_ALIGN_RIGHT, 0);
+        lv_obj_align(value_label, LV_ALIGN_RIGHT_MID, -32, 0);
+    }
+    lv_obj_t *chevron = make_label(row, LV_SYMBOL_RIGHT, kTextMuted);
+    lv_obj_align(chevron, LV_ALIGN_RIGHT_MID, -12, 0);
+    if (!last) {
+        lv_obj_t *divider = make_box(card, 54, y + kHubRowHeight - 1, kRowWidth - 54, 1, kDivider);
+        lv_obj_remove_flag(divider, LV_OBJ_FLAG_CLICKABLE);
+    }
+    lv_obj_add_event_cb(row, hub_route_cb, LV_EVENT_CLICKED,
+                        reinterpret_cast<void *>(static_cast<uintptr_t>(target)));
+}
+
+struct HubRow {
+    Icon icon;
+    uint32_t hue;
+    lyra::i18n::StringId title;
+    View target;
+};
+
+int make_hub_group(lv_obj_t *body, int y, const HubRow *rows, size_t count,
+                   const char *const *values)
+{
+    lv_obj_t *card = make_card(body, kPageInset, y, kScreenWidth - 2 * kPageInset,
+                               static_cast<int>(count) * kHubRowHeight);
+    for (size_t i = 0; i < count; ++i) {
+        make_hub_row(card, static_cast<int>(i) * kHubRowHeight, rows[i].icon, rows[i].hue,
+                     tr(rows[i].title), values ? values[i] : nullptr, rows[i].target,
+                     i + 1 == count);
+    }
+    return y + static_cast<int>(count) * kHubRowHeight + 14;
+}
+
+const char *crossfade_name()
+{
+    switch (s_crossfade_seconds) {
+        case 1: return tr(lyra::i18n::StringId::OneSecond);
+        case 2: return tr(lyra::i18n::StringId::TwoSeconds);
+        case 4: return tr(lyra::i18n::StringId::FourSeconds);
+        case 6: return tr(lyra::i18n::StringId::SixSeconds);
+        default: return tr(lyra::i18n::StringId::Off);
+    }
+}
+
+const char *sleep_timer_name()
+{
+    switch (s_sleep_timer_minutes) {
+        case 15: return tr(lyra::i18n::StringId::FifteenMinutes);
+        case 30: return tr(lyra::i18n::StringId::ThirtyMinutes);
+        case 45: return tr(lyra::i18n::StringId::FortyFiveMinutes);
+        case 60: return tr(lyra::i18n::StringId::SixtyMinutes);
+        default: return tr(lyra::i18n::StringId::Off);
+    }
+}
+
+// A plain row that runs a callback instead of opening a page.
+lv_obj_t *make_action_row(lv_obj_t *parent, int y, Icon icon, const char *title,
+                          const char *subtitle, lv_event_cb_t callback, bool danger = false)
+{
+    lv_obj_t *row = make_row(parent, y, icon, title, subtitle, View::Settings,
+                             subtitle ? 62 : 52);
+    lv_obj_remove_event_cb(row, route_cb);
+    lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, nullptr);
+    if (danger) lv_obj_set_style_bg_color(row, kDangerSurface, 0);
+    return row;
+}
+
+void theme_choice_cb(lv_event_t *event)
+{
+    const bool dark = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)) == 0;
+    if (dark == s_dark_mode) return;
+    s_dark_mode = dark;
+    apply_theme_palette();
+    save_user_settings();
+    render(s_view);
+}
+
+void clock_position_choice_cb(lv_event_t *event)
+{
+    const uintptr_t value = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
+    if (value >= static_cast<uintptr_t>(ClockPosition::Count)) return;
+    s_clock_position = static_cast<ClockPosition>(value);
+    save_user_settings();
+    render(s_view);
+}
+
+} // namespace
+
+int make_theme_choices(lv_obj_t *parent, int y)
+{
+    const char *themes[] = {tr(lyra::i18n::StringId::ReaderThemeDark),
+                            tr(lyra::i18n::StringId::ReaderThemeLight)};
+    return make_choice_card(parent, y, tr(lyra::i18n::StringId::Theme), themes, 2,
+                            s_dark_mode ? 0 : 1, theme_choice_cb);
+}
+
 void render_settings_menu()
 {
-    if (is_zeno_theme()) { render_zeno_settings(); return; }
     make_header(tr(lyra::i18n::StringId::Settings), View::Menu, true);
-    lv_obj_t *body = make_scroll_body(72);
-    make_row(body, 0, Icon::Playback, tr(lyra::i18n::StringId::Playback), nullptr, View::PlaybackSettings, 54);
-    make_row(body, 58, Icon::Sound, tr(lyra::i18n::StringId::Sound), nullptr, View::SoundSettings, 54);
-    make_row(body, 116, Icon::Display, tr(lyra::i18n::StringId::Display), nullptr, View::DisplaySettings, 54);
-    make_row(body, 174, Icon::Sorting, tr(lyra::i18n::StringId::Sorting), nullptr, View::SortingSettings, 54);
-    make_row(body, 232, Icon::System, tr(lyra::i18n::StringId::System), nullptr, View::SystemSettings, 54);
-    make_row(body, 290, Icon::About, tr(lyra::i18n::StringId::About), nullptr, View::About, 54);
+    lv_obj_t *body = make_scroll_body(kContentTop);
+    static constexpr HubRow kLook[] = {
+        {Icon::Theme, 0x3D8EF0, lyra::i18n::StringId::Appearance, View::AppearanceSettings},
+        {Icon::Sound, 0xEC6AA8, lyra::i18n::StringId::Sound, View::SoundSettings},
+        {Icon::Playback, 0xFF7A1A, lyra::i18n::StringId::Playback, View::PlaybackSettings},
+        {Icon::Music, 0xF2B320, lyra::i18n::StringId::Library, View::LibrarySettings},
+    };
+    static constexpr HubRow kConnect[] = {
+        {Icon::Wifi, 0x34C27C, lyra::i18n::StringId::WifiSettings, View::WifiSettings},
+        {Icon::Clock, 0x1FA7A8, lyra::i18n::StringId::TimeAndDate, View::ClockSettings},
+        {Icon::Language, 0xA463E0, lyra::i18n::StringId::Language, View::LanguageOptions},
+    };
+    static constexpr HubRow kDevice[] = {
+        {Icon::System, 0x6B7280, lyra::i18n::StringId::System, View::SystemSettings},
+        {Icon::About, 0x6A7FDB, lyra::i18n::StringId::About, View::About},
+    };
+    const lyra::wifi::Status wifi = lyra::wifi::status();
+    const char *wifi_value = wifi.connected ? wifi.connected_ssid :
+                             tr(wifi.enabled ? lyra::i18n::StringId::NotConnected :
+                                               lyra::i18n::StringId::Off);
+    const char *connect_values[] = {
+        wifi_value, nullptr, lyra::i18n::language_name(lyra::i18n::current_language()),
+    };
+    int y = 4;
+    y = make_hub_group(body, y, kLook, sizeof(kLook) / sizeof(kLook[0]), nullptr);
+    y = make_hub_group(body, y, kConnect, sizeof(kConnect) / sizeof(kConnect[0]), connect_values);
+    make_hub_group(body, y, kDevice, sizeof(kDevice) / sizeof(kDevice[0]), nullptr);
 }
 
 void make_scan_overlay()
@@ -1019,9 +1126,7 @@ void make_scan_overlay()
     s_scan_overlay = make_box(s_screen, 0, 0, kScreenWidth, kScreenHeight, kOverlay);
     lv_obj_set_style_bg_opa(s_scan_overlay, LV_OPA_80, 0);
     lv_obj_add_flag(s_scan_overlay, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_t *dialog = make_box(s_scan_overlay, 24, 126, 272, 228, kSurfaceRaised, 14);
-    lv_obj_set_style_border_width(dialog, 1, 0);
-    lv_obj_set_style_border_color(dialog, kAccentDark, 0);
+    lv_obj_t *dialog = make_box(s_scan_overlay, 24, 126, 272, 228, kSurface, 20);
     lv_obj_t *spinner = lv_spinner_create(dialog);
     lv_obj_set_size(spinner, 62, 62);
     lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, 25);
@@ -1045,7 +1150,7 @@ void scan_library_cb(lv_event_t *)
 {
     s_setup_scan_active = false;
     if (lyra::media::start_scan() != ESP_OK) {
-        render(View::SystemSettings);
+        render(View::LibrarySettings);
         return;
     }
     make_scan_overlay();
@@ -1324,9 +1429,9 @@ void show_power_confirmation(PowerAction action)
 {
     lv_obj_t *overlay = make_box(s_screen, 0, 0, kScreenWidth, kScreenHeight,
                                  kOverlay);
-    lv_obj_set_style_bg_opa(overlay, LV_OPA_90, 0);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_70, 0);
     lv_obj_move_foreground(overlay);
-    lv_obj_t *dialog = make_box(overlay, 20, 132, 280, 216, kSurfaceRaised, 12);
+    lv_obj_t *dialog = make_box(overlay, 20, 132, 280, 216, kSurface, 20);
     lv_obj_t *title = make_label(dialog, action == PowerAction::UsbTransfer ?
                                  tr(lyra::i18n::StringId::UsbTransferQuestion) :
                                  action == PowerAction::Reboot ?
@@ -1352,13 +1457,14 @@ void show_power_confirmation(PowerAction action)
     lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(message, LV_ALIGN_CENTER, 0, -15);
 
-    lv_obj_t *cancel = make_button(dialog, 14, 152, 116, 48, kSurface, 7);
-    lv_obj_t *cancel_label = make_label(cancel, tr(lyra::i18n::StringId::Cancel), kTextSecondary);
+    lv_obj_t *cancel = make_button(dialog, 16, 152, 120, 46, kSurfaceRaised, LV_RADIUS_CIRCLE);
+    lv_obj_t *cancel_label = make_label(cancel, tr(lyra::i18n::StringId::Cancel), kTextPrimary);
     lv_obj_center(cancel_label);
     lv_obj_add_event_cb(cancel, cancel_power_action_cb, LV_EVENT_CLICKED, overlay);
 
     const bool calm = action == PowerAction::Reboot || action == PowerAction::UsbTransfer;
-    lv_obj_t *confirm = make_button(dialog, 150, 152, 116, 48, calm ? kAccentDark : kDanger, 7);
+    lv_obj_t *confirm = make_button(dialog, 144, 152, 120, 46, calm ? kAccent : kDanger,
+                                    LV_RADIUS_CIRCLE);
     lv_obj_t *confirm_label = make_label(confirm,
                                          action == PowerAction::UsbTransfer ?
                                          tr(lyra::i18n::StringId::UsbTransferConnect) :
@@ -1403,7 +1509,7 @@ void show_database_confirmation(DatabaseAction action)
     lv_obj_t *overlay = make_box(s_screen, 0, 0, kScreenWidth, kScreenHeight, kOverlay);
     lv_obj_set_style_bg_opa(overlay, LV_OPA_90, 0);
     lv_obj_move_foreground(overlay);
-    lv_obj_t *dialog = make_box(overlay, 20, 118, 280, 244, kSurfaceRaised, 12);
+    lv_obj_t *dialog = make_box(overlay, 20, 118, 280, 244, kSurface, 20);
     const char *title_text = action == DatabaseAction::Playlists ?
                              tr(lyra::i18n::StringId::ClearPlaylistsQuestion) :
                              action == DatabaseAction::Artwork ?
@@ -1421,11 +1527,11 @@ void show_database_confirmation(DatabaseAction action)
     lv_obj_set_width(message, 240);
     lv_label_set_long_mode(message, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(message, LV_ALIGN_CENTER, 0, -17);
-    lv_obj_t *cancel = make_button(dialog, 14, 180, 116, 48, kSurface, 7);
-    lv_obj_t *cancel_label = make_label(cancel, tr(lyra::i18n::StringId::Cancel), kTextSecondary);
+    lv_obj_t *cancel = make_button(dialog, 16, 180, 120, 46, kSurfaceRaised, LV_RADIUS_CIRCLE);
+    lv_obj_t *cancel_label = make_label(cancel, tr(lyra::i18n::StringId::Cancel), kTextPrimary);
     lv_obj_center(cancel_label);
     lv_obj_add_event_cb(cancel, cancel_power_action_cb, LV_EVENT_CLICKED, overlay);
-    lv_obj_t *confirm = make_button(dialog, 150, 180, 116, 48, kDanger, 7);
+    lv_obj_t *confirm = make_button(dialog, 144, 180, 120, 46, kDanger, LV_RADIUS_CIRCLE);
     lv_obj_t *confirm_label = make_label(confirm, tr(lyra::i18n::StringId::Clear), kTextOnAccent);
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm, confirm_database_action_cb, LV_EVENT_CLICKED,
@@ -1440,7 +1546,7 @@ void database_action_cb(lv_event_t *event)
 
 void render_database_storage()
 {
-    make_header(tr(lyra::i18n::StringId::DatabaseStorage), View::SystemSettings, true);
+    make_header(tr(lyra::i18n::StringId::DatabaseStorage), View::LibrarySettings, true);
     lv_obj_t *body = make_scroll_body(72);
     lv_obj_t *playlists = make_row(body, 0, Icon::Playlist,
                                    tr(lyra::i18n::StringId::ClearPlaylists),
@@ -1473,95 +1579,55 @@ void render_settings_page(View view)
 {
     const char *title = view == View::PlaybackSettings ? tr(lyra::i18n::StringId::Playback) :
                         view == View::SoundSettings ? tr(lyra::i18n::StringId::Sound) :
-                        view == View::DisplaySettings ? tr(lyra::i18n::StringId::Display) :
+                        view == View::AppearanceSettings ? tr(lyra::i18n::StringId::Appearance) :
+                        view == View::LibrarySettings ? tr(lyra::i18n::StringId::Library) :
                         tr(lyra::i18n::StringId::System);
     make_header(title, View::Settings, true);
-    lv_obj_t *body = make_scroll_body(72);
+    lv_obj_t *body = make_scroll_body(kContentTop);
+    int y = 4;
     if (view == View::PlaybackSettings) {
-        make_setting_toggle(body, 0, tr(lyra::i18n::StringId::GaplessPlayback), nullptr, &s_gapless);
-        make_setting_toggle(body, 66, tr(lyra::i18n::StringId::ReplayGain), nullptr, &s_replay_gain);
-        make_setting_toggle(body, 132, tr(lyra::i18n::StringId::QuickSeek), nullptr, &s_quick_seek);
-        make_row(body, 198, Icon::Crossfade, tr(lyra::i18n::StringId::Crossfade), nullptr, View::CrossfadeOptions, 54);
-        make_row(body, 256, Icon::Sleep, tr(lyra::i18n::StringId::SleepTimer), nullptr, View::SleepTimerOptions, 54);
+        make_setting_toggle(body, y, tr(lyra::i18n::StringId::GaplessPlayback), nullptr, &s_gapless);
+        y += 58;
+        make_setting_toggle(body, y, tr(lyra::i18n::StringId::ReplayGain), nullptr, &s_replay_gain);
+        y += 58;
+        make_setting_toggle(body, y, tr(lyra::i18n::StringId::QuickSeek), nullptr, &s_quick_seek);
+        y += 58;
+        make_row(body, y, Icon::Crossfade, tr(lyra::i18n::StringId::Crossfade), crossfade_name(),
+                 View::CrossfadeOptions, 62);
+        y += 68;
+        make_row(body, y, Icon::Sleep, tr(lyra::i18n::StringId::SleepTimer), sleep_timer_name(),
+                 View::SleepTimerOptions, 62);
     } else if (view == View::SoundSettings) {
-        make_volume_control(body, 0);
-        make_setting_toggle(body, 92, tr(lyra::i18n::StringId::OnBoardSpeaker),
+        make_volume_control(body, y);
+        y += 92;
+        make_setting_toggle(body, y, tr(lyra::i18n::StringId::OnBoardSpeaker),
                             tr(lyra::i18n::StringId::AlsoBuiltInSpeaker),
                             &s_speaker_output_enabled);
-        make_row(body, 158, Icon::Equalizer, tr(lyra::i18n::StringId::EqPreset),
+        y += 68;
+        make_row(body, y, Icon::Equalizer, tr(lyra::i18n::StringId::Equalizer),
                  equalizer_preset_name(s_equalizer_preset), View::Equalizer, 62);
-    } else if (view == View::DisplaySettings) {
-        make_row(body, 0, Icon::Theme, tr(lyra::i18n::StringId::Theme),
-                 theme_name(s_theme),
-                 View::ThemeOptions, 62);
-        int next_y = 66;
-        make_setting_toggle(body, next_y, tr(lyra::i18n::StringId::MenuLayout),
-                            tr(is_zeno_theme() ? lyra::i18n::StringId::ClassicList :
-                                s_listening_hub ? lyra::i18n::StringId::ListeningHub :
-                                                  lyra::i18n::StringId::ClassicList),
-                            &s_listening_hub, !is_zeno_theme());
-        next_y += 66;
-        if (is_standard_theme()) {
-            make_setting_toggle(body, next_y, tr(lyra::i18n::StringId::DarkMode),
-                                s_dark_mode ? tr(lyra::i18n::StringId::DarkColours) :
-                                              tr(lyra::i18n::StringId::LightColours),
-                                &s_dark_mode);
-            make_accent_selector(body, next_y + 66);
-            next_y += 182;
-        }
-        make_setting_toggle(body, next_y, tr(lyra::i18n::StringId::VirtualControls),
-                            tr(lyra::i18n::StringId::ShowBottomNavigation), &s_show_nav);
-        next_y += 66;
-        make_setting_toggle(body, next_y, tr(lyra::i18n::StringId::ListAlbumArt),
+    } else if (view == View::AppearanceSettings) {
+        y += make_theme_choices(body, y) + 8;
+        const char *positions[] = {
+            tr(lyra::i18n::StringId::ClockLeft), tr(lyra::i18n::StringId::ClockCentre),
+            tr(lyra::i18n::StringId::ClockRight), tr(lyra::i18n::StringId::HidePassword),
+        };
+        y += make_choice_card(body, y, tr(lyra::i18n::StringId::ClockPosition), positions, 4,
+                              static_cast<size_t>(s_clock_position), clock_position_choice_cb) + 8;
+        make_accent_selector(body, y);
+        y += 104;
+        make_setting_toggle(body, y, tr(lyra::i18n::StringId::DynamicTint),
+                            tr(lyra::i18n::StringId::DynamicTintDescription), &s_dynamic_tint);
+        y += 68;
+        make_brightness_control(body, y);
+        y += 92;
+        make_setting_toggle(body, y, tr(lyra::i18n::StringId::MiniPlayer),
+                            tr(lyra::i18n::StringId::MiniPlayerDescription), &s_show_nav);
+        y += 68;
+        make_setting_toggle(body, y, tr(lyra::i18n::StringId::ListAlbumArt),
                             tr(lyra::i18n::StringId::ListAlbumArtDescription), &s_list_artwork);
-        make_brightness_control(body, next_y + 66);
-        lv_obj_t *screen_timeout = make_row(body, next_y + 158, Icon::Timer,
-                                             tr(lyra::i18n::StringId::ScreenTimeout),
-                                             tr(lyra::i18n::StringId::ComingSoon),
-                                             View::DisplaySettings, 62);
-        lv_obj_remove_event_cb(screen_timeout, route_cb);
-        lv_obj_set_style_opa(screen_timeout, LV_OPA_60, 0);
-    } else {
+    } else if (view == View::LibrarySettings) {
         const lyra::media::Status status = lyra::media::status();
-        char sd_status[64];
-        if (status.mounted) {
-            format_float(lyra::i18n::StringId::MountedFree,
-                         static_cast<double>(status.free_bytes) / (1024.0 * 1024.0 * 1024.0),
-                         sd_status, sizeof(sd_status));
-        } else {
-            format_text(lyra::i18n::StringId::NotMounted,
-                        esp_err_to_name(status.last_error), sd_status, sizeof(sd_status));
-        }
-        make_row(body, 0, Icon::Language, tr(lyra::i18n::StringId::Language),
-                 lyra::i18n::language_name(lyra::i18n::current_language()),
-                 View::LanguageOptions, 62);
-        make_setting_toggle(body, 66, tr(lyra::i18n::StringId::T9Input),
-                            tr(lyra::i18n::StringId::T9InputDescription), &s_t9_input);
-        char clock_text[32];
-        format_clock_date_time(lyra::clock::now(), clock_text, sizeof(clock_text));
-        lv_obj_t *clock = make_row(body, 132, Icon::Clock,
-                                   tr(lyra::i18n::StringId::TimeAndDate), clock_text,
-                                   View::ClockSettings, 62);
-        lv_obj_remove_event_cb(clock, route_cb);
-        lv_obj_add_event_cb(clock, clock_settings_cb, LV_EVENT_CLICKED, nullptr);
-        const lyra::wifi::Status wifi = lyra::wifi::status();
-        char wifi_summary[80];
-        if (wifi.connected) {
-            format_text(lyra::i18n::StringId::ConnectedTo, wifi.connected_ssid,
-                        wifi_summary, sizeof(wifi_summary));
-        } else if (wifi.connecting && wifi.saved_ssid[0]) {
-            format_text(lyra::i18n::StringId::ConnectingTo, wifi.saved_ssid,
-                        wifi_summary, sizeof(wifi_summary));
-        } else {
-            copy_ui_text(wifi_summary, sizeof(wifi_summary), wifi.enabled ?
-                tr(wifi.connection_failed ? lyra::i18n::StringId::WifiConnectionFailed :
-                                            lyra::i18n::StringId::NotConnected) :
-                tr(lyra::i18n::StringId::Off));
-        }
-        make_row(body, 198, Icon::Wifi, tr(lyra::i18n::StringId::WifiSettings),
-                 wifi_summary, View::WifiSettings, 62);
-        make_row(body, 264, Icon::SdCard, tr(lyra::i18n::StringId::MicroSdCard),
-                 sd_status, View::SystemSettings, 62);
         char scan_status[48];
         if (status.scanning) {
             copy_ui_text(scan_status, sizeof(scan_status), tr(lyra::i18n::StringId::ScanningMicroSd));
@@ -1571,106 +1637,108 @@ void render_settings_page(View view)
             format_count(lyra::i18n::StringId::IndexedTracks,
                          static_cast<uint32_t>(status.track_count), scan_status, sizeof(scan_status));
         }
-        lv_obj_t *scan = make_row(body, 330, LV_SYMBOL_REFRESH,
-                                  tr(lyra::i18n::StringId::ScanMusicLibrary), scan_status,
-                                  View::SystemSettings, 62);
-        lv_obj_remove_event_cb(scan, route_cb);
-        lv_obj_add_event_cb(scan, scan_library_cb, LV_EVENT_CLICKED, nullptr);
-        make_row(body, 396, Icon::Storage, tr(lyra::i18n::StringId::DatabaseStorage),
-                 tr(lyra::i18n::StringId::ManagePlaylistsLibrary),
+        make_action_row(body, y, Icon::Music, tr(lyra::i18n::StringId::ScanMusicLibrary),
+                        scan_status, scan_library_cb);
+        y += 68;
+        make_row(body, y, Icon::Sorting, tr(lyra::i18n::StringId::Sorting), nullptr,
+                 View::SortingSettings, 52);
+        y += 58;
+        char sd_status[64];
+        if (status.mounted) {
+            format_float(lyra::i18n::StringId::MountedFree,
+                         static_cast<double>(status.free_bytes) / (1024.0 * 1024.0 * 1024.0),
+                         sd_status, sizeof(sd_status));
+        } else {
+            format_text(lyra::i18n::StringId::NotMounted,
+                        esp_err_to_name(status.last_error), sd_status, sizeof(sd_status));
+        }
+        make_row(body, y, Icon::Storage, tr(lyra::i18n::StringId::DatabaseStorage), sd_status,
                  View::DatabaseStorage, 62);
-        make_artwork_setting_toggle(body, 462, tr(lyra::i18n::StringId::SdAlbumArtCache),
+        y += 68;
+        make_artwork_setting_toggle(body, y, tr(lyra::i18n::StringId::SdAlbumArtCache),
                                     tr(lyra::i18n::StringId::AllowOversizedJpeg),
                                     status.artwork_sd_cache_enabled, ArtworkSetting::SdCache);
-        make_artwork_setting_toggle(body, 528, tr(lyra::i18n::StringId::AlbumArt320),
+        y += 68;
+        make_artwork_setting_toggle(body, y, tr(lyra::i18n::StringId::AlbumArt320),
                                     tr(lyra::i18n::StringId::AlbumArt240WhenDisabled),
                                     status.artwork_size == lyra::media::kLargeArtworkSize,
                                     ArtworkSetting::Size320);
-        lv_obj_t *usb = make_row(body, 594, Icon::SdCard,
-                                 tr(lyra::i18n::StringId::UsbTransfer),
-                                 tr(lyra::i18n::StringId::UsbTransferDescription),
-                                 View::SystemSettings, 62);
-        lv_obj_remove_event_cb(usb, route_cb);
-        lv_obj_add_event_cb(usb, usb_transfer_cb, LV_EVENT_CLICKED, nullptr);
-        lv_obj_t *reboot = make_row(body, 660, LV_SYMBOL_REFRESH,
-                                    tr(lyra::i18n::StringId::Reboot),
-                                    tr(lyra::i18n::StringId::SafelyRestartLyra),
-                                    View::SystemSettings, 62);
-        lv_obj_remove_event_cb(reboot, route_cb);
-        lv_obj_add_event_cb(reboot, reboot_cb, LV_EVENT_CLICKED, nullptr);
-        lv_obj_t *power_off = make_row(body, 726, LV_SYMBOL_POWER,
-                                       tr(lyra::i18n::StringId::PowerOff),
-                                       tr(lyra::i18n::StringId::SafelyUnmountAndSleep),
-                                       View::SystemSettings, 62);
-        lv_obj_remove_event_cb(power_off, route_cb);
-        lv_obj_add_event_cb(power_off, power_off_cb, LV_EVENT_CLICKED, nullptr);
-        lv_obj_t *factory_reset = make_row(body, 792, LV_SYMBOL_WARNING,
-                                           tr(lyra::i18n::StringId::FactoryReset),
-                                           tr(lyra::i18n::StringId::FactoryResetDescription),
-                                           View::SystemSettings, 62);
-        lv_obj_set_style_bg_color(factory_reset, kDangerSurface, 0);
-        lv_obj_remove_event_cb(factory_reset, route_cb);
-        lv_obj_add_event_cb(factory_reset, factory_reset_cb, LV_EVENT_CLICKED, nullptr);
+    } else {
+        make_setting_toggle(body, y, tr(lyra::i18n::StringId::T9Input),
+                            tr(lyra::i18n::StringId::T9InputDescription), &s_t9_input);
+        y += 68;
+        make_action_row(body, y, Icon::SdCard, tr(lyra::i18n::StringId::UsbTransfer),
+                        tr(lyra::i18n::StringId::UsbTransferDescription), usb_transfer_cb);
+        y += 68;
+        make_action_row(body, y, Icon::Recent, tr(lyra::i18n::StringId::Reboot),
+                        tr(lyra::i18n::StringId::SafelyRestartLyra), reboot_cb);
+        y += 68;
+        make_action_row(body, y, Icon::Sleep, tr(lyra::i18n::StringId::PowerOff),
+                        tr(lyra::i18n::StringId::SafelyUnmountAndSleep), power_off_cb);
+        y += 68;
+        make_action_row(body, y, Icon::System, tr(lyra::i18n::StringId::FactoryReset),
+                        tr(lyra::i18n::StringId::FactoryResetDescription), factory_reset_cb, true);
     }
 }
 
 void render_about()
 {
     make_header(tr(lyra::i18n::StringId::About), View::Settings, true);
-    lv_obj_t *body = make_scroll_body(72);
+    lv_obj_t *body = make_scroll_body(kContentTop);
+    // Holding the logo opens the service menu.
+    const auto open_debug = [](lv_event_t *) {
+        s_debug_tab = DebugTab::Info;
+        navigate_to(View::DebugMenu);
+    };
     if (load_brand_logo()) {
         lv_obj_t *logo = lv_image_create(body);
         lv_image_set_src(logo, &s_brand_logo_descriptor);
-        lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 22);
+        lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 18);
         lv_obj_add_flag(logo, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(logo, [](lv_event_t *) {
-            s_debug_tab = DebugTab::Info;
-            navigate_to(View::DebugMenu);
-        }, LV_EVENT_LONG_PRESSED, nullptr);
+        lv_obj_add_event_cb(logo, open_debug, LV_EVENT_LONG_PRESSED, nullptr);
     } else {
         lv_obj_t *logo = make_label(body, "Emotivate Lyra", kTextPrimary);
-        lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 38);
+        lv_obj_set_style_text_font(logo, title_font(), 0);
+        lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 34);
         lv_obj_add_flag(logo, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(logo, [](lv_event_t *) {
-            s_debug_tab = DebugTab::Info;
-            navigate_to(View::DebugMenu);
-        }, LV_EVENT_LONG_PRESSED, nullptr);
+        lv_obj_add_event_cb(logo, open_debug, LV_EVENT_LONG_PRESSED, nullptr);
     }
-    lv_obj_t *platform_name = make_label(body,
-        tr(lyra::i18n::StringId::PlatformName), kTextPrimary);
-    lv_obj_align(platform_name, LV_ALIGN_TOP_MID, 0, 84);
+    lv_obj_t *platform_name = make_label(body, tr(lyra::i18n::StringId::PlatformName), kTextPrimary);
+    lv_obj_set_style_text_font(platform_name, title_font(), 0);
+    lv_obj_align(platform_name, LV_ALIGN_TOP_MID, 0, 88);
     lv_obj_t *project_developer = make_label(body,
         tr(lyra::i18n::StringId::ProjectDeveloper), kTextMuted);
-    lv_obj_align(project_developer, LV_ALIGN_TOP_MID, 0, 108);
-    lv_obj_t *firmware_heading = make_label(body, tr(lyra::i18n::StringId::FirmwareVersion), kTextMuted);
-    lv_obj_align(firmware_heading, LV_ALIGN_TOP_MID, 0, 145);
+    lv_obj_align(project_developer, LV_ALIGN_TOP_MID, 0, 114);
+
+    constexpr int kCardWidth = kScreenWidth - 2 * kPageInset;
+    lv_obj_t *card = make_card(body, kPageInset, 150, kCardWidth, 104);
+    lv_obj_t *firmware_heading = make_label(card, tr(lyra::i18n::StringId::FirmwareVersion), kTextMuted);
+    lv_obj_set_pos(firmware_heading, 16, 12);
     // ESP-IDF embeds version.txt as the application version at build time.
-    lv_obj_t *firmware_version = make_label(body, esp_app_get_description()->version,
-                                            kTextPrimary);
-    lv_obj_align(firmware_version, LV_ALIGN_TOP_MID, 0, 169);
-    lv_obj_t *hardware_heading = make_label(body, tr(lyra::i18n::StringId::HardwareId), kTextMuted);
-    lv_obj_align(hardware_heading, LV_ALIGN_TOP_MID, 0, 221);
-    lv_obj_t *hardware_id = make_label(body,
-        lyra::board::jc3248w535en::kBoardModelName, kTextPrimary);
-    lv_obj_align(hardware_id, LV_ALIGN_TOP_MID, 0, 245);
-    lv_obj_t *update = make_button(body, 36, 297, 248, 48, kSurface, 7, true);
-    lv_obj_t *update_label = make_label(update, tr(lyra::i18n::StringId::FirmwareUpdate), kTextPrimary);
-    lv_obj_center(update_label);
-    lv_obj_add_event_cb(update, firmware_update_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *licenses = make_button(body, 36, 353, 248, 48, kSurface, 7, true);
-    lv_obj_t *licenses_label = make_label(licenses, tr(lyra::i18n::StringId::Licenses), kTextPrimary);
-    lv_obj_center(licenses_label);
-    add_route(licenses, View::Licenses);
+    lv_obj_t *firmware_version = make_label(card, esp_app_get_description()->version, kTextPrimary);
+    lv_obj_set_pos(firmware_version, 16, 32);
+    lv_obj_t *hardware_heading = make_label(card, tr(lyra::i18n::StringId::HardwareId), kTextMuted);
+    lv_obj_set_pos(hardware_heading, 16, 58);
+    lv_obj_t *hardware_id = make_label(card, lyra::board::jc3248w535en::kBoardModelName,
+                                       kTextPrimary);
+    lv_obj_set_pos(hardware_id, 16, 78);
+
+    lv_obj_t *update = make_action_row(body, 266, Icon::Added,
+                                       tr(lyra::i18n::StringId::FirmwareUpdate), nullptr,
+                                       firmware_update_cb);
+    (void)update;
+    make_row(body, 324, Icon::About, tr(lyra::i18n::StringId::Licenses), nullptr,
+             View::Licenses, 52);
 }
 
 void render_licenses()
 {
-    make_header(tr(lyra::i18n::StringId::Licenses), View::Settings, true);
-    lv_obj_t *body = make_scroll_body(72);
+    make_header(tr(lyra::i18n::StringId::Licenses), View::About, true);
+    lv_obj_t *body = make_scroll_body(kContentTop);
     const char *notices = tr(lyra::i18n::StringId::LicenseNotices);
     lv_obj_t *text = make_label(body, notices, kTextSecondary);
-    lv_obj_set_pos(text, 14, 14);
-    lv_obj_set_width(text, 292);
+    lv_obj_set_pos(text, 16, 10);
+    lv_obj_set_width(text, kScreenWidth - 32);
     lv_label_set_long_mode(text, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_style_text_line_space(text, 5, 0);
 }

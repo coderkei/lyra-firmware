@@ -756,7 +756,7 @@ void render_page_jump()
     make_header(tr(lyra::i18n::StringId::PageJumpTitle), View::Menu, true,
                 nullptr, nav_back_cb);
     if (s_page_jump_has_sort) {
-        lv_obj_t *tabs = make_box(s_screen, 7, 72, 306, 38, kBackground);
+        lv_obj_t *tabs = make_box(s_screen, kPageInset, 72, kScreenWidth - 2 * kPageInset, 38, kBackground);
         make_page_jump_tab(tabs, 0, tr(lyra::i18n::StringId::PageJumpPageTab),
                            !s_page_jump_show_sort, false);
         make_page_jump_tab(tabs, 157, tr(lyra::i18n::StringId::PageJumpSortTab),

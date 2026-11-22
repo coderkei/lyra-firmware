@@ -853,7 +853,7 @@ void paste_cb(lv_event_t *)
 
 void make_clipboard_bar(lv_obj_t *body, int y)
 {
-    lv_obj_t *bar = make_box(body, 7, y, 306, 44, kAccentSurface, 6);
+    lv_obj_t *bar = make_box(body, kPageInset, y, kScreenWidth - 2 * kPageInset, 44, kAccentSurface, 6);
     lv_obj_remove_flag(bar, LV_OBJ_FLAG_CLICKABLE);
     char text[lyra::media::kMaxName + 24];
     format_text(s_clipboard.copy ? StringId::FileReadyToCopy : StringId::FileReadyToMove,
@@ -866,7 +866,7 @@ void make_clipboard_bar(lv_obj_t *body, int y)
     make_marquee(paste_label, 84);
     lv_obj_center(paste_label);
     lv_obj_add_event_cb(paste, paste_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *cancel = make_button(bar, 262, 5, 38, 34, kSurface, 6);
+    lv_obj_t *cancel = make_button(bar, 256, 5, 38, 34, kSurface, 6);
     lv_obj_t *cancel_icon = make_label(cancel, LV_SYMBOL_CLOSE, kTextSecondary);
     lv_obj_center(cancel_icon);
     lv_obj_add_event_cb(cancel, [](lv_event_t *) {
@@ -914,7 +914,7 @@ void make_entry_row(lv_obj_t *body, int y, size_t index)
     const EntryKind kind = s_listing.entries[index].kind;
     const char *name = entry_name(index);
     void *payload = reinterpret_cast<void *>(index);
-    lv_obj_t *row = make_button(body, 7, y, 306, 54, kSurface, 5, true);
+    lv_obj_t *row = make_button(body, kPageInset, y, kScreenWidth - 2 * kPageInset, 54, kSurface, 5, true);
     lv_obj_t *icon = make_label(row, kind_icon(kind),
         kind == EntryKind::Other ? kTextMuted : kAccent);
     lv_obj_align(icon, LV_ALIGN_LEFT_MID, 12, 0);
@@ -1118,7 +1118,7 @@ void render_folders(bool detail)
         top += 50;
     }
     if (detail && s_queue_add_mode) {
-        lv_obj_t *add_folder = make_button(body, 7, top, 306, 42, kSurfaceRaised, 6, true);
+        lv_obj_t *add_folder = make_button(body, kPageInset, top, kScreenWidth - 2 * kPageInset, 42, kSurfaceRaised, 6, true);
         lv_obj_t *add_icon = make_label(add_folder, LV_SYMBOL_PLUS, kAccent);
         lv_obj_align(add_icon, LV_ALIGN_LEFT_MID, 14, 0);
         lv_obj_t *add_label = make_label(add_folder, tr(StringId::AddFolderToQueue), kTextPrimary);

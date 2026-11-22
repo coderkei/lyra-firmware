@@ -10,7 +10,10 @@
 namespace lyra::gui::internal {
 namespace {
 
+// Montserrat covers Latin text at these sizes; every other script falls back
+// to the 16 px multilingual font, scaled to match.
 constexpr int kSourcePixels = 16;
+const int kTitlePixels = 18;
 const int kHeadingPixels = 28;
 const int kMenuPixels = 34;
 
@@ -99,29 +102,43 @@ lv_font_t make_scaled_font(const int *pixels)
 
 } // namespace
 
-const lv_font_t *zeno_heading_font(bool large)
+const lv_font_t *title_font()
+{
+    static lv_font_t unicode_title = make_scaled_font(&kTitlePixels);
+    static lv_font_t title = lv_font_montserrat_18;
+    static bool prepared = false;
+    if (!prepared) {
+        for (lv_font_t *font : {&title, &unicode_title}) lyra::font::enable_glyph_cache(font);
+        // Common line metrics let the taller multilingual glyphs fit.
+        title.line_height = std::max(title.line_height, unicode_title.line_height);
+        title.base_line = std::max(title.base_line, unicode_title.base_line);
+        title.fallback = &unicode_title;
+        prepared = true;
+    }
+    return &title;
+}
+
+const lv_font_t *display_font(bool large)
 {
     static lv_font_t unicode_heading = make_scaled_font(&kHeadingPixels);
     static lv_font_t unicode_menu = make_scaled_font(&kMenuPixels);
     static lv_font_t heading = lv_font_montserrat_28;
     static lv_font_t menu = lv_font_montserrat_34;
-    static bool glyphs_cached = false;
-    if (!glyphs_cached) {
+    static bool prepared = false;
+    if (!prepared) {
         // Scaled fallback glyphs are interpolated per pixel; keep each
         // result instead of rescaling it on every redraw.
         for (lv_font_t *font : {&heading, &menu, &unicode_heading, &unicode_menu}) {
             lyra::font::enable_glyph_cache(font);
         }
-        glyphs_cached = true;
+        heading.line_height = unicode_heading.line_height;
+        heading.base_line = unicode_heading.base_line;
+        heading.fallback = &unicode_heading;
+        menu.line_height = unicode_menu.line_height;
+        menu.base_line = unicode_menu.base_line;
+        menu.fallback = &unicode_menu;
+        prepared = true;
     }
-    // Font packs need common line metrics: allow the taller multilingual
-    // glyphs to fit while retaining the original English glyph bitmaps.
-    heading.line_height = unicode_heading.line_height;
-    heading.base_line = unicode_heading.base_line;
-    heading.fallback = &unicode_heading;
-    menu.line_height = unicode_menu.line_height;
-    menu.base_line = unicode_menu.base_line;
-    menu.fallback = &unicode_menu;
     return large ? &menu : &heading;
 }
 

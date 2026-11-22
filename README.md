@@ -31,7 +31,7 @@ the rest.
 Lyra scans the card for up to 10,000 tracks and lets you browse by song,
 album, artist, genre or year, with sorting options and a jump-to-letter strip
 for long lists. Lists scroll smoothly however big your library is, and you can
-turn on small album covers beside songs and albums (Settings → Display). The
+turn on small album covers beside songs and albums (Settings → Appearance). The
 covers are decoded once and cached on the card, so they stay quick after the
 first visit.
 
@@ -85,8 +85,8 @@ computer, so you can copy music over the cable. One catch: the board has a
 single USB port, so serial logs and flashing pause while transfer mode is on.
 Tapping Finish restarts Lyra and brings them back.
 
-The Apps screen has a calculator, calendar, stopwatch and timer, a photo
-viewer, a text and ebook reader, and two small games, Dot Link and Dice.
+The More page holds the photo viewer and the text and ebook reader, beside
+shortcuts to the queue, equaliser, search and playlists.
 
 The photo viewer opens PNG, BMP and JPEG files full screen with zoom and pan.
 The reader has three page colours (light, sepia and dark), three text sizes,
@@ -94,10 +94,21 @@ a progress bar and a bookmark per file.
 
 ### Look and feel
 
-There are five themes: Standard, Night City, Cute Pink, Zeno and Aura.
-Standard also has a dark mode and accent colours. You can pick a "listening
-hub" home screen or a classic list menu, and turn on an on-screen control bar
-for boards without buttons.
+LyraOS has one design, made for a small touch screen and in the spirit of
+small-screen music players: large two-column tiles on Home (Music, Internet
+radio, Wi-Fi, Files, More and Settings) and on the Music page, rounded cards
+everywhere else, and a full-bleed cover on Now Playing with a panel tinted by
+the cover's own colour.
+
+The board has no buttons, so gestures do their work: swipe right to go back,
+swipe left to open Now Playing (and, from Now Playing, the queue), and pull
+the status bar down (it follows your finger) for the control centre with brightness,
+volume, the playing song and quick toggles. A mini player sits under the
+browsing pages.
+
+Settings → Appearance chooses a dark or light theme, the clock position, one
+of six accent colours and an optional dynamic tint that washes the interface
+in the accent colour.
 
 The interface is translated into English, French, German, Spanish, Italian,
 Japanese, Korean, Russian, and Simplified and Traditional Chinese. Song
@@ -199,7 +210,7 @@ main/                   The application: GUI, audio, media, storage and services
 components/lyra_board/  Display, touch and board setup for the JC3248W535EN
 board/                  Pin definitions and vendor references
 docs/                   Design, hardware and validation documents
-graphics/               Boot images and theme artwork
+graphics/               Boot images and wordmarks
 tools/                  Emulator, translation checks, font and IME tools
 partitions.csv          Flash layout (16 MB)
 sdkconfig.defaults      Reference ESP-IDF configuration

@@ -52,7 +52,7 @@ void render_folder_playlist()
             lv_obj_set_pos(error, 12, y + 16);
             continue;
         }
-        lv_obj_t *row = make_button(list, 7, y, 306, 54, kSurface, 5, true);
+        lv_obj_t *row = make_button(list, kPageInset, y, kScreenWidth - 2 * kPageInset, 54, kSurface, 5, true);
         lv_obj_t *title = make_label(row, track.title, kTextPrimary);
         make_marquee(title, s_queue_add_mode ? 244 : 282);
         lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -9);

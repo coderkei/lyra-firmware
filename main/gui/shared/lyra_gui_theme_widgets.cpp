@@ -7,183 +7,75 @@
 
 namespace lyra::gui::internal {
 
-const char *theme_name(Theme theme)
+namespace {
+
+// Rounds the small radii older layouts pass in up to the design's corners:
+// rows and cards get the full radius, small controls a softer one.
+int design_radius(int radius, int width, int height)
 {
-    switch (theme) {
-        case Theme::NeonSky: return tr(lyra::i18n::StringId::NeonSky);
-        case Theme::CutePink: return tr(lyra::i18n::StringId::CutePink);
-        case Theme::Zeno: return "Zeno";
-        case Theme::Aura: return "Aura";
-        case Theme::Standard:
-        case Theme::Count: return tr(lyra::i18n::StringId::StandardTheme);
-    }
-    return tr(lyra::i18n::StringId::StandardTheme);
+    if (radius <= 0 || radius >= LV_RADIUS_CIRCLE) return radius;
+    const int shorter = std::min(width, height);
+    if (shorter >= 36 && width >= 100) return std::max(radius, kRowRadius);
+    return std::max(radius, std::min(8, shorter / 2));
 }
 
-void make_theme_swatches(lv_obj_t *row, Theme theme, int right_offset)
+lv_color_t tint(lv_color_t base, uint8_t amount)
 {
-    // Background, accent and highlight dots preview each theme before it is
-    // chosen. Standard shows the accent colour currently selected.
-    const AccentPalette &accent = kAccentPalettes[
-        s_accent_colour < kAccentPaletteCount ? s_accent_colour : 0];
-    uint32_t colors[3] = {0xF8FAFC, 0x080C12, s_dark_mode ? accent.dark_rgb : accent.light_rgb};
-    switch (theme) {
-        case Theme::NeonSky: colors[0] = 0x060609; colors[1] = 0xFF4D42; colors[2] = kHudCyanRgb; break;
-        case Theme::CutePink: colors[0] = 0xFFF5FC; colors[1] = 0xB91D70; colors[2] = 0xC7A7E5; break;
-        case Theme::Zeno: colors[0] = 0x09080F; colors[1] = 0xFF2185; colors[2] = 0xEF6B24; break;
-        case Theme::Aura: colors[0] = 0xBCEAFF; colors[1] = 0x0066CB; colors[2] = 0x129DE8; break;
-        case Theme::Standard:
-        case Theme::Count: break;
-    }
-    for (int i = 0; i < 3; ++i) {
-        lv_obj_t *swatch = lv_obj_create(row);
-        lv_obj_remove_style_all(swatch);
-        lv_obj_set_size(swatch, 14, 14);
-        lv_obj_set_style_radius(swatch, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_color(swatch, lv_color_hex(colors[i]), 0);
-        lv_obj_set_style_bg_opa(swatch, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(swatch, 1, 0);
-        lv_obj_set_style_border_color(swatch, kDivider, 0);
-        lv_obj_remove_flag(swatch, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_align(swatch, LV_ALIGN_RIGHT_MID, right_offset - (2 - i) * 18, 0);
-    }
+    return s_dynamic_tint ? lv_color_mix(kAccent, base, amount) : base;
 }
 
-bool rasterize_rgb565(uint16_t *pixels, int width, int height,
-                      RasterPainter paint, void *context)
-{
-    if (!pixels || !paint || !s_screen || width <= 0 || height <= 0) return false;
-    // A hidden canvas only borrows the buffer: the software renderer draws
-    // synchronously, then the canvas is removed and the pixels stay with us.
-    lv_obj_t *canvas = lv_canvas_create(s_screen);
-    if (!canvas) return false;
-    lv_obj_add_flag(canvas, LV_OBJ_FLAG_HIDDEN);
-    lv_canvas_set_buffer(canvas, pixels, width, height, LV_COLOR_FORMAT_RGB565);
-    lv_layer_t layer;
-    lv_canvas_init_layer(canvas, &layer);
-    paint(&layer, context);
-    lv_canvas_finish_layer(canvas, &layer);
-    lv_obj_delete(canvas);
-    return true;
-}
+} // namespace
 
-void init_rgb565_image(lv_image_dsc_t *image, const uint16_t *pixels, int width, int height)
+lv_color_t accent_color(size_t index)
 {
-    *image = {};
-    image->header.magic = LV_IMAGE_HEADER_MAGIC;
-    image->header.cf = LV_COLOR_FORMAT_RGB565;
-    image->header.w = width;
-    image->header.h = height;
-    image->header.stride = width * sizeof(uint16_t);
-    image->data_size = static_cast<uint32_t>(width * height * sizeof(uint16_t));
-    image->data = reinterpret_cast<const uint8_t *>(pixels);
+    const AccentPalette &accent = kAccentPalettes[index < kAccentPaletteCount ? index : 0];
+    return lv_color_hex(s_dark_mode ? accent.dark_rgb : accent.light_rgb);
 }
 
 void apply_theme_palette()
 {
-    s_neon_hud = s_theme == Theme::NeonSky;
-    const size_t accent_index = static_cast<size_t>(s_accent_colour) < kAccentPaletteCount ?
-                                s_accent_colour : 0;
-    const AccentPalette &accent = kAccentPalettes[accent_index];
-    if (s_neon_hud) {
-        // Night City HUD: coral-red type on opaque near-black panels. Cyan is
-        // the selected/live state (kAccentSurface fills), never body text.
-        kBackground = lv_color_hex(0x060609);
-        kSurface = lv_color_hex(0x110C0F);
-        kSurfaceRaised = lv_color_hex(0x1B1116);
-        kAccent = lv_color_hex(0xFF4D42);
-        kAccentDark = lv_color_hex(0x7A1A16);
-        kAccentSurface = lv_color_hex(0x0E3439);
-        kTextPrimary = lv_color_hex(0xFF7064);
-        kTextSecondary = lv_color_hex(0xC9877E);
-        kTextMuted = lv_color_hex(0x9A6A63);
-        kDivider = lv_color_hex(0x5E2220);
-        kNavSurface = lv_color_hex(0x0A0709);
-        kKeyboardSurface = lv_color_hex(0x0C080B);
-        kArtworkSurface = lv_color_hex(0x0D0A0E);
-        kDangerSurface = lv_color_hex(0x5A0F16);
-        kDanger = lv_color_hex(0xB3121F);
-    } else if (is_zeno_theme()) {
-        kBackground = lv_color_hex(0x09080F);
-        kSurface = lv_color_hex(0x100D18);
-        kSurfaceRaised = lv_color_hex(0x251324);
-        kAccent = lv_color_hex(0xFF2185);
-        kAccentDark = lv_color_hex(0xB9175D);
-        kAccentSurface = lv_color_hex(0xC41D64);
-        kTextPrimary = lv_color_hex(0xFFF8FA);
-        kTextSecondary = lv_color_hex(0xDFD3DB);
-        kTextMuted = lv_color_hex(0xAD9CA9);
-        kDivider = lv_color_hex(0x49313F);
-        kNavSurface = kBackground;
-        kKeyboardSurface = kSurface;
-        kArtworkSurface = kSurfaceRaised;
-        kDangerSurface = lv_color_hex(0x581528);
-        kDanger = lv_color_hex(0xC0123F);
-    } else if (is_aura_theme()) {
-        kBackground = lv_color_hex(0xBCEAFF);
-        kSurface = lv_color_hex(0xE7F6FF);
-        kSurfaceRaised = lv_color_hex(0xD2EDFC);
-        kAccent = lv_color_hex(0x0066CB);
-        kAccentDark = lv_color_hex(0x0055B0);
-        kAccentSurface = lv_color_hex(0x129DE8);
-        kTextPrimary = lv_color_hex(0x003B85);
-        kTextSecondary = lv_color_hex(0x164F82);
-        kTextMuted = lv_color_hex(0x376587);
-        kDivider = lv_color_hex(0x80BCDB);
-        kNavSurface = lv_color_hex(0xB7E5F8);
-        kKeyboardSurface = kSurfaceRaised;
-        kArtworkSurface = lv_color_hex(0xD9EFFB);
-        kDangerSurface = lv_color_hex(0xFCE2E8);
-        kDanger = lv_color_hex(0xC0264A);
-    } else if (is_cute_theme()) {
-        kBackground = lv_color_hex(0xFFF5FC);
-        kSurface = lv_color_hex(0xFFFAFE);
-        kSurfaceRaised = lv_color_hex(0xF3EDFF);
-        kAccent = lv_color_hex(0xB91D70);
-        kAccentDark = lv_color_hex(0xA31864);
-        kAccentSurface = lv_color_hex(0xFFD6ED);
-        kTextPrimary = lv_color_hex(0x3E327B);
-        kTextSecondary = lv_color_hex(0x514486);
-        kTextMuted = lv_color_hex(0x6D5C8C);
-        kDivider = lv_color_hex(0xC7A7E5);
-        kNavSurface = lv_color_hex(0xF5EAFF);
-        kKeyboardSurface = lv_color_hex(0xF3EDFF);
-        kArtworkSurface = lv_color_hex(0xEFE6FA);
-        kDangerSurface = lv_color_hex(0xFFE1EA);
-        kDanger = lv_color_hex(0xC0265E);
-    } else if (s_dark_mode) {
-        kBackground = lv_color_hex(0x080C12);
-        kSurface = lv_color_hex(0x101720);
-        kSurfaceRaised = lv_color_hex(0x18212D);
-        kAccent = lv_color_hex(accent.dark_rgb);
-        kAccentDark = lv_color_hex(accent.dark_pressed_rgb);
-        kAccentSurface = lv_color_hex(accent.dark_surface_rgb);
-        kTextPrimary = lv_color_hex(0xF4F7FB);
-        kTextSecondary = lv_color_hex(0xCBD5E1);
-        kTextMuted = lv_color_hex(0x718096);
-        kDivider = lv_color_hex(0x25303D);
-        kNavSurface = lv_color_hex(0x0B111A);
-        kKeyboardSurface = lv_color_hex(0x05080D);
-        kArtworkSurface = lv_color_hex(0x142131);
-        kDangerSurface = lv_color_hex(0x3F1118);
-        kDanger = lv_color_hex(0x991B1B);
+    kAccent = accent_color(s_accent_colour);
+    if (s_dark_mode) {
+        kBackground = lv_color_hex(0x121212);
+        kSurface = lv_color_hex(0x1F1F1F);
+        kSurfaceRaised = lv_color_hex(0x2B2B2B);
+        kTextPrimary = lv_color_hex(0xF5F5F5);
+        kTextSecondary = lv_color_hex(0xB8B8B8);
+        kTextMuted = lv_color_hex(0x808080);
+        kDivider = lv_color_hex(0x363636);
+        kNavSurface = lv_color_hex(0x1A1A1A);
+        kKeyboardSurface = lv_color_hex(0x0C0C0C);
+        kArtworkSurface = lv_color_hex(0x2A2A2A);
+        kDangerSurface = lv_color_hex(0x3D1717);
+        kDanger = lv_color_hex(0xD64545);
+        kAccentDark = lv_color_mix(lv_color_black(), kAccent, 56);
+        kAccentSurface = lv_color_mix(kAccent, kBackground, 64);
     } else {
-        kBackground = lv_color_hex(0xF8FAFC);
+        kBackground = lv_color_hex(0xEFEFF4);
         kSurface = lv_color_hex(0xFFFFFF);
-        kSurfaceRaised = lv_color_hex(0xF1F5F9);
-        kAccent = lv_color_hex(accent.light_rgb);
-        kAccentDark = lv_color_hex(accent.light_pressed_rgb);
-        kAccentSurface = lv_color_hex(accent.light_surface_rgb);
-        kTextPrimary = lv_color_hex(0x172033);
-        kTextSecondary = lv_color_hex(0x475569);
-        kTextMuted = lv_color_hex(0x64748B);
-        kDivider = lv_color_hex(0xCBD5E1);
+        kSurfaceRaised = lv_color_hex(0xE4E4EA);
+        kTextPrimary = lv_color_hex(0x161616);
+        kTextSecondary = lv_color_hex(0x4A4A4F);
+        kTextMuted = lv_color_hex(0x7C7C84);
+        kDivider = lv_color_hex(0xD5D5DC);
         kNavSurface = lv_color_hex(0xFFFFFF);
-        kKeyboardSurface = lv_color_hex(0xE2E8F0);
-        kArtworkSurface = lv_color_hex(0xE2E8F0);
-        kDangerSurface = lv_color_hex(0xFEE2E2);
-        kDanger = lv_color_hex(0xB91C1C);
+        kKeyboardSurface = lv_color_hex(0xD9D9E0);
+        kArtworkSurface = lv_color_hex(0xDDDDE3);
+        kDangerSurface = lv_color_hex(0xFBE1E1);
+        kDanger = lv_color_hex(0xC62828);
+        kAccentDark = lv_color_mix(lv_color_black(), kAccent, 36);
+        kAccentSurface = lv_color_mix(kAccent, lv_color_white(), 44);
     }
+    // Dynamic tint washes every neutral layer with the accent, deeper on the
+    // raised layers so cards still separate from the page.
+    const bool dark = s_dark_mode;
+    kBackground = tint(kBackground, dark ? 22 : 18);
+    kSurface = tint(kSurface, dark ? 30 : 12);
+    kSurfaceRaised = tint(kSurfaceRaised, dark ? 38 : 26);
+    kNavSurface = tint(kNavSurface, dark ? 28 : 12);
+    kDivider = tint(kDivider, dark ? 40 : 34);
+    kArtworkSurface = tint(kArtworkSurface, dark ? 30 : 22);
+    kKeyboardSurface = tint(kKeyboardSurface, dark ? 16 : 22);
 }
 
 constexpr int16_t kEqualizerFlat[lyra::audio::kEqualizerBandCount] = {
@@ -264,28 +156,26 @@ void apply_equalizer_to_audio()
 
 esp_err_t save_user_settings()
 {
-    lyra::gui_settings::Values values{
-        s_gapless,
-        s_replay_gain,
-        s_quick_seek,
-        s_crossfade_seconds,
-        s_brightness_percent,
-        s_dark_mode,
-        s_accent_colour,
-        lyra::i18n::current_language(),
-        s_speaker_output_enabled,
-        static_cast<uint8_t>(s_equalizer_preset),
-        {},
-        static_cast<uint8_t>(s_date_format),
-        s_use_24_hour,
-        s_dst_enabled,
-        true,
-        s_theme,
-        s_library_keyboard_layout,
-        !s_setup_pending,
-    };
-    values.listening_hub = s_listening_hub;
-    values.timer_alarm_enabled = s_timer_alarm_enabled;
+    lyra::gui_settings::Values values{};
+    values.gapless = s_gapless;
+    values.replay_gain = s_replay_gain;
+    values.quick_seek = s_quick_seek;
+    values.crossfade_seconds = s_crossfade_seconds;
+    values.brightness_percent = s_brightness_percent;
+    values.dark_mode = s_dark_mode;
+    values.accent_colour = s_accent_colour;
+    values.language = lyra::i18n::current_language();
+    values.speaker_output_enabled = s_speaker_output_enabled;
+    values.equalizer_preset = static_cast<uint8_t>(s_equalizer_preset);
+    values.date_format = static_cast<uint8_t>(s_date_format);
+    values.use_24_hour = s_use_24_hour;
+    values.dst_enabled = s_dst_enabled;
+    values.language_selected = true;
+    values.keyboard_layout = s_library_keyboard_layout;
+    values.setup_complete = !s_setup_pending;
+    values.clock_position = s_clock_position;
+    values.dynamic_tint = s_dynamic_tint;
+    values.mini_player = s_show_nav;
     values.t9_input = s_t9_input;
     values.list_artwork = s_list_artwork;
     values.automatic_time = s_automatic_time;
@@ -297,32 +187,29 @@ esp_err_t save_user_settings()
 
 void load_user_settings()
 {
-    lyra::gui_settings::Values values{
-        s_gapless,
-        s_replay_gain,
-        s_quick_seek,
-        s_crossfade_seconds,
-        s_brightness_percent,
-        s_dark_mode,
-        s_accent_colour,
-        lyra::i18n::Language::English,
-        s_speaker_output_enabled,
-        static_cast<uint8_t>(s_equalizer_preset),
-        {},
-        static_cast<uint8_t>(s_date_format),
-        s_use_24_hour,
-        s_dst_enabled,
-        false,
-        s_theme,
-        s_library_keyboard_layout,
-        false,
-    };
+    // The current values are the defaults for anything not saved yet.
+    lyra::gui_settings::Values values{};
+    values.gapless = s_gapless;
+    values.replay_gain = s_replay_gain;
+    values.quick_seek = s_quick_seek;
+    values.crossfade_seconds = s_crossfade_seconds;
+    values.brightness_percent = s_brightness_percent;
+    values.dark_mode = s_dark_mode;
+    values.accent_colour = s_accent_colour;
+    values.speaker_output_enabled = s_speaker_output_enabled;
+    values.equalizer_preset = static_cast<uint8_t>(s_equalizer_preset);
+    values.date_format = static_cast<uint8_t>(s_date_format);
+    values.use_24_hour = s_use_24_hour;
+    values.dst_enabled = s_dst_enabled;
+    values.keyboard_layout = s_library_keyboard_layout;
+    values.clock_position = s_clock_position;
+    values.dynamic_tint = s_dynamic_tint;
+    values.mini_player = s_show_nav;
     std::memcpy(values.equalizer_custom_bands, s_equalizer_custom_bands,
                 sizeof(values.equalizer_custom_bands));
     lyra::gui_settings::load(&values, kAccentPaletteCount,
                              static_cast<uint8_t>(EqualizerPreset::Count));
     s_setup_pending = !values.setup_complete;
-    s_timer_alarm_enabled = values.timer_alarm_enabled;
     s_t9_input = values.t9_input;
     s_list_artwork = values.list_artwork;
     s_automatic_time = values.automatic_time;
@@ -338,8 +225,9 @@ void load_user_settings()
     s_crossfade_seconds = values.crossfade_seconds;
     s_brightness_percent = values.brightness_percent;
     s_dark_mode = values.dark_mode;
-    s_theme = values.theme;
-    s_listening_hub = values.listening_hub;
+    s_clock_position = values.clock_position;
+    s_dynamic_tint = values.dynamic_tint;
+    s_show_nav = values.mini_player;
     s_library_keyboard_layout = values.keyboard_layout;
     s_accent_colour = values.accent_colour;
     lyra::i18n::set_language(values.language);
@@ -455,8 +343,7 @@ void navigate_back(View fallback)
 
 int content_bottom()
 {
-    return kScreenHeight - (s_show_nav && !s_setup_pending &&
-        !((is_zeno_theme() || is_aura_theme()) && s_view == View::Player) ? kNavHeight : 0);
+    return kScreenHeight - (mini_player_visible() ? kNavHeight : 0);
 }
 
 int content_height(int top)
@@ -466,17 +353,17 @@ int content_height(int top)
 
 int library_keyboard_height()
 {
-    return s_show_nav ? kKeyboardHeightWithNav : kKeyboardHeightWithoutNav;
+    return mini_player_visible() ? kKeyboardHeightWithNav : kKeyboardHeightWithoutNav;
 }
 
 size_t library_page_size()
 {
-    return s_show_nav ? lyra::media::kTrackPageSize : 6;
+    return mini_player_visible() ? lyra::media::kTrackPageSize : 6;
 }
 
 size_t search_page_size()
 {
-    return s_show_nav ? kSearchPageSizeWithNav : kSearchPageSizeWithoutNav;
+    return mini_player_visible() ? kSearchPageSizeWithNav : kSearchPageSizeWithoutNav;
 }
 
 lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int width, int height,
@@ -487,87 +374,19 @@ lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int width, int height,
     lv_obj_set_size(box, width, height);
     lv_obj_set_style_bg_color(box, color, 0);
     lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(box, show_border && !uses_dark_palette() ? 1 : 0, 0);
+    // Light pages outline cards that ask for it; dark pages separate by tone.
+    lv_obj_set_style_border_width(box, show_border && !s_dark_mode ? 1 : 0, 0);
     lv_obj_set_style_border_color(box, kDivider, 0);
-    lv_obj_set_style_radius(box, s_neon_hud ? 0 : radius, 0);
+    lv_obj_set_style_radius(box, design_radius(radius, width, height), 0);
     lv_obj_set_style_pad_all(box, 0, 0);
     lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
-    if (is_cute_theme()) {
-        if (width == kScreenWidth && height > 72 && lv_color_eq(color, kBackground)) {
-            make_cute_body_background(box);
-        } else if (radius > 0 && width >= 24 && height >= 20 &&
-                   !lv_color_eq(color, kArtworkSurface)) {
-            lv_obj_set_style_radius(box, std::max(radius, 14), 0);
-            lv_obj_set_style_border_width(box, 1, 0);
-            add_cute_plastic_finish(box);
-        }
-    }
-    if (s_neon_hud) {
-        // Leave artwork and overlays opaque. Full-width page bodies reveal
-        // the fixed city beneath them without adding scrolling image copies.
-        if (width == kScreenWidth && lv_color_eq(color, kBackground)) {
-            make_hud_body_background(box);
-        } else if (radius > 0 && width >= 24 && height >= 20 &&
-                   !lv_color_eq(color, kArtworkSurface)) {
-            lv_obj_set_style_border_width(box, 0, 0);
-            add_hud_frame(box);
-        }
-    }
-    if (is_aura_theme()) style_aura_surface(box, color, width, height, false);
-    if (is_zeno_theme()) style_zeno_box(box, color, width, height);
     return box;
-}
-
-static lv_color_t hud_label_color(lv_obj_t *parent, lv_color_t color)
-{
-    if (lv_color_eq(color, kTextOnAccent)) return color;
-    // The nearest button decides: selected and now-playing rows switch from
-    // red to cyan text so their state reads at a glance.
-    for (lv_obj_t *object = parent; object; object = lv_obj_get_parent(object)) {
-        if (!lv_obj_check_type(object, &lv_button_class)) continue;
-        if (!lv_color_eq(lv_obj_get_style_bg_color(object, LV_PART_MAIN), kAccentSurface)) break;
-        return lv_color_eq(color, kTextPrimary) || lv_color_eq(color, kAccent) ?
-            lv_color_hex(kHudCyanRgb) : lv_color_hex(0x9ED9DC);
-    }
-    return color;
-}
-
-lv_color_t themed_icon_color(lv_obj_t *parent, lv_color_t color)
-{
-    if (s_neon_hud) color = hud_label_color(parent, color);
-    if (is_aura_theme()) {
-        const lv_color_t background = lv_obj_get_style_bg_color(parent, LV_PART_MAIN);
-        if (lv_color_eq(background, kAccentSurface) || lv_color_eq(background, kAccent) ||
-            lv_color_eq(background, kAccentDark)) color = kTextOnAccent;
-    }
-    if (is_zeno_theme()) color = zeno_label_color(parent, color);
-    return color;
 }
 
 lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color)
 {
-    if (s_neon_hud) color = hud_label_color(parent, color);
-    if (s_neon_hud && lv_color_eq(color, kTextPrimary) &&
-        lv_obj_check_type(parent, &lv_obj_class) && lv_obj_get_child_count(parent) == 0 &&
-        (lv_color_eq(lv_obj_get_style_bg_color(parent, LV_PART_MAIN), kSurfaceRaised) ||
-         lv_color_eq(lv_obj_get_style_bg_color(parent, LV_PART_MAIN), kSurface))) {
-        // Shared card/dialog headings use the title colour, including dialogs
-        // created after render() by asynchronous operations.
-        color = kAccent;
-    }
-    if (is_aura_theme()) {
-        const lv_color_t background = lv_obj_get_style_bg_color(parent, LV_PART_MAIN);
-        if (lv_color_eq(background, kAccentSurface) || lv_color_eq(background, kAccent) ||
-            lv_color_eq(background, kAccentDark)) color = kTextOnAccent;
-    }
-    if (is_zeno_theme()) color = zeno_label_color(parent, color);
     lv_obj_t *label = lv_label_create(parent);
     lv_label_set_text(label, text);
-    if (is_zeno_theme()) {
-        // The parent row controls this state only during a press. Removing
-        // the state restores each label's original accent or neutral color.
-        lv_obj_set_style_text_color(label, kTextPrimary, LV_STATE_USER_1);
-    }
     lv_obj_set_style_text_color(label, color, 0);
     lv_obj_set_style_text_font(label, lyra::font::ui(), 0);
     return label;
@@ -737,55 +556,19 @@ lv_obj_t *make_button(lv_obj_t *parent, int x, int y, int width, int height,
     lv_obj_set_pos(button, x, y);
     lv_obj_set_size(button, width, height);
     lv_obj_set_style_bg_color(button, color, 0);
-    lv_obj_set_style_bg_color(button, kAccentDark, LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(button, show_border && !uses_dark_palette() ? 1 : 0, 0);
+    lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
+    // Accent buttons darken when pressed; everything else picks up a wash of
+    // the accent, so a press always reads in the user's colour.
+    const bool accent_fill = lv_color_eq(color, kAccent) || lv_color_eq(color, kAccentDark);
+    lv_obj_set_style_bg_color(button, accent_fill ? lv_color_mix(lv_color_black(), color, 70) :
+                              lv_color_mix(kAccent, color, 56), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(button, show_border && !s_dark_mode ? 1 : 0, 0);
     lv_obj_set_style_border_color(button, kDivider, 0);
-    lv_obj_set_style_radius(button, s_neon_hud ? 0 : radius, 0);
+    lv_obj_set_style_radius(button, design_radius(radius, width, height), 0);
     lv_obj_set_style_pad_all(button, 0, 0);
     lv_obj_set_style_shadow_width(button, 0, 0);
-    if (is_cute_theme()) {
-        lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
-        lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
-        lv_obj_set_style_bg_color(button,
-            lv_color_eq(color, kAccent) || lv_color_eq(color, kAccentDark) ?
-                kAccentDark : kAccentSurface, LV_STATE_PRESSED);
-        if (radius > 0 || show_border) {
-            // List rows scroll in numbers, so they take a smaller radius:
-            // anti-aliased corner work grows with it on every scrolled frame.
-            const bool list_row = width >= 280 && height <= 70;
-            lv_obj_set_style_radius(button, list_row ? 12 : std::max(radius, 18), 0);
-            lv_obj_set_style_border_width(button, 1, 0);
-            if (lv_color_eq(color, kAccentSurface)) {
-                lv_obj_set_style_border_color(button, kAccent, 0);
-            }
-            lv_obj_set_style_border_color(button, kAccent, LV_STATE_PRESSED);
-            add_cute_plastic_finish(button);
-        }
-    }
-    if (s_neon_hud) {
-        // Opaque rows let LVGL skip the city beneath them during scrolling,
-        // and keep text off the busy skyline.
-        lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
-        lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
-        lv_obj_set_style_bg_color(button, kAccentSurface, LV_STATE_PRESSED);
-        // Keep LVGL's transition descriptors valid: update_obj_state()
-        // dereferences their property lists on press/release. nullptr is unsafe.
-        lv_obj_set_style_border_width(button, 0, 0);
-        if (radius > 0 || show_border) add_hud_frame(button);
-    }
-    if (is_aura_theme()) style_aura_surface(button, color, width, height, true);
-    if (is_zeno_theme()) style_zeno_button(button, color, width, height);
     return button;
-}
-
-void make_equalizer_icon(lv_obj_t *parent, lv_color_t color)
-{
-    constexpr int heights[] = {7, 14, 10, 17};
-    for (size_t i = 0; i < sizeof(heights) / sizeof(heights[0]); ++i) {
-        lv_obj_t *bar = make_box(parent, 12 + static_cast<int>(i) * 6,
-                                 27 - heights[i], 3, heights[i], color, 2);
-        lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE);
-    }
 }
 
 void configure_cover_aware_scroll(lv_obj_t *body)
@@ -800,7 +583,7 @@ void configure_cover_aware_scroll(lv_obj_t *body)
     lv_obj_set_style_pad_right(body, 2, LV_PART_SCROLLBAR);
     lv_obj_set_style_pad_ver(body, 6, LV_PART_SCROLLBAR);
     lv_obj_set_style_radius(body, 2, LV_PART_SCROLLBAR);
-    lv_obj_set_style_bg_color(body, kAccent, LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_color(body, kTextMuted, LV_PART_SCROLLBAR);
     lv_obj_set_style_bg_opa(body, LV_OPA_70, LV_PART_SCROLLBAR);
     lv_obj_set_style_border_width(body, 0, LV_PART_SCROLLBAR);
     lv_obj_set_style_shadow_width(body, 0, LV_PART_SCROLLBAR);
@@ -818,6 +601,7 @@ void style_root()
 {
     reset_player_lyrics_state();
     reset_player_action_ui();
+    close_control_centre();
     s_player_progress_bar = nullptr;
     s_player_progress_touch = nullptr;
     s_player_elapsed_label = nullptr;
@@ -836,17 +620,6 @@ void style_root()
     lv_obj_set_style_border_width(s_screen, 0, 0);
     lv_obj_set_style_pad_all(s_screen, 0, 0);
     lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-    if (!is_zeno_theme()) make_zeno_background();
-    // Release the inactive theme's PSRAM before loading the next background.
-    if (is_cute_theme()) {
-        make_hud_background();
-        make_cute_background();
-    } else {
-        make_cute_background();
-        make_hud_background();
-    }
-    if (is_zeno_theme()) make_zeno_background();
-    make_aura_background();
 }
 
 void route_cb(lv_event_t *event)
@@ -872,13 +645,13 @@ View back_view(View view)
     switch (view) {
         case View::TrackInfo: return View::Player;
         case View::FullscreenInfoArt: return View::TrackInfo;
-        case View::Queue: return View::Menu;
+        case View::Queue: return View::Player;
         case View::LibrarySongs:
         case View::LibraryArtists:
         case View::LibraryAlbums:
         case View::LibraryGenres:
         case View::LibraryYears: return View::Library;
-        case View::InternetRadio: return View::Library;
+        case View::InternetRadio: return View::Menu;
         case View::RadioAdd: return View::InternetRadio;
         case View::RadioFiles: return View::RadioAdd;
         case View::RadioPlaying: return View::InternetRadio;
@@ -892,51 +665,45 @@ View back_view(View view)
         case View::FileNameInput:
         case View::FolderDetail: return View::Folders;
         case View::FileViewer: return file_viewer_back_view();
-        case View::Calculator:
-        case View::Calendar:
-        case View::Stopwatch:
-        case View::Timer:
         case View::Photos:
-        case View::Ebook:
-        case View::DotLink:
-        case View::Dice: return View::Apps;
+        case View::Ebook: return View::Apps;
         case View::PlaylistDetail: return View::Playlists;
         case View::PlaylistCreate: return View::Playlists;
         case View::PlaylistAdd: return View::PlaylistDetail;
         case View::PlaybackSettings:
         case View::SoundSettings:
-        case View::DisplaySettings:
+        case View::AppearanceSettings:
+        case View::LibrarySettings:
         case View::SystemSettings:
-        case View::SortingSettings: return View::Settings;
-        case View::WifiSettings: return View::SystemSettings;
+        case View::WifiSettings:
+        case View::ClockSettings:
+        case View::LanguageOptions:
+        case View::About: return View::Settings;
+        case View::SortingSettings:
+        case View::DatabaseStorage: return View::LibrarySettings;
         case View::WifiPassword: return View::WifiSettings;
         case View::NetworkTests: return View::DebugMenu;
-        case View::ClockSettings: return View::SystemSettings;
-        case View::ThemeOptions: return View::DisplaySettings;
         case View::ClockTimeSettings:
         case View::ClockDateSettings: return View::ClockSettings;
-        case View::LanguageOptions: return View::SystemSettings;
         case View::SetupWelcome:
         case View::SetupLanguage:
         case View::SetupClock:
-        case View::SetupTheme:
+        case View::SetupAppearance:
         case View::SetupScan:
         case View::SetupComplete: return View::Menu;
         case View::SortingOptions: return View::SortingSettings;
         case View::CrossfadeOptions:
         case View::SleepTimerOptions: return View::PlaybackSettings;
-        case View::About: return View::Settings;
         case View::DebugMenu: return View::About;
-        case View::Licenses: return View::Settings;
+        case View::Licenses: return View::About;
         case View::PageJump: return View::Menu;
-        case View::DatabaseStorage: return View::SystemSettings;
         case View::EqualizerPresets: return View::Equalizer;
+        case View::Equalizer: return View::SoundSettings;
         case View::Playlists: return s_playlists_from_library ? View::Library : View::Menu;
         case View::Apps:
         case View::Player:
         case View::Library:
         case View::Folders:
-        case View::Equalizer:
         case View::Search:
         case View::Settings:
         case View::Menu: return View::Menu;

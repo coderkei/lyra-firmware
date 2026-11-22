@@ -278,15 +278,17 @@ void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height,
 {
     lyra::media::Track track{};
     if (!lyra::media::track_at(track_index, &track)) return;
-    const bool current = !is_standard_theme() && track_index == s_current_track &&
+    // The playing song is marked wherever it appears.
+    const bool current = track_index == s_current_track &&
         std::strcmp(lyra::audio::status().path, track.path) == 0;
-    lv_obj_t *row = make_button(parent, 7, y, 306, height,
+    lv_obj_t *row = make_button(parent, kPageInset, y, kScreenWidth - 2 * kPageInset, height,
                                 current ? kAccentSurface : kSurface, 5, true);
     lv_obj_t *title = make_label(row, track.title, current ? kAccent : kTextPrimary);
-    const int text_width = s_playlist_add_mode ? 244 : (s_queue_add_mode ? 236 :
-        (is_zeno_theme() && current ? 260 : 282));
+    const int text_x = current ? 34 : 14;
+    const int text_width = (s_playlist_add_mode ? 244 : s_queue_add_mode ? 236 : 276) -
+                           (text_x - 14);
     make_marquee(title, text_width);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -9);
+    lv_obj_align(title, LV_ALIGN_LEFT_MID, text_x, -9);
     char subtitle[lyra::media::kMaxName + 32];
     if (show_play_count) {
         format_text_u32(lyra::i18n::StringId::ArtistPlayCount, track.artist,
@@ -297,19 +299,10 @@ void make_song_row(lv_obj_t *parent, int y, size_t track_index, int height,
     }
     lv_obj_t *artist = make_label(row, subtitle, kTextSecondary);
     make_marquee(artist, text_width);
-    lv_obj_align(artist, LV_ALIGN_LEFT_MID, 12, 11);
-    if (is_zeno_theme()) {
-        lv_obj_set_style_text_color(title, kTextPrimary, 0);
-        if (current) {
-            if (s_queue_add_mode || s_playlist_add_mode) {
-                lv_obj_set_width(title, text_width - 22);
-                lv_obj_set_width(artist, text_width - 22);
-            }
-            lv_obj_align(title, LV_ALIGN_LEFT_MID, 34, -9);
-            lv_obj_align(artist, LV_ALIGN_LEFT_MID, 34, 11);
-            lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, kTextPrimary);
-            lv_obj_align(playing, LV_ALIGN_LEFT_MID, 10, 0);
-        }
+    lv_obj_align(artist, LV_ALIGN_LEFT_MID, text_x, 11);
+    if (current) {
+        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, kAccent);
+        lv_obj_align(playing, LV_ALIGN_LEFT_MID, 12, 0);
     }
     if (s_playlist_add_mode) {
         lv_obj_t *add = make_label(row, LV_SYMBOL_PLUS, kAccent);
@@ -357,8 +350,7 @@ void build_track_row(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t, const V
     const size_t track = data.payload;
     const bool manage = s_track_row_mode == TrackRowMode::PlaylistManage;
     // Matches make_song_row(); comparing indices avoids a per-row path read.
-    const bool current = !manage && !is_standard_theme() && s_has_active_queue &&
-                         track == s_current_track;
+    const bool current = !manage && s_has_active_queue && track == s_current_track;
     const unsigned variant = (current ? 1u : 0u) | (manage ? 2u : 0u);
     if (widgets.button && widgets.variant == variant) {
         rebind_virtual_row(widgets, data);
@@ -366,16 +358,16 @@ void build_track_row(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t, const V
         return;
     }
     if (widgets.button) lv_obj_delete(widgets.button);
-    lv_obj_t *row = make_button(slot, 7, 0, width, kHeight, current ? kAccentSurface : kSurface, 5, true);
+    lv_obj_t *row = make_button(slot, kPageInset, 0, width, kHeight, current ? kAccentSurface : kSurface, 5, true);
     lv_obj_t *art = s_list_artwork ?
         make_row_thumbnail(row, kRowThumbnailInset, (kHeight - kRowThumbnailSize) / 2) : nullptr;
     const int base_x = s_list_artwork ? kRowThumbnailTextX : 12;
-    const bool playing_marker = is_zeno_theme() && current;
+    // Covers already show which row this is; without them a play mark does.
+    const bool playing_marker = current && !s_list_artwork;
     const int text_x = base_x + (playing_marker ? 22 : 0);
     const int trailing = manage ? 58 : s_playlist_add_mode ? 50 : s_queue_add_mode ? 58 : 12;
     const int text_width = width - text_x - trailing;
     lv_obj_t *title = make_label(row, data.title, current ? kAccent : kTextPrimary);
-    if (is_zeno_theme()) lv_obj_set_style_text_color(title, kTextPrimary, 0);
     make_marquee(title, text_width);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, text_x, -9);
     lv_obj_t *artist = make_label(row, data.subtitle, kTextSecondary);
@@ -386,7 +378,7 @@ void build_track_row(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t, const V
     lv_obj_set_user_data(row, reinterpret_cast<void *>(track));
     bind_row_thumbnail(art, lyra::media::ThumbnailSource::Track, track);
     if (playing_marker) {
-        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, kTextPrimary);
+        lv_obj_t *playing = make_label(row, LV_SYMBOL_PLAY, kAccent);
         lv_obj_align(playing, LV_ALIGN_LEFT_MID, base_x - 2, 0);
     }
     if (manage) {
@@ -475,7 +467,7 @@ void make_search_playlist_row(lv_obj_t *parent, int y,
     lyra::media::Playlist playlist{};
     if (!lyra::media::track_at(result.track_index, &track) ||
         !lyra::media::playlist_at(result.playlist_index, &playlist)) return;
-    lv_obj_t *row = make_button(parent, 7, y, 306, 54, kSurface, 5, true);
+    lv_obj_t *row = make_button(parent, kPageInset, y, kScreenWidth - 2 * kPageInset, 54, kSurface, 5, true);
     lv_obj_t *title = make_label(row, track.title, kTextPrimary);
     make_marquee(title, 282);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 12, -9);
@@ -524,7 +516,7 @@ void make_file_row(lv_obj_t *parent, int y, size_t track_index, int height)
     if (!lyra::media::track_at(track_index, &track)) return;
     const char *filename = std::strrchr(track.path, '/');
     filename = filename ? filename + 1 : track.path;
-    lv_obj_t *row = make_button(parent, 7, y, 306, height, kSurface, 5, true);
+    lv_obj_t *row = make_button(parent, kPageInset, y, kScreenWidth - 2 * kPageInset, height, kSurface, 5, true);
     lv_obj_t *icon = make_label(row, LV_SYMBOL_FILE, kAccent);
     lv_obj_align(icon, LV_ALIGN_LEFT_MID, 12, 0);
     lv_obj_t *name = make_label(row, filename, kTextPrimary);

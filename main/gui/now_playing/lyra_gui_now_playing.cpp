@@ -33,14 +33,13 @@ void player_seek_handle_cb(lv_event_t *event)
     const int32_t y = (rail.y1 + rail.y2) / 2;
     const lv_area_t handle{x - kSeekHandleRadius, y - kSeekHandleRadius,
                            x + kSeekHandleRadius, y + kSeekHandleRadius};
-    const bool light_center = is_cute_theme() || is_aura_theme();
     lv_draw_rect_dsc_t rect;
     lv_draw_rect_dsc_init(&rect);
-    rect.bg_color = s_neon_hud ? lv_color_hex(kHudCyanRgb) : light_center ? kSurface : kAccent;
+    rect.bg_color = lv_color_white();
     rect.bg_opa = LV_OPA_COVER;
-    rect.radius = s_neon_hud ? 0 : LV_RADIUS_CIRCLE;
-    rect.border_width = light_center ? 2 : 1;
-    rect.border_color = light_center ? kAccent : kSurface;
+    rect.radius = LV_RADIUS_CIRCLE;
+    rect.border_width = 3;
+    rect.border_color = kAccent;
     rect.border_opa = LV_OPA_COVER;
     lv_draw_rect(lv_event_get_layer(event), &rect, &handle);
 }
@@ -61,8 +60,6 @@ struct LyricsLoadRequest {
 
 enum class FlipPhase : uint8_t { None, ToOpenEdge, FromOpenEdge, ToCloseEdge, FromCloseEdge };
 
-lv_obj_t *s_player_zeno_overview;
-lv_obj_t *s_player_zeno_lyrics_host;
 int s_player_lyrics_width;
 int s_player_lyrics_height;
 lv_obj_t *s_player_flip_window;
@@ -272,9 +269,9 @@ void update_player_lyrics()
 
 void build_player_lyrics_face()
 {
-    lv_obj_t *window = is_zeno_theme() ? s_player_zeno_lyrics_host : s_player_flip_window;
+    lv_obj_t *window = s_player_flip_window;
     if (!window) return;
-    if (s_player_flip_content && !is_zeno_theme()) {
+    if (s_player_flip_content) {
         lv_obj_remove_event_cb(s_player_flip_content, player_art_click_cb);
         s_player_cover_image = nullptr;
     }
@@ -282,33 +279,34 @@ void build_player_lyrics_face()
     lv_obj_set_style_bg_color(window, kArtworkSurface, 0);
     lv_obj_set_style_bg_opa(window, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(window, 0, 0);
-    lv_obj_set_style_radius(window, s_neon_hud ? 0 : 13, 0);
+    lv_obj_set_style_radius(window, 0, 0);
     lv_obj_set_style_pad_all(window, 0, 0);
     lv_obj_clear_flag(window, LV_OBJ_FLAG_SCROLLABLE);
     s_player_flip_content = make_box(window, 0, 0, s_player_lyrics_width,
-                                     s_player_lyrics_height, kArtworkSurface, 13);
+                                     s_player_lyrics_height, kArtworkSurface);
     lv_obj_set_style_border_width(s_player_flip_content, 0, 0);
 
+    // The status bar lies over the top of this face.
+    constexpr int kTop = kStatusHeight + 6;
     lv_obj_t *title = make_label(s_player_flip_content,
                                  tr(lyra::i18n::StringId::Lyrics), kTextPrimary);
-    lv_obj_set_width(title, s_player_lyrics_width - 62);
+    lv_obj_set_style_text_font(title, title_font(), 0);
+    lv_obj_set_width(title, s_player_lyrics_width - 120);
     lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_pos(title, 12, 10);
-    lv_obj_t *close = make_button(s_player_flip_content, s_player_lyrics_width - 42, 4, 36, 36,
-                                  kSurfaceRaised, 18);
-    lv_obj_t *close_icon = make_label(close, LV_SYMBOL_CLOSE, kTextPrimary);
-    lv_obj_center(close_icon);
+    lv_obj_set_pos(title, 60, kTop + 8);
+    lv_obj_t *close = make_symbol_button(s_player_flip_content, s_player_lyrics_width - 50, kTop,
+                                         40, LV_SYMBOL_CLOSE, kTextPrimary);
     lv_obj_add_event_cb(close, player_lyrics_close_cb, LV_EVENT_CLICKED, nullptr);
 
     const int scroll_width = s_player_lyrics_width - 16;
-    const int scroll_height = s_player_lyrics_height - 50;
+    const int scroll_height = s_player_lyrics_height - kTop - 50;
     lv_obj_t *scroll = lv_obj_create(s_player_flip_content);
-    lv_obj_set_pos(scroll, 8, 42);
+    lv_obj_set_pos(scroll, 8, kTop + 44);
     lv_obj_set_size(scroll, scroll_width, scroll_height);
     lv_obj_set_style_bg_opa(scroll, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(scroll, 0, 0);
     lv_obj_set_style_pad_all(scroll, 4, 0);
-    lv_obj_set_style_radius(scroll, s_neon_hud ? 0 : 6, 0);
+    lv_obj_set_style_radius(scroll, 0, 0);
     lv_obj_add_flag(scroll, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(scroll, LV_OBJ_FLAG_SCROLL_MOMENTUM);
     lv_obj_set_scroll_dir(scroll, LV_DIR_VER);
@@ -333,7 +331,7 @@ void build_player_lyrics_face()
     s_player_current_lyric = -1;
     s_player_lyrics_visible = true;
     s_player_manual_scroll_until_us = 0;
-    if (!is_zeno_theme()) player_art_flip_exec(window, 0);
+    player_art_flip_exec(window, 0);
 }
 
 void free_player_lyrics_buffer()
@@ -401,7 +399,7 @@ void player_lyrics_rows_timer_cb(lv_timer_t *timer)
         lv_label_set_long_mode(row, LV_LABEL_LONG_MODE_WRAP);
         lv_obj_set_style_text_align(row, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_radius(row, s_neon_hud ? 0 : 6, 0);
+        lv_obj_set_style_radius(row, kRowRadius, 0);
         lv_obj_set_style_pad_hor(row, 5, 0);
         lv_obj_set_style_pad_ver(row, 7, 0);
         lv_obj_set_pos(row, 4, s_player_lyrics_next_row_y);
@@ -535,14 +533,14 @@ void restore_player_art_face()
     lv_obj_set_style_bg_color(window, kArtworkSurface, 0);
     lv_obj_set_style_bg_opa(window, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(window, 0, 0);
-    lv_obj_set_style_radius(window, s_neon_hud ? 0 : 13, 0);
+    lv_obj_set_style_radius(window, 0, 0);
     lv_obj_set_style_pad_all(window, 0, 0);
     lv_obj_clear_flag(window, LV_OBJ_FLAG_SCROLLABLE);
     s_player_flip_content = make_box(window, 0, 0, s_player_art_size,
-                                     s_player_art_size, kArtworkSurface, 13);
+                                     s_player_art_size, kArtworkSurface);
     lv_obj_set_style_border_width(s_player_flip_content, 0, 0);
     s_player_cover_image = make_artwork_contents(
-        s_player_flip_content, s_player_art_size, s_player_art_size, s_player_lyrics_track, 13);
+        s_player_flip_content, s_player_art_size, s_player_art_size, s_player_lyrics_track, 0);
     lv_obj_add_event_cb(s_player_flip_content, player_art_click_cb,
                         LV_EVENT_CLICKED, nullptr);
     s_player_lyrics_scroll = nullptr;
@@ -617,18 +615,6 @@ void player_art_click_cb(lv_event_t *)
         s_player_lyrics_visible || s_player_flip_animating) return;
     ++s_player_lyrics_generation;
     s_player_pending_lyrics_track = s_player_lyrics_track;
-    if (is_zeno_theme() && s_player_zeno_overview) {
-        // Keep the artwork alive behind the panel so closing restores the
-        // overview without reloading its cover or recreating the player.
-        lv_obj_add_flag(s_player_zeno_overview, LV_OBJ_FLAG_HIDDEN);
-        s_player_zeno_lyrics_host = make_box(lv_obj_get_parent(s_player_zeno_overview),
-            16, 56, 288, 220, kArtworkSurface, 13);
-        s_player_lyrics_width = 288;
-        s_player_lyrics_height = 220;
-        build_player_lyrics_face();
-        start_player_lyrics_load();
-        return;
-    }
     start_player_art_flip(FlipPhase::ToOpenEdge, s_player_art_size, 0);
 }
 
@@ -639,27 +625,68 @@ void player_lyrics_close_cb(lv_event_t *)
     stop_player_lyrics_rows_timer();
     free_player_lyrics_buffer();
     s_player_lyrics_rows_pending = false;
-    if (is_zeno_theme() && s_player_zeno_lyrics_host) {
-        remove_player_lyrics_spinner();
-        lv_obj_delete(s_player_zeno_lyrics_host);
-        s_player_zeno_lyrics_host = nullptr;
-        s_player_lyrics_scroll = nullptr;
-        s_player_flip_content = lv_obj_get_child(s_player_flip_window, 0);
-        s_player_lyrics_visible = false;
-        s_player_lyrics_row_count = 0;
-        s_player_lyrics_rows_created = 0;
-        s_player_lyrics_rows_ready = false;
-        s_player_current_lyric = -1;
-        s_player_lyrics_source = lyra::media::LyricsSource::None;
-        s_player_lyrics_width = s_player_lyrics_height = s_player_art_size;
-        lv_obj_remove_flag(s_player_zeno_overview, LV_OBJ_FLAG_HIDDEN);
-        return;
-    }
     s_player_flip_animating = true;
     if (s_player_flip_content) {
         lv_obj_remove_event_cb(s_player_flip_content, player_art_click_cb);
     }
     start_player_art_flip(FlipPhase::ToCloseEdge, s_player_art_size, 0);
+}
+
+// Now Playing: the cover fills the top of the screen under a translucent
+// status bar; below it, a panel tinted with the cover's own colour holds the
+// title, the seek bar and the transport.
+constexpr int kPlayerArtSize = kScreenWidth;
+constexpr int kPlayerPanelTop = kPlayerArtSize;
+constexpr int kPlayerInset = 16;
+
+lv_obj_t *s_player_panel;
+
+// The average colour of the current cover, sampled sparsely: enough to tint
+// the panel without walking every pixel.
+bool player_art_average(lv_color_t *out)
+{
+    if (!s_player_art_pixels || !out ||
+        std::strcmp(s_player_art_path, s_player_lyrics_track.path) != 0) return false;
+    const auto *pixels = reinterpret_cast<const uint16_t *>(s_player_art_pixels);
+    const uint32_t width = s_player_art_descriptor.header.w;
+    const uint32_t height = s_player_art_descriptor.header.h;
+    uint32_t red = 0;
+    uint32_t green = 0;
+    uint32_t blue = 0;
+    uint32_t samples = 0;
+    for (uint32_t y = 4; y < height; y += 12) {
+        for (uint32_t x = 4; x < width; x += 12) {
+            const uint16_t pixel = pixels[y * width + x];
+            red += (pixel >> 11) & 0x1F;
+            green += (pixel >> 5) & 0x3F;
+            blue += pixel & 0x1F;
+            ++samples;
+        }
+    }
+    if (samples == 0) return false;
+    *out = lv_color_make(static_cast<uint8_t>(red * 255 / (31 * samples)),
+                         static_cast<uint8_t>(green * 255 / (63 * samples)),
+                         static_cast<uint8_t>(blue * 255 / (31 * samples)));
+    return true;
+}
+
+void tint_player_panel()
+{
+    if (!s_player_panel) return;
+    lv_color_t average;
+    if (!player_art_average(&average)) {
+        lv_obj_set_style_bg_color(s_player_panel, kSurface, 0);
+        return;
+    }
+    // Keep the cover's hue but hold the panel dark (or light) enough for text.
+    const lv_color_t base = s_dark_mode ? lv_color_hex(0x101010) : lv_color_hex(0xF4F4F6);
+    lv_obj_set_style_bg_color(s_player_panel,
+                              lv_color_mix(average, base, s_dark_mode ? 92 : 70), 0);
+}
+
+void player_panel_deleted_cb(lv_event_t *)
+{
+    s_player_panel = nullptr;
 }
 
 } // namespace
@@ -669,6 +696,7 @@ void refresh_player_artwork()
     if (!s_player_cover_image || lv_image_get_src(s_player_cover_image)) return;
     if (load_player_art(s_player_lyrics_track)) {
         lv_image_set_src(s_player_cover_image, &s_player_art_descriptor);
+        tint_player_panel();
     } else {
         lyra::media::request_artwork(s_player_lyrics_track, lyra::media::ArtworkSize::Player);
     }
@@ -681,8 +709,6 @@ void reset_player_lyrics_state()
     stop_player_lyrics_rows_timer();
     remove_player_lyrics_spinner();
     free_player_lyrics_buffer();
-    s_player_zeno_overview = nullptr;
-    s_player_zeno_lyrics_host = nullptr;
     s_player_lyrics_width = s_player_lyrics_height = 0;
     s_player_flip_window = nullptr;
     s_player_flip_content = nullptr;
@@ -778,9 +804,6 @@ lv_obj_t *make_player_progress_touch(lv_obj_t *parent, int x, int y, int width, 
 
 void update_player_progress()
 {
-    update_zeno_transport();
-    update_aura_transport();
-    update_nav_play_icon();
     update_menu_playback();
     lyra::audio::Status audio_status = lyra::audio::status();
     const bool ab_mode_changed = update_player_ab_loop(audio_status);
@@ -836,48 +859,13 @@ void player_quick_seek_cb(lv_event_t *event)
 
 void make_player_quick_seek_button(lv_obj_t *parent, int x, int y, bool forward)
 {
-    constexpr int kButtonWidth = 44;
-    constexpr int kButtonHeight = 58;
-    lv_obj_t *button = make_button(parent, x, y, kButtonWidth, kButtonHeight,
-                                   kSurface, 8);
-
-    lv_obj_t *arc = lv_arc_create(button);
-    lv_obj_set_size(arc, 24, 24);
-    lv_obj_align(arc, LV_ALIGN_TOP_MID, 0, 2);
-    lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(arc, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(arc, 0, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(arc, 0, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(arc, 2, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(arc, kAccent, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_rounded(arc, true, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, LV_PART_KNOB);
-    lv_obj_set_style_border_width(arc, 0, LV_PART_KNOB);
-    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(arc, LV_OBJ_FLAG_SCROLLABLE);
-    lv_arc_set_bg_angles(arc, 135, 405);
-    lv_arc_set_angles(arc, 135, 405);
-
-    // The arc leaves a lower gap. Point the arrowhead along its clockwise or
-    // counter-clockwise tangent to make the direction clear at a glance.
-    static const lv_point_precise_t forward_head[] = {{32, 16}, {30, 22}, {36, 20}};
-    static const lv_point_precise_t backward_head[] = {{8, 20}, {14, 22}, {12, 16}};
-    lv_obj_t *arrowhead = lv_line_create(button);
-    lv_obj_set_pos(arrowhead, 0, 0);
-    lv_obj_set_size(arrowhead, kButtonWidth, kButtonHeight);
-    lv_line_set_points(arrowhead, forward ? forward_head : backward_head, 3);
-    lv_obj_set_style_line_width(arrowhead, 2, LV_PART_MAIN);
-    lv_obj_set_style_line_color(arrowhead, kAccent, LV_PART_MAIN);
-    lv_obj_set_style_line_rounded(arrowhead, true, LV_PART_MAIN);
-    lv_obj_clear_flag(arrowhead, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(arrowhead, LV_OBJ_FLAG_SCROLLABLE);
-
+    // A dark lozenge over the bottom corner of the cover.
+    lv_obj_t *button = make_button(parent, x, y, 56, 36, lv_color_black(), LV_RADIUS_CIRCLE);
+    lv_obj_set_style_bg_opa(button, LV_OPA_50, 0);
     lv_obj_t *label = make_label(button, tr(forward ?
         lyra::i18n::StringId::QuickSeekForward :
-        lyra::i18n::StringId::QuickSeekBackward), kTextPrimary);
-    lv_obj_set_width(label, kButtonWidth);
-    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -2);
+        lyra::i18n::StringId::QuickSeekBackward), lv_color_white());
+    lv_obj_center(label);
     lv_obj_add_event_cb(button, player_quick_seek_cb, LV_EVENT_CLICKED,
                         forward ? reinterpret_cast<void *>(static_cast<uintptr_t>(1)) : nullptr);
 }
@@ -912,222 +900,184 @@ void update_player_progress_seek_preview(uint32_t position_ms, uint32_t duration
     if (s_player_elapsed_label) set_label_text_if_changed(s_player_elapsed_label, elapsed);
 }
 
+namespace {
+
+const char *play_mode_symbol()
+{
+    return s_shuffle ? LV_SYMBOL_SHUFFLE : LV_SYMBOL_LOOP;
+}
+
+lv_obj_t *make_transport_button(lv_obj_t *parent, int x, int y, int size, const char *symbol,
+                                lv_color_t color)
+{
+    lv_obj_t *button = make_symbol_button(parent, x, y, size, symbol, color);
+    lv_obj_t *glyph = lv_obj_get_child(button, 0);
+    lv_obj_set_style_text_font(glyph, &lv_font_montserrat_28, 0);
+    return button;
+}
+
+void bind_hold_transport(lv_obj_t *button, lv_event_cb_t callback)
+{
+    lv_obj_add_event_cb(button, callback, LV_EVENT_PRESSED, nullptr);
+    lv_obj_add_event_cb(button, callback, LV_EVENT_PRESSING, nullptr);
+    lv_obj_add_event_cb(button, callback, LV_EVENT_RELEASED, nullptr);
+    lv_obj_add_event_cb(button, callback, LV_EVENT_PRESS_LOST, nullptr);
+}
+
+} // namespace
+
 void render_player()
 {
     lyra::media::Track track{};
     if (!lyra::media::track_at(s_current_track, &track)) {
         make_header(tr(lyra::i18n::StringId::NowPlaying), View::Menu, true);
-        lv_obj_t *empty = make_label(s_screen, tr(lyra::i18n::StringId::NoTrackSelectedAndScan), kTextMuted);
+        lv_obj_t *empty = make_label(s_screen, tr(lyra::i18n::StringId::NoTrackSelectedAndScan),
+                                     kTextMuted);
+        lv_obj_set_width(empty, kScreenWidth - 40);
+        lv_label_set_long_mode(empty, LV_LABEL_LONG_MODE_WRAP);
+        lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(empty, LV_ALIGN_CENTER, 0, -20);
         return;
     }
-    const bool zeno = is_zeno_theme();
-    const bool aura = is_aura_theme();
     const bool favorite = lyra::media::is_favorite(s_current_track);
-    const int body_height = content_height(kStatusHeight);
-    lv_obj_t *body = make_box(s_screen, 0, kStatusHeight, 320, body_height, kBackground);
-    if (zeno && track.artist[0]) {
-        // Zune's now-playing signature: the artist name, huge and faint,
-        // running off the edge behind the cover. Static, so drawn rarely.
-        lv_obj_t *backdrop = make_zeno_label(body, track.artist, true);
-        lv_obj_set_style_text_color(backdrop, kTextPrimary, 0);
-        lv_obj_set_style_text_opa(backdrop, LV_OPA_20, 0);
-        lv_obj_set_pos(backdrop, 4, 226);
-    }
-    const size_t queue_count = s_has_active_queue ? playback_queue_count() : 0;
-    size_t queue_position = 0;
-    const bool queue_position_valid = queue_count > 0 && current_queue_position(&queue_position);
-    if (queue_position_valid) {
-        char position_text[24];
-        format_u32_u32(lyra::i18n::StringId::QueuePosition,
-                       static_cast<uint32_t>(queue_position + 1),
-                       static_cast<uint32_t>(queue_count),
-                       position_text, sizeof(position_text));
-        lv_obj_t *position = make_label(body, position_text, kTextSecondary);
-        if (zeno) {
-            // Zeno has its own heading bar; fit the compact queue position
-            // beneath the heading and above the artwork overview.
-            lv_obj_set_pos(position, 16, 34);
-        } else {
-            lv_obj_set_width(position, kScreenWidth);
-            lv_obj_set_style_text_align(position, LV_TEXT_ALIGN_CENTER, 0);
-            lv_obj_align(position, LV_ALIGN_TOP_MID, 0, 0);
-        }
-    }
-    const int art_size = aura ? 196 : zeno ? 140 : (s_show_nav || s_quick_seek ? 224 : 272);
-    const int art_x = zeno ? 16 : (kScreenWidth - art_size) / 2;
-    const int controls_y = (zeno || aura) ? 352 : body_height - 54;
-    const int progress_y = aura ? 300 : zeno ? 288 : controls_y - 19;
-    const int art_y = 20;
-    if (aura) {
-        lv_obj_t *menu = make_button(body, 8, 8, 44, 44, kSurface, LV_RADIUS_CIRCLE);
-        lv_obj_t *menu_icon = make_label(menu, LV_SYMBOL_BARS, kAccent);
-        lv_obj_center(menu_icon);
-        add_route(menu, View::Menu);
-        lv_obj_t *back = make_button(body, 268, 8, 44, 44, kSurface, LV_RADIUS_CIRCLE);
-        lv_obj_t *back_icon = make_label(back, LV_SYMBOL_LEFT, kAccent);
-        lv_obj_center(back_icon);
-        lv_obj_add_event_cb(back, [](lv_event_t *) { navigate_back(View::Menu); }, LV_EVENT_CLICKED, nullptr);
-    }
-    if (zeno) {
-        lv_obj_t *heading = make_zeno_label(body, tr(lyra::i18n::StringId::NowPlaying));
-        lv_obj_set_style_text_color(heading, kAccent, 0);
-        make_marquee(heading, 210);
-        lv_obj_set_pos(heading, 16, 10);
-        lv_obj_t *menu = make_button(body, 232, 8, 36, 36, kBackground, LV_RADIUS_CIRCLE);
-        lv_obj_set_style_border_width(menu, 1, 0);
-        lv_obj_set_style_border_color(menu, kTextSecondary, 0);
-        lv_obj_t *menu_icon = make_label(menu, LV_SYMBOL_BARS, kTextPrimary);
-        lv_obj_center(menu_icon);
-        add_route(menu, View::Menu);
-        lv_obj_t *back = make_button(body, 274, 8, 36, 36, kBackground, LV_RADIUS_CIRCLE);
-        lv_obj_set_style_border_width(back, 1, 0);
-        lv_obj_set_style_border_color(back, kTextSecondary, 0);
-        lv_obj_t *back_icon = make_label(back, LV_SYMBOL_LEFT, kTextPrimary);
-        lv_obj_center(back_icon);
-        lv_obj_add_event_cb(back, [](lv_event_t *) { navigate_back(View::Menu); }, LV_EVENT_CLICKED, nullptr);
-    }
-    // Only this theme groups the overview, metadata, favorite and quick-seek
-    // buttons, allowing a tap to replace all of them with one lyrics panel.
-    lv_obj_t *overview = body;
-    if (zeno) {
-        overview = make_box(body, 0, 56, kScreenWidth, 226, kBackground);
-        s_player_zeno_overview = overview;
-    }
-    s_player_art_size = art_size;
-    s_player_lyrics_width = s_player_lyrics_height = art_size;
+
+    // ---- Cover (tap for lyrics) ----
+    s_player_art_size = kPlayerArtSize;
+    s_player_lyrics_width = s_player_lyrics_height = kPlayerArtSize;
     s_player_lyrics_track = track;
-    lv_obj_t *art_face = make_box(overview, art_x, art_y, art_size, art_size,
-                                  kBackground, 13);
-    lv_obj_set_style_bg_opa(art_face, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(art_face, 0, 0);
-    s_player_flip_window = make_box(art_face, 0, 0, art_size, art_size,
-                                    kArtworkSurface, 13);
-    lv_obj_set_style_border_width(s_player_flip_window, 0, 0);
-    s_player_flip_content = make_box(s_player_flip_window, 0, 0, art_size, art_size,
-                                     kArtworkSurface, 13);
-    lv_obj_set_style_border_width(s_player_flip_content, 0, 0);
-    s_player_cover_image = make_artwork_contents(s_player_flip_content, art_size, art_size, track, 13);
-    lv_obj_add_event_cb(s_player_flip_content, player_art_click_cb,
+    lv_obj_t *art_face = make_box(s_screen, 0, 0, kPlayerArtSize, kPlayerArtSize, kArtworkSurface);
+    lv_obj_remove_flag(art_face, LV_OBJ_FLAG_CLICKABLE);
+    s_player_flip_window = make_box(art_face, 0, 0, kPlayerArtSize, kPlayerArtSize, kArtworkSurface);
+    s_player_flip_content = make_box(s_player_flip_window, 0, 0, kPlayerArtSize, kPlayerArtSize,
+                                     kArtworkSurface);
+    s_player_cover_image = make_artwork_contents(s_player_flip_content, kPlayerArtSize,
+                                                 kPlayerArtSize, track, 0);
+    lv_obj_add_event_cb(s_player_flip_content, player_art_click_cb, LV_EVENT_CLICKED, nullptr);
+
+    // Close Now Playing; a swipe to the right does the same.
+    lv_obj_t *close = make_button(s_screen, 8, kStatusHeight + 6, 40, 40, lv_color_black(),
+                                  LV_RADIUS_CIRCLE);
+    lv_obj_set_style_bg_opa(close, LV_OPA_40, 0);
+    lv_obj_t *close_icon = make_label(close, LV_SYMBOL_DOWN, lv_color_white());
+    lv_obj_center(close_icon);
+    lv_obj_add_event_cb(close, [](lv_event_t *) { navigate_back(View::Menu); },
                         LV_EVENT_CLICKED, nullptr);
-    add_hud_brackets(art_face);
 
     if (s_quick_seek) {
-        constexpr int kQuickSeekButtonWidth = 44;
-        constexpr int kQuickSeekButtonHeight = 58;
-        const int side_space = zeno ? 32 : (art_x - kQuickSeekButtonWidth) / 2;
-        const int button_y = zeno ? 167 : art_y + (art_size - kQuickSeekButtonHeight) / 2;
-        make_player_quick_seek_button(overview, side_space, button_y, false);
-        make_player_quick_seek_button(overview,
-            zeno ? 96 : art_x + art_size + (kScreenWidth - art_x - art_size - kQuickSeekButtonWidth) / 2,
-            button_y, true);
+        make_player_quick_seek_button(s_screen, 12, kPlayerArtSize - 48, false);
+        make_player_quick_seek_button(s_screen, kScreenWidth - 68, kPlayerArtSize - 48, true);
     }
 
-    if (is_cute_theme()) {
-        // Fit the three 20 px text lines with padding. End before the time
-        // labels at progress_y - 8, keeping the progress row outside the card.
-        lv_obj_t *metadata = make_box(body, 8, progress_y - 84, 304, 75, kSurface, 12);
-        lv_obj_set_style_radius(metadata, 12, 0);
-        lv_obj_remove_flag(metadata, LV_OBJ_FLAG_CLICKABLE);
-    }
-    if (s_neon_hud) {
-        // Solid data panels keep the readout off the lit skyline behind it.
-        lv_obj_t *metadata = make_box(body, 8, progress_y - 84, 304, 75, kSurface, 4);
-        lv_obj_remove_flag(metadata, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_t *strip = make_box(body, 0, progress_y - 8, kScreenWidth, 26, kNavSurface);
-        lv_obj_remove_flag(strip, LV_OBJ_FLAG_CLICKABLE);
-    }
-    lv_obj_t *title = make_label(overview, track.title, !is_standard_theme() ? kAccent : kTextPrimary);
-    lv_obj_set_style_text_font(title, lyra::font::ui(), 0);
-    if (zeno) lv_obj_set_style_text_color(title, kTextPrimary, 0);
-    make_marquee(title, zeno ? 136 : 240, MarqueeMode::Focus);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, zeno ? 172 : 20, zeno ? 20 : progress_y - 79);
-    lv_obj_t *artist = make_label(overview, track.artist, kTextSecondary);
-    make_marquee(artist, zeno ? 136 : 240, MarqueeMode::Focus);
-    lv_obj_align(artist, LV_ALIGN_TOP_LEFT, zeno ? 172 : 20, zeno ? 50 : progress_y - 56);
-    lv_obj_t *album = make_label(overview, track.album, kTextMuted);
-    make_marquee(album, zeno ? 136 : 240, MarqueeMode::Focus);
-    lv_obj_align(album, LV_ALIGN_TOP_LEFT, zeno ? 172 : 20, zeno ? 81 : progress_y - 35);
+    // ---- Panel ----
+    lv_obj_t *panel = make_box(s_screen, 0, kPlayerPanelTop, kScreenWidth,
+                               kScreenHeight - kPlayerPanelTop, kSurface);
+    lv_obj_remove_flag(panel, LV_OBJ_FLAG_CLICKABLE);
+    s_player_panel = panel;
+    lv_obj_add_event_cb(panel, player_panel_deleted_cb, LV_EVENT_DELETE, nullptr);
+    tint_player_panel();
 
-    const int progress_x = zeno ? 16 : 56;
-    const int progress_width = zeno ? 288 : 208;
-    lv_obj_t *bar = lv_bar_create(body);
-    lv_obj_set_pos(bar, progress_x, progress_y);
-    lv_obj_set_size(bar, progress_width, (zeno || aura) ? 8 : 5);
+    lv_obj_t *title = make_label(panel, track.title, kTextPrimary);
+    lv_obj_set_style_text_font(title, title_font(), 0);
+    make_marquee(title, kScreenWidth - kPlayerInset - 56, MarqueeMode::Focus);
+    lv_obj_set_pos(title, kPlayerInset, 10);
+
+    lv_obj_t *heart_button = make_button(panel, kScreenWidth - 50, 4, 40, 40, kSurfaceRaised,
+                                         LV_RADIUS_CIRCLE);
+    lv_obj_set_style_bg_opa(heart_button, LV_OPA_TRANSP, 0);
+    lv_obj_t *heart = make_label(heart_button, favorite ? kHeartFilled : kHeartOutline,
+                                 favorite ? kAccent : kTextPrimary);
+    lv_obj_set_style_text_font(heart, title_font(), 0);
+    lv_obj_center(heart);
+    lv_obj_add_event_cb(heart_button, toggle_favorite_cb, LV_EVENT_CLICKED, heart);
+
+    char format[48];
+    format_track_format(track, format, sizeof(format));
+    lv_obj_t *format_label = make_label(panel, format, kTextMuted);
+    make_marquee(format_label, 110);
+    lv_obj_set_style_text_align(format_label, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_align(format_label, LV_ALIGN_TOP_RIGHT, -kPlayerInset, 36);
+    lv_obj_t *artist = make_label(panel, track.artist[0] ? track.artist : track.album,
+                                  kTextSecondary);
+    make_marquee(artist, kScreenWidth - 2 * kPlayerInset - 120, MarqueeMode::Focus);
+    lv_obj_set_pos(artist, kPlayerInset, 36);
+    // Tap the artist name to open the artist.
+    lv_obj_add_flag(artist, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(artist, 6);
+    lv_obj_add_event_cb(artist, open_current_track_group_cb, LV_EVENT_CLICKED,
+                        reinterpret_cast<void *>(static_cast<uintptr_t>(lyra::media::GroupKind::Artist)));
+
+    // ---- Seek bar ----
+    constexpr int kBarY = 70;
+    constexpr int kBarWidth = kScreenWidth - 2 * kPlayerInset;
+    lv_obj_t *bar = lv_bar_create(panel);
+    lv_obj_set_pos(bar, kPlayerInset, kBarY);
+    lv_obj_set_size(bar, kBarWidth, 4);
     lv_bar_set_range(bar, 0, kPlayerProgressMax);
     lv_bar_set_value(bar, 0, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(bar, kDivider, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, kTextMuted, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_40, LV_PART_MAIN);
     lv_obj_set_style_bg_color(bar, kAccent, LV_PART_INDICATOR);
-    if (s_neon_hud) {
-        lv_obj_set_height(bar, 7);
-        style_hud_progress_bar(bar);
-    }
-    // Draw over the rail and its theme decorations, including when LVGL
-    // refreshes only the pixels beyond the edge of the rail.
+    // Draw the knob over the rail, including when LVGL refreshes only the
+    // pixels beyond the edge of the rail.
     lv_obj_add_flag(bar, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
     lv_obj_add_event_cb(bar, player_seek_handle_cb, LV_EVENT_DRAW_POST, nullptr);
     lv_obj_add_event_cb(bar, player_seek_handle_cb, LV_EVENT_REFR_EXT_DRAW_SIZE, nullptr);
     lv_obj_refresh_ext_draw_size(bar);
     s_player_progress_bar = bar;
-    s_player_progress_touch = make_player_progress_touch(body, progress_x - kSeekHandleRadius,
-        progress_y - (zeno ? 6 : 8), progress_width + 2 * kSeekHandleRadius, zeno ? 36 : 21);
-    s_player_elapsed_label = make_label(body, "00:00", kTextSecondary);
-    lv_obj_set_pos(s_player_elapsed_label, zeno ? 16 : 10, (zeno || aura) ? progress_y + 14 : progress_y - 8);
-    s_player_duration_label = make_label(body, "--:--", kTextSecondary);
-    lv_obj_align(s_player_duration_label, LV_ALIGN_TOP_RIGHT, zeno ? -16 : -10,
-        (zeno || aura) ? progress_y + 14 : progress_y - 8);
+    s_player_progress_touch = make_player_progress_touch(panel, kPlayerInset - kSeekHandleRadius,
+        kBarY - 10, kBarWidth + 2 * kSeekHandleRadius, 24);
+    block_page_gestures(s_player_progress_touch);
+    s_player_elapsed_label = make_label(panel, "00:00", kTextSecondary);
+    lv_obj_set_pos(s_player_elapsed_label, kPlayerInset, kBarY + 10);
+    s_player_duration_label = make_label(panel, "--:--", kTextSecondary);
+    lv_obj_align(s_player_duration_label, LV_ALIGN_TOP_RIGHT, -kPlayerInset, kBarY + 10);
+    if (!make_player_ab_bar(panel, kBarY + 8)) {
+        const size_t queue_count = s_has_active_queue ? playback_queue_count() : 0;
+        size_t queue_position = 0;
+        if (queue_count > 0 && current_queue_position(&queue_position)) {
+            char position_text[24];
+            std::snprintf(position_text, sizeof(position_text), "%u/%u",
+                          static_cast<unsigned>(queue_position + 1),
+                          static_cast<unsigned>(queue_count));
+            lv_obj_t *position = make_label(panel, position_text, kTextMuted);
+            lv_obj_align(position, LV_ALIGN_TOP_MID, 0, kBarY + 10);
+        }
+    }
     update_player_progress();
 
-    if (zeno) make_zeno_transport(body, controls_y);
-    if (aura) make_aura_transport(body, controls_y);
-    lv_obj_t *repeat = make_button(body, (zeno || aura) ? 260 : 16, controls_y + ((zeno || aura) ? 0 : 4),
-        44, (zeno || aura) ? 44 : 38, kBackground, (zeno || aura) ? LV_RADIUS_CIRCLE : 7);
-    if (zeno) {
-        lv_obj_set_style_border_width(repeat, 1, 0);
-        lv_obj_set_style_border_color(repeat, kDivider, 0);
-    }
-    const bool repeat_enabled = s_repeat_mode != RepeatMode::Off;
-    lv_obj_t *repeat_icon = make_label(repeat, LV_SYMBOL_LOOP,
-                                       repeat_enabled ? kAccent : kTextSecondary);
-    lv_obj_center(repeat_icon);
+    // ---- Transport ----
+    constexpr int kControlsCentre = 128;
+    const bool mode_active = s_shuffle || s_repeat_mode != RepeatMode::Off;
+    lv_obj_t *mode = make_symbol_button(panel, 10, kControlsCentre - 22, 44, play_mode_symbol(),
+                                        mode_active ? kAccent : kTextSecondary);
     if (s_repeat_mode == RepeatMode::Song) {
-        lv_obj_t *repeat_one = make_label(repeat, "1", kAccent);
-        lv_obj_align(repeat_one, LV_ALIGN_CENTER, 8, 5);
-        lv_obj_clear_flag(repeat_one, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_t *one = make_label(mode, "1", kAccent);
+        lv_obj_align(one, LV_ALIGN_CENTER, 10, 7);
     }
-    lv_obj_add_event_cb(repeat, [](lv_event_t *) {
-        switch (s_repeat_mode) {
-            case RepeatMode::Off: s_repeat_mode = RepeatMode::All; break;
-            case RepeatMode::All: s_repeat_mode = RepeatMode::Song; break;
-            case RepeatMode::Song: s_repeat_mode = RepeatMode::Off; break;
-        }
-        if (s_repeat_mode != RepeatMode::Off && lyra::audio::status().eof) {
-            s_audio_eof_seen = false;
-        }
-        render(s_view);
-    }, LV_EVENT_CLICKED, nullptr);
-    const int tools_y = (zeno || aura) ? 410 : controls_y + 4;
-    make_player_action_buttons(body, tools_y, favorite);
+    lv_obj_add_event_cb(mode, [](lv_event_t *) { cycle_play_mode(); }, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *shuffle = make_button(body, (zeno || aura) ? 16 : 256, controls_y + ((zeno || aura) ? 0 : 4),
-        44, (zeno || aura) ? 44 : 38, kBackground, (zeno || aura) ? LV_RADIUS_CIRCLE : 7);
-    if (zeno) {
-        lv_obj_set_style_border_width(shuffle, 1, 0);
-        lv_obj_set_style_border_color(shuffle, kDivider, 0);
-    }
-    lv_obj_t *shuffle_icon = make_label(shuffle, LV_SYMBOL_SHUFFLE, s_shuffle ? kAccent : kTextSecondary);
-    lv_obj_center(shuffle_icon);
-    lv_obj_add_event_cb(shuffle, [](lv_event_t *) {
-        s_shuffle = !s_shuffle;
-        reset_shuffle_queue();
-        if (s_shuffle && !build_shuffle_queue()) {
-            s_shuffle = false;
-            ESP_LOGW(kTag, "could not allocate shuffle queue");
-        }
-        if (!s_shuffle) s_queue_position_valid = false;
-        if (s_shuffle && lyra::audio::status().eof) s_audio_eof_seen = false;
-        render(s_view);
-    }, LV_EVENT_CLICKED, shuffle_icon);
+    lv_obj_t *previous = make_transport_button(panel, 66, kControlsCentre - 24, 48,
+                                               LV_SYMBOL_PREV, kTextPrimary);
+    bind_hold_transport(previous, nav_previous_cb);
+    const lyra::audio::Status audio = lyra::audio::status();
+    const bool playing = audio.playing && !audio.paused;
+    lv_obj_t *play = make_button(panel, (kScreenWidth - 58) / 2, kControlsCentre - 29, 58, 58,
+                                 kAccent, LV_RADIUS_CIRCLE);
+    lv_obj_t *play_icon = make_label(play, playing ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY,
+                                     kTextOnAccent);
+    lv_obj_set_style_text_font(play_icon, &lv_font_montserrat_28, 0);
+    lv_obj_center(play_icon);
+    lv_obj_add_event_cb(play, nav_play_cb, LV_EVENT_CLICKED, nullptr);
+    track_play_icon(play_icon);
+    lv_obj_t *next = make_transport_button(panel, kScreenWidth - 66 - 48, kControlsCentre - 24, 48,
+                                           LV_SYMBOL_NEXT, kTextPrimary);
+    bind_hold_transport(next, nav_next_cb);
+    lv_obj_t *more = make_icon_button(panel, kScreenWidth - 54, kControlsCentre - 22, 44,
+                                      Icon::More, kTextSecondary);
+    lv_obj_add_event_cb(more, [](lv_event_t *) { show_player_more_menu(); },
+                        LV_EVENT_CLICKED, nullptr);
+
+    raise_status_bar();
 }
 
 } // namespace lyra::gui::internal

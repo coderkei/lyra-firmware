@@ -275,7 +275,7 @@ void maximum_volume_slider_released_cb(lv_event_t *)
 void make_maximum_volume_control(lv_obj_t *parent, int y)
 {
     const uint8_t maximum = lyra::audio::maximum_volume_percent();
-    lv_obj_t *card = make_box(parent, 7, y, 306, 84, kSurface, 6);
+    lv_obj_t *card = make_box(parent, kPageInset, y, kScreenWidth - 2 * kPageInset, 84, kSurface, 6);
     lv_obj_t *title = make_label(card, tr(lyra::i18n::StringId::MaxVolumeOverride), kTextPrimary);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 12, 10);
     char value_text[16];

@@ -7,22 +7,21 @@
 
 namespace lyra::gui::internal {
 
-extern const AccentPalette kAccentPalettes[] = {
-    {0x38BDF8, 0x075985, 0x123A52, 0x2563EB, 0x1D4ED8, 0xDBEAFE}, // Blue
-    {0xC084FC, 0x7E22CE, 0x3B214F, 0x7C3AED, 0x6D28D9, 0xEDE9FE}, // Purple
-    {0x2DD4BF, 0x0F766E, 0x123F42, 0x0D9488, 0x0F766E, 0xCCFBF1}, // Teal
-    {0x4ADE80, 0x15803D, 0x163D2A, 0x16A34A, 0x15803D, 0xDCFCE7}, // Green
-    {0xFBBF24, 0xB45309, 0x493512, 0xD97706, 0xB45309, 0xFEF3C7}, // Amber
-    {0xFB923C, 0xC2410C, 0x492812, 0xEA580C, 0xC2410C, 0xFFEDD5}, // Orange
-    {0xF87171, 0xB91C1C, 0x4A2026, 0xDC2626, 0xB91C1C, 0xFEE2E2}, // Red
-    {0xF472B6, 0xBE185D, 0x4A1D3B, 0xDB2777, 0xBE185D, 0xFCE7F3}, // Pink
+// Blue, orange, yellow, green, purple and pink. Light pages use a deeper
+// shade so the colour keeps its contrast against white surfaces.
+extern const AccentPalette kAccentPalettes[kAccentPaletteCount] = {
+    {0x3D8EF0, 0x1F6FD6},
+    {0xFF7A1A, 0xE0620A},
+    {0xF2B320, 0xC28A00},
+    {0x34C27C, 0x1E9A5C},
+    {0xA463E0, 0x8445C2},
+    {0xEC6AA8, 0xCF4588},
 };
 
 bool s_dark_mode = true;
-bool s_listening_hub = true;
-Theme s_theme = Theme::Standard;
-bool s_neon_hud = false;
 uint8_t s_accent_colour = 0;
+bool s_dynamic_tint = false;
+ClockPosition s_clock_position = ClockPosition::Centre;
 
 lv_color_t kBackground = lv_color_hex(0x080C12);
 lv_color_t kSurface = lv_color_hex(0x101720);
@@ -101,7 +100,6 @@ DateFormat s_date_format = DateFormat::DayMonthYear;
 bool s_use_24_hour = true;
 bool s_dst_enabled = false;
 bool s_speaker_output_enabled = lyra::audio::kDefaultSpeakerOutputEnabled;
-bool s_timer_alarm_enabled = true;
 bool s_t9_input = false;
 bool s_list_artwork = true;
 bool s_automatic_time = true;

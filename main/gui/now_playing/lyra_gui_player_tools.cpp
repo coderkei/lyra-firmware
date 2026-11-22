@@ -45,12 +45,16 @@ bool bookmark_slot_is_saved(const PlayerBookmarks &bookmarks, size_t index)
 }
 
 enum class MoreAction : uintptr_t {
-    Equalizer,
-    Information,
+    Queue,
     AddToPlaylist,
+    GoToAlbum,
+    GoToArtist,
+    Information,
+    Equalizer,
     PlaybackSpeed,
     ABPlayMode,
     Bookmarks,
+    SleepTimer,
 };
 
 enum class ABAction : uintptr_t { SetA, SetB, End };
@@ -91,11 +95,6 @@ void close_player_overlay(lv_obj_t **overlay)
     lv_obj_delete(to_delete);
 }
 
-void close_more_overlay()
-{
-    close_player_overlay(&s_more_overlay);
-}
-
 void close_speed_overlay()
 {
     s_speed_value_label = nullptr;
@@ -122,12 +121,13 @@ lv_obj_t *make_player_overlay(lv_obj_t **slot, int dialog_height,
     if (dialog_height < 120) return nullptr;
     *slot = make_box(s_screen, 0, 0, kScreenWidth, overlay_height, kBackground);
     if (!*slot) return nullptr;
-    lv_obj_set_style_bg_opa(*slot, LV_OPA_80, 0);
+    lv_obj_set_style_bg_color(*slot, kOverlay, 0);
+    lv_obj_set_style_bg_opa(*slot, LV_OPA_60, 0);
     lv_obj_add_flag(*slot, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(*slot, player_overlay_background_cb,
                         LV_EVENT_CLICKED, slot);
     *dialog_out = make_box(*slot, 16, (overlay_height - dialog_height) / 2,
-                           288, dialog_height, kSurfaceRaised, 10);
+                           288, dialog_height, kSurface, 20);
     if (!*dialog_out) {
         close_player_overlay(slot);
         return nullptr;
@@ -140,14 +140,14 @@ void update_ab_button_style()
 {
     if (s_ab_a_button) {
         lv_obj_set_style_bg_color(s_ab_a_button,
-            s_ab_has_a ? kAccentSurface : kBackground, 0);
+            s_ab_has_a ? kAccentSurface : kSurfaceRaised, 0);
         lv_obj_t *label = lv_obj_get_child(s_ab_a_button, 0);
         if (label) lv_obj_set_style_text_color(label,
             s_ab_has_a ? kAccent : kTextPrimary, 0);
     }
     if (s_ab_b_button) {
         lv_obj_set_style_bg_color(s_ab_b_button,
-            s_ab_has_b ? kAccentSurface : kBackground, 0);
+            s_ab_has_b ? kAccentSurface : kSurfaceRaised, 0);
         lv_obj_t *label = lv_obj_get_child(s_ab_b_button, 0);
         if (label) lv_obj_set_style_text_color(label,
             s_ab_has_b ? kAccent : kTextPrimary, 0);
@@ -332,9 +332,7 @@ void show_player_speed_overlay()
     const uint16_t speed_permille = lyra::audio::status().playback_speed_permille;
     lv_slider_set_value(slider, std::clamp<int>(speed_permille / 10, 25, 200),
                         LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(slider, kDivider, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(slider, kAccent, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(slider, kAccent, LV_PART_KNOB);
+    style_slider(slider);
     lv_obj_add_event_cb(slider, player_speed_slider_cb, LV_EVENT_VALUE_CHANGED,
                         nullptr);
     lv_obj_t *minimum = make_label(dialog,
@@ -503,17 +501,26 @@ void player_more_action_cb(lv_event_t *event)
 {
     const auto action = static_cast<MoreAction>(
         reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-    close_more_overlay();
+    close_sheet(&s_more_overlay);
     switch (action) {
-        case MoreAction::Equalizer:
-            navigate_to(View::Equalizer);
+        case MoreAction::Queue:
+            open_queue_cb(nullptr);
+            break;
+        case MoreAction::AddToPlaylist:
+            show_player_playlist_picker_cb(nullptr);
+            break;
+        case MoreAction::GoToAlbum:
+            open_current_track_group(lyra::media::GroupKind::Album);
+            break;
+        case MoreAction::GoToArtist:
+            open_current_track_group(lyra::media::GroupKind::Artist);
             break;
         case MoreAction::Information:
             s_track_info_tab = TrackInfoTab::Song;
             navigate_to(View::TrackInfo);
             break;
-        case MoreAction::AddToPlaylist:
-            show_player_playlist_picker_cb(nullptr);
+        case MoreAction::Equalizer:
+            navigate_to(View::Equalizer);
             break;
         case MoreAction::PlaybackSpeed:
             show_player_speed_overlay();
@@ -537,38 +544,9 @@ void player_more_action_cb(lv_event_t *event)
         case MoreAction::Bookmarks:
             show_player_bookmarks_overlay();
             break;
-    }
-}
-
-void show_player_more_overlay()
-{
-    lv_obj_t *dialog = nullptr;
-    if (!make_player_overlay(&s_more_overlay, 340, &dialog)) return;
-    lv_obj_t *title = make_label(dialog, tr(lyra::i18n::StringId::More), kTextPrimary);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 12, 12);
-    lv_obj_t *close = make_button(dialog, 246, 7, 34, 34, kSurface, 17);
-    lv_obj_t *close_icon = make_label(close, LV_SYMBOL_CLOSE, kTextSecondary);
-    lv_obj_center(close_icon);
-    lv_obj_add_event_cb(close, [](lv_event_t *) { close_more_overlay(); },
-                        LV_EVENT_CLICKED, nullptr);
-
-    const lyra::i18n::StringId labels[] = {
-        lyra::i18n::StringId::Equalizer,
-        lyra::i18n::StringId::Information,
-        lyra::i18n::StringId::AddToPlaylistTitle,
-        lyra::i18n::StringId::PlaybackSpeed,
-        lyra::i18n::StringId::ABPlayMode,
-        lyra::i18n::StringId::PlayerBookmarks,
-    };
-    for (size_t i = 0; i < sizeof(labels) / sizeof(labels[0]); ++i) {
-        lv_obj_t *choice = make_button(dialog, 10, 50 + static_cast<int>(i) * 45,
-                                       268, 41, kSurface, 5, true);
-        lv_obj_t *label = make_label(choice, tr(labels[i]), kTextPrimary);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, 12, 0);
-        lv_obj_t *arrow = make_label(choice, LV_SYMBOL_RIGHT, kAccent);
-        lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -12, 0);
-        lv_obj_add_event_cb(choice, player_more_action_cb, LV_EVENT_CLICKED,
-            reinterpret_cast<void *>(static_cast<uintptr_t>(i)));
+        case MoreAction::SleepTimer:
+            navigate_to(View::SleepTimerOptions);
+            break;
     }
 }
 
@@ -609,18 +587,13 @@ void player_ab_button_cb(lv_event_t *event)
 void make_ab_action_button(lv_obj_t *parent, int x, int y, const char *text,
                            ABAction action, bool selected, lv_obj_t **button_out)
 {
-    lv_obj_t *button = make_button(parent, x, y, 44, 38,
-                                   selected ? kAccentSurface : kBackground, 7);
+    lv_obj_t *button = make_button(parent, x, y, 44, 30,
+                                   selected ? kAccentSurface : kSurfaceRaised, LV_RADIUS_CIRCLE);
     lv_obj_t *label = make_label(button, text, selected ? kAccent : kTextPrimary);
     lv_obj_center(label);
     lv_obj_add_event_cb(button, player_ab_button_cb, LV_EVENT_CLICKED,
         reinterpret_cast<void *>(static_cast<uintptr_t>(action)));
     if (button_out) *button_out = button;
-}
-
-void player_more_button_cb(lv_event_t *)
-{
-    show_player_more_overlay();
 }
 
 } // namespace
@@ -658,39 +631,48 @@ bool update_player_ab_loop(const lyra::audio::Status &audio_status)
     return false;
 }
 
-void make_player_action_buttons(lv_obj_t *parent, int y, bool favorite)
+void show_player_more_menu()
 {
-    if (s_ab_active) {
-        make_ab_action_button(parent, 76, y, "A", ABAction::SetA, s_ab_has_a,
-                              &s_ab_a_button);
-        make_ab_action_button(parent, 136, y, "B", ABAction::SetB, s_ab_has_b,
-                              &s_ab_b_button);
-        make_ab_action_button(parent, 196, y, LV_SYMBOL_CLOSE, ABAction::End,
-                              false, nullptr);
-        return;
+    struct MoreRow {
+        lyra::i18n::StringId label;
+        Icon icon;
+        MoreAction action;
+    };
+    static constexpr MoreRow kRows[] = {
+        {lyra::i18n::StringId::Queue, Icon::Queue, MoreAction::Queue},
+        {lyra::i18n::StringId::AddToPlaylistTitle, Icon::Playlist, MoreAction::AddToPlaylist},
+        {lyra::i18n::StringId::GoToAlbum, Icon::Album, MoreAction::GoToAlbum},
+        {lyra::i18n::StringId::GoToArtist, Icon::Artist, MoreAction::GoToArtist},
+        {lyra::i18n::StringId::Information, Icon::About, MoreAction::Information},
+        {lyra::i18n::StringId::Equalizer, Icon::Equalizer, MoreAction::Equalizer},
+        {lyra::i18n::StringId::PlaybackSpeed, Icon::Playback, MoreAction::PlaybackSpeed},
+        {lyra::i18n::StringId::ABPlayMode, Icon::Crossfade, MoreAction::ABPlayMode},
+        {lyra::i18n::StringId::PlayerBookmarks, Icon::Favorite, MoreAction::Bookmarks},
+        {lyra::i18n::StringId::SleepTimer, Icon::Sleep, MoreAction::SleepTimer},
+    };
+    constexpr int kRowPitch = 50;
+    constexpr size_t kRowCount = sizeof(kRows) / sizeof(kRows[0]);
+    lv_obj_t *content = nullptr;
+    if (!make_sheet(&s_more_overlay, tr(lyra::i18n::StringId::More),
+                    static_cast<int>(kRowCount) * kRowPitch, &content)) return;
+    for (size_t i = 0; i < kRowCount; ++i) {
+        make_sheet_row(content, static_cast<int>(i) * kRowPitch, kRows[i].icon, tr(kRows[i].label),
+                       player_more_action_cb, static_cast<uintptr_t>(kRows[i].action));
     }
+}
 
-    s_ab_a_button = nullptr;
-    s_ab_b_button = nullptr;
-    lv_obj_t *queue = make_button(parent, 76, y, 44, 38, kBackground, 7);
-    lv_obj_t *queue_icon = make_label(queue, LV_SYMBOL_LIST, kTextSecondary);
-    lv_obj_center(queue_icon);
-    add_route(queue, View::Queue);
-
-    lv_obj_t *more = make_button(parent, 136, y, 44, 38, kBackground, 7);
-    lv_obj_t *more_label = make_label(more,
-        tr(lyra::i18n::StringId::MoreEllipsis), kTextSecondary);
-    lv_obj_set_style_text_font(more_label, &lv_font_montserrat_18, 0);
-    lv_obj_center(more_label);
-    lv_obj_add_event_cb(more, player_more_button_cb, LV_EVENT_CLICKED, nullptr);
-
-    lv_obj_t *heart_button = make_button(parent, 196, y, 44, 38,
-                                         kBackground, 7);
-    lv_obj_t *heart = make_label(heart_button,
-        favorite ? kHeartFilled : kHeartOutline,
-        favorite ? kAccent : kTextPrimary);
-    lv_obj_center(heart);
-    lv_obj_add_event_cb(heart_button, toggle_favorite_cb, LV_EVENT_CLICKED, heart);
+bool make_player_ab_bar(lv_obj_t *parent, int y)
+{
+    if (!s_ab_active) {
+        s_ab_a_button = nullptr;
+        s_ab_b_button = nullptr;
+        return false;
+    }
+    const int x = (kScreenWidth - 3 * 44 - 2 * 8) / 2;
+    make_ab_action_button(parent, x, y, "A", ABAction::SetA, s_ab_has_a, &s_ab_a_button);
+    make_ab_action_button(parent, x + 52, y, "B", ABAction::SetB, s_ab_has_b, &s_ab_b_button);
+    make_ab_action_button(parent, x + 104, y, LV_SYMBOL_CLOSE, ABAction::End, false, nullptr);
+    return true;
 }
 
 } // namespace lyra::gui::internal

@@ -1152,7 +1152,7 @@ void make_document_row(lv_obj_t *parent, int y, const lyra::media::FolderFile &f
     if (!context) return;
     context->file = file;
     context->back_view = back_view;
-    lv_obj_t *row = make_button(parent, 7, y, 306, 54, kSurface, 5, true);
+    lv_obj_t *row = make_button(parent, kPageInset, y, kScreenWidth - 2 * kPageInset, 54, kSurface, 5, true);
     const char *name = std::strrchr(file.path, '/');
     lv_obj_t *icon = make_label(row, file.kind == lyra::media::FileKind::Image ?
         LV_SYMBOL_IMAGE : LV_SYMBOL_FILE, kAccent);

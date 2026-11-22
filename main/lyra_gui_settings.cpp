@@ -19,14 +19,15 @@ constexpr const char *kQuickSeekKey = "quick_seek";
 constexpr const char *kCrossfadeKey = "crossfade";
 constexpr const char *kBrightnessKey = "brightness";
 constexpr const char *kDarkModeKey = "dark_mode";
-constexpr const char *kNeonHudKey = "neon_hud";
-constexpr const char *kThemeKey = "theme";
-constexpr const char *kAccentColorKey = "accent_color";
+// The redesigned accent palette has its own key so an index saved for the
+// previous palette never selects an unrelated colour.
+constexpr const char *kAccentColorKey = "accent_v2";
+constexpr const char *kClockPositionKey = "clock_pos";
+constexpr const char *kDynamicTintKey = "dyn_tint";
+constexpr const char *kMiniPlayerKey = "mini_player";
 constexpr const char *kLanguageKey = "language";
 constexpr const char *kSetupCompleteKey = "setup_done";
 constexpr const char *kKeyboardLayoutKey = "keyboard";
-constexpr const char *kListeningHubKey = "menu_hub";
-constexpr const char *kTimerAlarmKey = "timer_alarm";
 constexpr const char *kT9InputKey = "t9_input";
 constexpr const char *kListArtworkKey = "list_art";
 constexpr const char *kAutomaticTimeKey = "auto_time";
@@ -56,19 +57,21 @@ void load(Values *values, size_t accent_palette_count, uint8_t equalizer_preset_
     // the same safe English default without disturbing other caller defaults.
     values->language = lyra::i18n::Language::English;
     values->language_selected = false;
-    values->theme = Theme::Standard;
     values->setup_complete = false;
 
     nvs_handle_t handle;
     if (nvs_open(kSettingsNamespace, NVS_READONLY, &handle) != ESP_OK) return;
 
     uint8_t value = 0;
-    if (nvs_get_u8(handle, kThemeKey, &value) == ESP_OK &&
-        value < static_cast<uint8_t>(Theme::Count)) {
-        values->theme = static_cast<Theme>(value);
-    } else if (nvs_get_u8(handle, kNeonHudKey, &value) == ESP_OK && value == 1) {
-        // Migrate the original two-theme preference without losing Neon Sky.
-        values->theme = Theme::NeonSky;
+    if (nvs_get_u8(handle, kClockPositionKey, &value) == ESP_OK &&
+        value < static_cast<uint8_t>(ClockPosition::Count)) {
+        values->clock_position = static_cast<ClockPosition>(value);
+    }
+    if (nvs_get_u8(handle, kDynamicTintKey, &value) == ESP_OK && value <= 1) {
+        values->dynamic_tint = value != 0;
+    }
+    if (nvs_get_u8(handle, kMiniPlayerKey, &value) == ESP_OK && value <= 1) {
+        values->mini_player = value != 0;
     }
     if (nvs_get_u8(handle, kGaplessKey, &value) == ESP_OK && value <= 1) {
         values->gapless = value != 0;
@@ -112,12 +115,6 @@ void load(Values *values, size_t accent_palette_count, uint8_t equalizer_preset_
         else if (value < static_cast<uint8_t>(KeyboardLayout::Count)) {
             values->keyboard_layout = static_cast<KeyboardLayout>(value);
         }
-    }
-    if (nvs_get_u8(handle, kListeningHubKey, &value) == ESP_OK && value <= 1) {
-        values->listening_hub = value != 0;
-    }
-    if (nvs_get_u8(handle, kTimerAlarmKey, &value) == ESP_OK && value <= 1) {
-        values->timer_alarm_enabled = value != 0;
     }
     if (nvs_get_u8(handle, kT9InputKey, &value) == ESP_OK && value <= 1) {
         values->t9_input = value != 0;
@@ -175,10 +172,12 @@ esp_err_t save(const Values &values)
     if (result == ESP_OK) result = nvs_set_u8(handle, kCrossfadeKey, values.crossfade_seconds);
     if (result == ESP_OK) result = nvs_set_u8(handle, kBrightnessKey, values.brightness_percent);
     if (result == ESP_OK) result = nvs_set_u8(handle, kDarkModeKey, values.dark_mode ? 1 : 0);
-    const Theme theme = values.theme < Theme::Count ? values.theme : Theme::Standard;
-    if (result == ESP_OK) result = nvs_set_u8(handle, kThemeKey, static_cast<uint8_t>(theme));
-    // Retain a sensible preference when using an older firmware version.
-    if (result == ESP_OK) result = nvs_set_u8(handle, kNeonHudKey, theme == Theme::NeonSky ? 1 : 0);
+    const ClockPosition clock_position = values.clock_position < ClockPosition::Count ?
+        values.clock_position : ClockPosition::Centre;
+    if (result == ESP_OK) result = nvs_set_u8(handle, kClockPositionKey,
+                                               static_cast<uint8_t>(clock_position));
+    if (result == ESP_OK) result = nvs_set_u8(handle, kDynamicTintKey, values.dynamic_tint ? 1 : 0);
+    if (result == ESP_OK) result = nvs_set_u8(handle, kMiniPlayerKey, values.mini_player ? 1 : 0);
     if (result == ESP_OK) result = nvs_set_u8(handle, kAccentColorKey, values.accent_colour);
     if (result == ESP_OK) {
         const uint8_t language = lyra::i18n::is_valid_language(
@@ -205,10 +204,6 @@ esp_err_t save(const Values &values)
         result = nvs_set_u8(handle, kKeyboardLayoutKey,
                             static_cast<uint8_t>(values.keyboard_layout));
     }
-    if (result == ESP_OK) result = nvs_set_u8(handle, kListeningHubKey,
-                                               values.listening_hub ? 1 : 0);
-    if (result == ESP_OK) result = nvs_set_u8(handle, kTimerAlarmKey,
-                                               values.timer_alarm_enabled ? 1 : 0);
     if (result == ESP_OK) result = nvs_set_u8(handle, kT9InputKey, values.t9_input ? 1 : 0);
     if (result == ESP_OK) result = nvs_set_u8(handle, kListArtworkKey,
                                                values.list_artwork ? 1 : 0);

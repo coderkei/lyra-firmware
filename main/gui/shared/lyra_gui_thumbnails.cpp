@@ -14,7 +14,7 @@
 namespace lyra::gui::internal {
 namespace {
 
-constexpr int kThumbRadius = 4;
+constexpr int kThumbRadius = 8;
 constexpr size_t kMaxRequests = 32;
 
 struct RowThumbView {
@@ -63,7 +63,7 @@ lv_obj_t *make_row_thumbnail(lv_obj_t *row, int x, int y)
         image = lv_image_create(art);
         lv_obj_set_pos(image, 0, 0);
         lv_obj_set_size(image, kSize, kSize);
-        lv_obj_set_style_radius(image, s_neon_hud ? 0 : kThumbRadius, 0);
+        lv_obj_set_style_radius(image, kThumbRadius, 0);
         lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_user_data(image, view);
         lv_obj_add_event_cb(image, release_view_cb, LV_EVENT_DELETE, view);

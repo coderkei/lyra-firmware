@@ -452,7 +452,7 @@ void build_search_entry(lv_obj_t *slot, VirtualRowWidgets &widgets, size_t,
     const bool album = s_search_category == lyra::media::SearchCategory::Albums;
     const bool artist = s_search_category == lyra::media::SearchCategory::Artists;
     const bool queue_button = album && s_queue_add_mode;
-    lv_obj_t *row = make_button(slot, 7, 0, width, 54, kSurface, 5, true);
+    lv_obj_t *row = make_button(slot, kPageInset, 0, width, 54, kSurface, 5, true);
     lv_obj_t *art = s_list_artwork && !artist ?
         make_row_thumbnail(row, kRowThumbnailInset, (54 - kRowThumbnailSize) / 2) : nullptr;
     const int text_x = art ? kRowThumbnailTextX : 12;
@@ -1169,13 +1169,13 @@ void make_library_keyboard_impl(lv_obj_t *keyboard, const char *action)
     size_t count1 = 10;
     size_t count2 = 9;
     size_t count3 = 8;
-    int key_height = s_show_nav ? kKeyboardKeyHeightWithNav : kKeyboardKeyHeightWithoutNav;
+    int key_height = mini_player_visible() ? kKeyboardKeyHeightWithNav : kKeyboardKeyHeightWithoutNav;
     int first_y = 0;
     int row_gap = kKeyboardRowGap;
 
     if (s_library_keyboard_layout == KeyboardLayout::JapaneseKana) {
         if (s_library_keyboard_symbols) {
-            const int symbol_height = s_show_nav ? kKeyboardKeyHeightWithNav :
+            const int symbol_height = mini_player_visible() ? kKeyboardKeyHeightWithNav :
                                                   kKeyboardKeyHeightWithoutNav;
             const int symbol_y = library_keyboard_height() - kKeyboardBottomPadding -
                 (symbol_height * 4 + kKeyboardRowGap * 3);
@@ -1216,7 +1216,7 @@ void make_library_keyboard_impl(lv_obj_t *keyboard, const char *action)
 
     if (s_library_keyboard_layout == KeyboardLayout::ChinesePinyin) {
         constexpr int candidate_height = 34;
-        key_height = s_show_nav ? 39 : 49;
+        key_height = mini_player_visible() ? 39 : 49;
         row_gap = 3;
         first_y = candidate_height + 4;
         s_ime_candidates = make_box(keyboard, 0, 2, 320, 30, kKeyboardSurface);
@@ -1637,15 +1637,19 @@ void toggle_search_keyboard_cb(lv_event_t *)
 void render_search()
 {
     lv_obj_t *body = make_box(s_screen, 0, kStatusHeight, 320, content_height(kStatusHeight), kBackground);
-    constexpr int input_width = 170;
-    lv_obj_t *input = make_box(body, 9, 4, input_width, 43, kSurfaceRaised, 7);
+    // Search has no page header: back, the field and its keys share one bar.
+    lv_obj_t *back = make_symbol_button(body, 0, 6, 40, LV_SYMBOL_LEFT, kTextPrimary);
+    lv_obj_add_event_cb(back, nav_back_cb, LV_EVENT_CLICKED, nullptr);
+    constexpr int input_x = 40;
+    constexpr int input_width = 142;
+    lv_obj_t *input = make_box(body, input_x, 4, input_width, 43, kSurface, LV_RADIUS_CIRCLE);
     lv_obj_t *magnifier = make_icon(input, Icon::Search, kTextSecondary, 18);
-    lv_obj_align(magnifier, LV_ALIGN_LEFT_MID, 10, 0);
-    s_search_label = make_text_field(input, 37, input_width - 44);
+    lv_obj_align(magnifier, LV_ALIGN_LEFT_MID, 12, 0);
+    s_search_label = make_text_field(input, 36, input_width - 48);
     update_search_label();
-    make_keyboard_selector(body, 183, 4, 36, 43, true);
-    make_queue_add_mode_toggle(body, 223, 7);
-    lv_obj_t *toggle = make_button(body, 267, 4, 44, 43, kSurfaceRaised, 7);
+    make_keyboard_selector(body, 186, 4, 36, 43, true);
+    make_queue_add_mode_toggle(body, 226, 6, 40, 40);
+    lv_obj_t *toggle = make_button(body, 270, 4, 44, 43, kSurface, LV_RADIUS_CIRCLE);
     s_search_keyboard_toggle = make_label(toggle,
         s_search_keyboard_visible ? LV_SYMBOL_DOWN : LV_SYMBOL_UP, kAccent);
     lv_obj_center(s_search_keyboard_toggle);
@@ -1661,10 +1665,13 @@ void render_search()
                                 tr(lyra::i18n::StringId::Albums),
                                 tr(lyra::i18n::StringId::Artists),
                                 tr(lyra::i18n::StringId::Playlists)};
-        lv_obj_t *tab = make_button(body, 7 + static_cast<int>(i) * 77, 52, 72, 28,
-                                    categories[i] == s_search_category ? kAccentDark : kSurfaceRaised, 5);
+        lv_obj_t *tab = make_button(body, kPageInset + static_cast<int>(i) * 76, 52, 70, 28,
+                                    categories[i] == s_search_category ? kAccent : kSurface,
+                                    LV_RADIUS_CIRCLE);
         lv_obj_t *tab_label = make_label(tab, labels[i],
                                          categories[i] == s_search_category ? kTextOnAccent : kTextSecondary);
+        make_marquee(tab_label, 62);
+        lv_obj_set_style_text_align(tab_label, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_center(tab_label);
         lv_obj_add_event_cb(tab, search_category_cb, LV_EVENT_CLICKED,
                             reinterpret_cast<void *>(static_cast<uintptr_t>(categories[i])));
@@ -1688,8 +1695,8 @@ void render_playlist_create()
                 tr(lyra::i18n::StringId::SaveQueueAsPlaylist) :
                 tr(lyra::i18n::StringId::NewPlaylist), View::Playlists, true);
     lv_obj_t *body = make_box(s_screen, 0, 72, 320, content_height(72), kBackground);
-    lv_obj_t *input = make_box(body, 9, 8, 240, 43, kSurfaceRaised, 7);
-    s_search_label = make_text_field(input, 12, 214);
+    lv_obj_t *input = make_box(body, kPageInset, 8, 240, 43, kSurface, LV_RADIUS_CIRCLE);
+    s_search_label = make_text_field(input, 16, 210);
     update_search_label();
     make_keyboard_selector(body, 255, 8, 56, 43);
     const int keyboard_height = library_keyboard_height();

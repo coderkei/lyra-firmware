@@ -24,7 +24,7 @@ data it depends on keep their own licences (see the
 
 | Part | Where it lives | What it does |
 | --- | --- | --- |
-| Startup and GUI | `main/app_main.cpp`, `main/lyra_gui.cpp`, `main/gui/` | Starts everything up and runs the LVGL interface: navigation, themes, lists, search, keyboards, settings and apps. |
+| Startup and GUI | `main/app_main.cpp`, `main/lyra_gui.cpp`, `main/gui/` | Starts everything up and runs the LVGL interface: navigation, the design language, lists, search, keyboards, settings and viewers. |
 | Media and storage | `main/lyra_media.cpp`, `main/media/`, `main/lyra_sd.cpp` | Mounts the microSD card, scans and searches the library, reads tags and artwork, makes list thumbnails, manages playlists, and makes sure SD reads for audio always come first. |
 | Audio | `main/lyra_audio.cpp`, `main/audio/` | Decodes the supported formats, handles gapless and crossfade transitions, applies volume, EQ and ReplayGain, and feeds the I2S outputs. |
 | Network | `main/lyra_wifi.cpp`, `main/lyra_radio.cpp`, `main/lyra_time_sync.cpp` | Wi-Fi, internet radio stations, and setting the clock from network time. |
@@ -46,8 +46,8 @@ data it depends on keep their own licences (see the
   real hardware for each board.
 - **Cheap hardware.** Development happens on a low-cost ESP32-S3 kit that
   anyone can buy, even though its wiring and drivers are specific to it.
-- **The themes matter.** They're part of the experience, so performance or
-  porting work shouldn't quietly break how they look.
+- **The design matters.** It's part of the experience, so performance or
+  porting work shouldn't quietly break how it looks.
 
 ## What's reusable and what's board-specific
 

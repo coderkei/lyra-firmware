@@ -66,18 +66,18 @@ used by the catalog, applies the 16 px metrics, and writes
 `main/lyra_cjk_16.c`; the manifest checker inspects the generated LVGL cmaps
 and reports translated code points that need glyph coverage.
 
-## Zeno heading sizes
+## Heading sizes
 
-`main/gui/shared/lyra_gui_zeno_font.cpp` pairs the native 28/40 px Montserrat
-headings with a fallback adapter for the complete existing multilingual font
-chain. The adapter scales advances, bounding boxes and bearings from 16 px to
+`main/gui/shared/lyra_gui_fonts.cpp` pairs the native 18, 28 and 34 px
+Montserrat fonts (`title_font()` and `display_font()`) with a fallback adapter
+for the complete existing multilingual font chain. The adapter scales advances, bounding boxes and bearings from 16 px to
 the requested heading size. It asks LVGL to decode each missing native glyph
 and enlarges its alpha mask with bilinear interpolation. Accents, Cyrillic,
 Japanese, Korean and Chinese render at the requested heading size through this
 fallback. Both fonts in each pair share the multilingual
 line height and baseline, allowing taller glyphs to fit in the same label.
 
-Metadata and other themes continue using their 16 px fonts. The adapter reuses
+Body text and metadata continue using the 16 px font. The adapter reuses
 the embedded font data and allocates one small source-glyph mask during a
 fallback glyph draw, freeing it before returning. LVGL owns the output mask.
 At heading sizes, fallback glyph appearance follows the scaled embedded
@@ -89,7 +89,7 @@ LVGL 9 expands every glyph to an A8 mask each time it is drawn, and the
 compressed UI font must also be decompressed. `lyra::font::enable_glyph_cache()`
 keeps each decoded mask in a 160 KiB PSRAM arena, so a redraw blends stored
 masks instead. The UI font, the CJK supplement, the Montserrat font that
-supplies `LV_SYMBOL_*` icons, and the Zeno heading fonts use it. When the
+supplies `LV_SYMBOL_*` icons, and the heading fonts use it. When the
 arena or its index fills, the cache is cleared and refilled by the glyphs in
 use.
 

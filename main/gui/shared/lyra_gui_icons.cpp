@@ -108,13 +108,6 @@ constexpr IconPart kRecent[] = {
     A(10, 10, 8, 300, 200), T(0, 9, 6, 9, 3, 4), L(10, 10, 10, 5), L(10, 10, 13, 12),
 };
 constexpr IconPart kAdded[] = {LW(3, 10, 3, 10, 17), LW(3, 3, 10, 17, 10)};
-constexpr IconPart kCalculator[] = {
-    F(3, 1, 14, 18, 2), B(6, 4, 8, 4, 0), B(6, 11, 2, 2, 0), B(9, 11, 2, 2, 0),
-    B(12, 11, 2, 2, 0), B(6, 14, 2, 2, 0), B(9, 14, 2, 2, 0), B(12, 14, 2, 2, 0),
-};
-constexpr IconPart kStopwatch[] = {
-    R(10, 11, 7), L(10, 11, 10, 7), L(8, 1, 12, 1), L(10, 1, 10, 4), L(16, 4, 17, 5),
-};
 constexpr IconPart kTimer[] = {
     L(4, 2, 16, 2), L(4, 18, 16, 18), L(5, 2, 15, 18), L(15, 2, 5, 18), T(7, 17, 13, 17, 10, 13),
 };
@@ -128,11 +121,12 @@ constexpr IconPart kPhoto[] = {
 constexpr IconPart kNetwork[] = {
     D(10, 4, 2), D(4, 16, 2), D(16, 16, 2), L(10, 4, 4, 16), L(10, 4, 16, 16), L(4, 16, 16, 16),
 };
-// Two endpoints joined by an L-shaped link, as in the game.
-constexpr IconPart kDotLink[] = {D(4, 4, 3), D(16, 16, 3), L(4, 6, 4, 16), L(4, 16, 14, 16)};
-// A die showing five.
-constexpr IconPart kDice[] = {
-    F(1, 1, 18, 18, 4), D(6, 6, 2), D(14, 6, 2), D(10, 10, 2), D(6, 14, 2), D(14, 14, 2),
+// Three stacked dots: the "more actions" menu.
+constexpr IconPart kMore[] = {D(10, 4, 2), D(10, 10, 2), D(10, 16, 2)};
+// A sun: a disc with eight short rays.
+constexpr IconPart kBrightness[] = {
+    D(10, 10, 4), L(10, 1, 10, 3), L(10, 17, 10, 19), L(1, 10, 3, 10), L(17, 10, 19, 10),
+    L(4, 4, 5, 5), L(15, 15, 16, 16), L(4, 16, 5, 15), L(15, 5, 16, 4),
 };
 
 #undef L
@@ -187,14 +181,12 @@ IconShape icon_shape(Icon icon)
         case Icon::Favorite: return shape(kFavorite);
         case Icon::Recent: return shape(kRecent);
         case Icon::Added: return shape(kAdded);
-        case Icon::Calculator: return shape(kCalculator);
-        case Icon::Stopwatch: return shape(kStopwatch);
         case Icon::Timer: return shape(kTimer);
         case Icon::Book: return shape(kBook);
         case Icon::Photo: return shape(kPhoto);
         case Icon::Network: return shape(kNetwork);
-        case Icon::DotLink: return shape(kDotLink);
-        case Icon::Dice: return shape(kDice);
+        case Icon::More: return shape(kMore);
+        case Icon::Brightness: return shape(kBrightness);
     }
     return shape(kMusic);
 }
@@ -206,8 +198,7 @@ void draw_icon_cb(lv_event_t *event)
     lv_area_t area;
     lv_obj_get_coords(object, &area);
     const int size = lv_area_get_width(&area);
-    // Pressed-state styles (Night City) and theme overrides resolve here, so
-    // icons always follow the colour of the text beside them.
+    // The colour is read at draw time, so restyling the icon recolours it.
     const lv_color_t color = lv_obj_get_style_text_color(object, LV_PART_MAIN);
     const IconShape icon = icon_shape(static_cast<Icon>(
         reinterpret_cast<uintptr_t>(lv_event_get_user_data(event))));
@@ -297,7 +288,7 @@ lv_obj_t *make_icon(lv_obj_t *parent, Icon icon, lv_color_t color, int size)
     lv_obj_remove_flag(object, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(object, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(object, kIconFlag);
-    lv_obj_set_style_text_color(object, themed_icon_color(parent, color), 0);
+    lv_obj_set_style_text_color(object, color, 0);
     lv_obj_add_event_cb(object, draw_icon_cb, LV_EVENT_DRAW_MAIN,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(icon)));
     return object;

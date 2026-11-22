@@ -54,7 +54,7 @@ Supporting display resolutions beyond 320 × 480 includes GUI geometry and layou
 6. Verify heap/PSRAM use, task stacks, flash capacity, partition sizing, OTA slots, and the recovery path; keep the partition map consistent with update logic. Keep a `coredump` partition if you want crash reports.
 7. Check how USB is wired. On a board where one native USB port also serves serial/JTAG, USB file transfer temporarily replaces it; a separate USB-to-serial chip avoids that trade-off. Without native USB, leave mass storage disabled.
 8. Preserve audio task priority and the audio-aware storage arbitration. Measure playback continuity while scanning, browsing artwork, and changing tracks.
-9. Test Unicode metadata, search input methods, installed dictionary behavior, all themes, and touch navigation on the real display.
+9. Test Unicode metadata, search input methods, installed dictionary behavior, dark and light themes with each accent colour, and touch and gesture navigation on the real display.
 10. Exercise update, reboot, interrupted-update recovery, storage removal, and audio/output failure behavior.
 11. Document board differences, firmware revision, build configuration, and the evidence gathered through source review, builds, emulator runs, and physical tests.
 

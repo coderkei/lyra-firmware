@@ -179,7 +179,7 @@ void add_radio_station_row(lv_obj_t *body, int y, size_t index,
                            const lyra::radio::Station &station,
                            bool is_current)
 {
-    lv_obj_t *row = make_button(body, 7, y, 306, 56,
+    lv_obj_t *row = make_button(body, kPageInset, y, kScreenWidth - 2 * kPageInset, 56,
         is_current ? kAccentSurface : kSurface, 5, true);
     lv_obj_t *icon = make_label(row, is_current ? LV_SYMBOL_VOLUME_MID : LV_SYMBOL_AUDIO,
                                is_current ? kAccent : kTextSecondary);
@@ -207,7 +207,7 @@ void add_radio_browser_row(lv_obj_t *body, int y,
         lv_malloc(sizeof(lyra::radio::BrowserEntry)));
     if (!saved_entry) return;
     *saved_entry = entry;
-    lv_obj_t *row = make_button(body, 7, y, 306, 48, kSurface, 5, true);
+    lv_obj_t *row = make_button(body, kPageInset, y, kScreenWidth - 2 * kPageInset, 48, kSurface, 5, true);
     lv_obj_t *icon = make_label(row,
         entry.directory ? LV_SYMBOL_DIRECTORY : LV_SYMBOL_LIST, kAccent);
     lv_obj_align(icon, LV_ALIGN_LEFT_MID, 12, 0);

@@ -115,7 +115,7 @@ void access_point_cb(lv_event_t *event)
 
 void make_wifi_toggle(lv_obj_t *parent, const lyra::wifi::Status &wifi)
 {
-    lv_obj_t *row = make_button(parent, 7, 0, 306, 62, kSurface, 6, true);
+    lv_obj_t *row = make_button(parent, kPageInset, 0, kScreenWidth - 2 * kPageInset, 62, kSurface, 6, true);
     lv_obj_t *title = make_label(row, tr(lyra::i18n::StringId::WifiSettings), kTextPrimary);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 12, 8);
     const char *summary = nullptr;
@@ -274,7 +274,7 @@ void submit_wifi_password()
 
 void render_wifi_settings()
 {
-    make_header(tr(lyra::i18n::StringId::WifiSettings), View::SystemSettings, true);
+    make_header(tr(lyra::i18n::StringId::WifiSettings), View::Settings, true);
     lv_obj_t *body = make_scroll_body(72);
     const lyra::wifi::Status wifi = lyra::wifi::status();
     s_wifi_rendered_access_point_count = wifi.access_point_count;

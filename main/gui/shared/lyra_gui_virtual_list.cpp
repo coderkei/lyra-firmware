@@ -505,7 +505,7 @@ void destroy_virtual_list(lv_obj_t *body)
 
 int virtual_list_row_width()
 {
-    return s_list.width ? s_list.width : 306;
+    return s_list.width ? s_list.width : kScreenWidth - 2 * kPageInset;
 }
 
 void make_virtual_list(lv_obj_t *body, const VirtualListSpec &spec)
@@ -526,7 +526,8 @@ void make_virtual_list(lv_obj_t *body, const VirtualListSpec &spec)
     s_list.body = body;
     s_list.spec = spec;
     s_list.last_first = SIZE_MAX;
-    s_list.width = spec.letter_strip ? 306 - kStripWidth - kStripGap : 306;
+    s_list.width = spec.letter_strip ? kScreenWidth - 2 * kPageInset - kStripWidth - kStripGap :
+                                       kScreenWidth - 2 * kPageInset;
     s_list.forward = true;
     s_list.window_hash = SIZE_MAX;
     if (spec.refresh_stamp) s_list.refresh_stamp = spec.refresh_stamp();

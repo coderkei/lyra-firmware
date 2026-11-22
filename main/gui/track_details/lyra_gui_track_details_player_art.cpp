@@ -73,8 +73,8 @@ void render_track_info()
     }
 
     make_header(tr(lyra::i18n::StringId::TrackInfo), View::Player, true);
-    make_track_info_tab_button(s_screen, 8, tr(lyra::i18n::StringId::SongInfo), TrackInfoTab::Song);
-    make_track_info_tab_button(s_screen, 162, tr(lyra::i18n::StringId::MediaInfo), TrackInfoTab::Media);
+    make_track_info_tab_button(s_screen, kPageInset, tr(lyra::i18n::StringId::SongInfo), TrackInfoTab::Song);
+    make_track_info_tab_button(s_screen, kScreenWidth - kPageInset - 146, tr(lyra::i18n::StringId::MediaInfo), TrackInfoTab::Media);
     lv_obj_t *body = make_scroll_body(118);
 
     if (s_track_info_tab == TrackInfoTab::Song) {

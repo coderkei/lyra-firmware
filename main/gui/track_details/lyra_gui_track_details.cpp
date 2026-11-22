@@ -106,19 +106,17 @@ void track_info_tab_cb(lv_event_t *event)
 lv_obj_t *make_track_info_row(lv_obj_t *parent, int y, const char *label,
                               const char *value, bool clickable)
 {
-    lv_obj_t *row = clickable ? make_button(parent, 8, y, 304, 52, kSurface, 6, true) :
-                                make_box(parent, 8, y, 304, 52, kSurface, 6, true);
-    if (clickable && !is_zeno_theme()) {
-        lv_obj_set_style_bg_color(row, kSurfaceRaised, LV_STATE_PRESSED);
-    }
-    if (is_zeno_theme() && !clickable) lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    constexpr int kRowWidth = kScreenWidth - 2 * kPageInset;
+    lv_obj_t *row = clickable ? make_button(parent, kPageInset, y, kRowWidth, 52, kSurface, kRowRadius) :
+                                make_box(parent, kPageInset, y, kRowWidth, 52, kSurface, kRowRadius);
+    if (!clickable) lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_t *label_view = make_label(row, label, kTextMuted);
-    lv_obj_set_pos(label_view, 12, 6);
+    lv_obj_set_pos(label_view, 16, 6);
     lv_obj_t *value_view = make_label(row, value && value[0] ? value :
                                       tr(lyra::i18n::StringId::Unavailable),
-                                      clickable || is_zeno_theme() ? kAccent : kTextPrimary);
-    make_marquee(value_view, clickable ? 252 : 278);
-    lv_obj_set_pos(value_view, 12, 25);
+                                      clickable ? kAccent : kTextPrimary);
+    make_marquee(value_view, clickable ? kRowWidth - 52 : kRowWidth - 28);
+    lv_obj_set_pos(value_view, 16, 25);
     if (clickable) {
         lv_obj_t *arrow = make_label(row, LV_SYMBOL_RIGHT, kAccent);
         lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -12, 8);
@@ -131,8 +129,8 @@ void make_track_info_tab_button(lv_obj_t *parent, int x, const char *label,
                                 TrackInfoTab tab)
 {
     const bool selected = s_track_info_tab == tab;
-    lv_obj_t *button = make_button(parent, x, 76, 150, 36,
-                                   selected ? kAccentDark : kSurface, 6, true);
+    lv_obj_t *button = make_button(parent, x, 76, 146, 36,
+                                   selected ? kAccent : kSurface, LV_RADIUS_CIRCLE);
     lv_obj_t *text = make_label(button, label, selected ? kTextOnAccent : kTextSecondary);
     lv_obj_center(text);
     lv_obj_add_event_cb(button, track_info_tab_cb, LV_EVENT_CLICKED,

@@ -58,7 +58,7 @@ while keeping its settings and recovery interface available.
 ## Media and persistence
 
 - The MicroSD card mounts at `/sdcard`. A user starts the library scan from
-  `Settings > System > Scan music library`.
+  `Settings > Library > Scan music library`.
 - Library scans still walk the card to discover additions and removals, but
   reuse catalog records whose path, size, and filesystem modification time are
   unchanged. Changed files are reparsed, and the replacement catalog reflects
@@ -82,7 +82,7 @@ while keeping its settings and recovery interface available.
   Station lists can be imported from `.m3u`, `.m3u8`, `.pls`, and `.asx` files.
 - Settings, volume, equalizer preferences, sort choices, time settings, and
   artwork-cache choices use the `lyra` NVS namespace.
-- Wi-Fi is disabled by default. Settings > System > Wi-Fi can enable the
+- Wi-Fi is disabled by default. Settings > Wi-Fi (or the Home tile) can enable the
   station, scan nearby networks, connect to open or password-protected
   networks, disconnect, and forget the saved network. The enabled state and
   one saved SSID/passphrase persist in NVS; an enabled station reconnects to
@@ -96,7 +96,7 @@ MicroSD mounting; a missing retained clock value uses the `00:00 01/01/2000`
 fallback and counts forward while powered. The clock holds local time
 directly; there is no time-zone database.
 
-**Settings > System > Time & date** opens separate numeric **Set time** and
+**Settings > Time & date** opens separate numeric **Set time** and
 **Set date** screens. They use a number pad with left/right cursor movement so
 individual digits can be corrected. The clock menu also stores the date
 format, 12/24-hour display format, a manual daylight-saving correction (a
@@ -120,7 +120,7 @@ one-hour shift), and the network time settings:
   JPEG decoder and take turns.
 - Albums, Songs, the Queue, playlist details (including Favorites and the
   Smart Playlists), genre and year song lists, and search results show a 48x48
-  thumbnail beside each row (Settings > Display > Album art in lists, on by
+  thumbnail beside each row (Settings > Appearance > Album art in lists, on by
   default). Each cover is decoded once at thumbnail size by a low-priority
   worker that serves on-screen rows first, then the rows ahead of the scroll,
   and waits while the player cover is loading. Results, including "no
@@ -172,18 +172,38 @@ The five EQ bands are centred at 60 Hz, 250 Hz, 1 kHz, 4 kHz, and 16 kHz.
 Custom EQ and the included Flat, Full Bass, Full Treble, Bass & Treble, Rock,
 Pop, Jazz, and Classic presets are available in the UI.
 
-The interface includes Menu, Queue, Music Library, the Files manager,
-playlists, search, Now Playing, Equalizer, Apps, and Settings. A configurable
-bottom virtual-control bar provides Menu, Previous, Play/Pause, Next, and
-Back controls for the buttonless development kit. Holding Back returns to the
-Menu from any depth, tapping a page title scrolls its list to the top, and
-tapping the status-bar clock opens Now Playing. Queue additions confirm with
+**Design.** One design language replaces the former themes: flat dark or
+light pages, rounded cards and rows, two-column tiles with two-tone badges,
+pill choices and switches, bottom sheets for actions, and one of six accent
+colours (blue, orange, yellow, green, purple, pink). Dynamic tint mixes the
+accent into every neutral layer. Headings use an 18 px font (Montserrat with
+the scaled multilingual fallback). The shared pieces live in
+`main/gui/shared/lyra_gui_design.cpp`; the palette is built in
+`apply_theme_palette()`.
+
+**Navigation.** Home shows six tiles: Music, Internet radio, Wi-Fi, Files,
+More and Settings. Music opens a tile page (All songs, Albums, Artists,
+Genres, Year, Favorites, Playlists, Recently played, Recently added, Most
+played, Folders) with Search, Queue and Library settings in its header. More
+holds Photos, Ebook, Queue, Equalizer, Search and Playlists. Because the kit
+has no buttons, gestures carry navigation: a swipe right goes back, a swipe
+left opens Now Playing (from Now Playing it opens the queue), and pulling the
+status bar down draws out the control centre under the finger (clock, brightness,
+volume, the playing song with its transport, and toggles for Wi-Fi, the
+on-board speaker, gapless playback, dark theme, the sleep timer and the
+equalizer). A tap on the status bar does nothing, so a near miss on Back
+never opens it; the panel settles open after a quarter of its height and
+closes the same way when pushed back up, or with a tap on the dimmed page.
+Typing and viewer pages keep horizontal drags for themselves.
+Browsing pages end in a mini player (cover, title, play/pause, next) that
+opens Now Playing when tapped or pushed up; Settings > Appearance can hide
+it. Tapping a page title scrolls its list to the top. Queue additions confirm with
 a short, non-blocking toast. A screen that redraws itself (a toggle, an
 option, a status refresh) keeps its scroll position; navigating to other
 content, including another playlist, album, or folder, starts at the top, and
 Back returns to the previous position.
 
-**Files** (Menu > Browse Folders, or Apps > Files) lists every non-hidden
+**Files** (Home > Files, or Music > Folders) lists every non-hidden
 entry of a MicroSD folder, folders first, sortable A–Z, Z–A, or by type. A
 folder is read once with `readdir()` into a PSRAM listing; sizes are read
 only for rows as they scroll into view, and rows load in batches instead of
@@ -196,13 +216,8 @@ Items that are currently playing cannot be renamed, moved, or deleted. Each
 filesystem step holds the SD gate only briefly, so audio reads keep priority.
 Library changes made this way appear in the catalog after the next scan.
 
-**Apps** contains Calculator, Calendar, Stopwatch, Timer, Photos, Ebook,
-Files, Dot Link, and Dice, all drawn with the shared theme icon set. Dot Link
-is a path puzzle on 5×5 to 8×8 boards: join each pair of matching dots and
-fill every cell. Boards are generated on the device by shuffling a
-Hamiltonian path with backbite moves and cutting it into coloured segments,
-so every board has a complete solution; the hint button reveals one route
-from it.
+**More** lists every picture (Photos) or text file (Ebook) on the card from
+a background scan, a page at a time, and opens them in the viewers.
 
 **Viewers.** Photos open full screen. A translucent top bar shows the file
 name and pixel size, and a floating pill holds zoom out, the zoom level, zoom
@@ -230,9 +245,9 @@ initials for name sorts, two-digit years for date sorts, whole minutes for
 duration, and track numbers — with a bubble showing the full value while
 scrolling, and a jump button that opens the page-jump screen (whose sort tab
 also covers dates and durations) and returns to the exact row. The Queue
-opens at the playing song. The Music page starts with Recently played,
-Recently added, and Favorites shortcuts and links to folder browsing. The
-artist page loads its song and album rows in batches as it scrolls.
+opens at the playing song. Album pages open with a large cover and the
+album's details above the songs. The artist page loads its song and album
+rows in batches as it scrolls.
 
 **Search** covers songs, albums, artists, and playlist songs. A search starts
 only from the keyboard's Search key, which also hides the keyboard so the
@@ -244,9 +259,6 @@ kana flick input, plus an optional T9 keypad. Text fields show a blinking
 caret. Edits happen at the caret, including input-method composition, and
 swiping along the space bar of any keyboard moves the caret one character per
 14 px.
-
-Themes with decorative wallpapers rasterize them once into PSRAM (Aura's sky
-and light trails, Zeno's logo tile) and blit the cached pixels on redraw.
 
 ## Memory and performance
 
@@ -306,9 +318,19 @@ buttons after scrolling.
 
 ## Now Playing
 
+Now Playing fills the top 320 × 320 px with the cover, under a translucent
+status bar and a close button. The panel below takes its colour from the
+average of the cover's pixels and holds the title with a favourite heart,
+the artist (tap to open the artist) with the file format, the seek bar with
+elapsed time, queue position and duration, and the transport: the play-mode
+button (in order, repeat all, repeat one, shuffle), previous, play/pause,
+next, and a "more" sheet with Queue, Add to playlist, Go to album, Go to
+artist, Information, Equalizer, Playback speed, A-B repeat, Bookmarks and
+Sleep timer. Holding previous or next seeks.
+
 In Now Playing, tapping album art flips to a scrollable lyrics view. Lyrics
 are loaded from embedded metadata first, then a same-stem `.lrc` file, then a
 same-stem `.txt` file. Timestamped LRC lyrics highlight the current line;
 plain text lyrics remain unhighlighted.
 The optional Quick Seek playback setting adds 30-second backward and forward
-controls beside the album art.
+controls over the bottom corners of the album art.

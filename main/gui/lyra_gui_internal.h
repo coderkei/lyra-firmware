@@ -61,7 +61,8 @@ constexpr const char *kTag = "lyra.gui";
 constexpr int kScreenWidth = 320;
 constexpr int kScreenHeight = 480;
 constexpr int kStatusHeight = 28;
-constexpr int kNavHeight = 44;
+// The mini player that sits at the bottom of browsing pages.
+constexpr int kNavHeight = 60;
 constexpr int kKeyboardHeightWithNav = 216;
 constexpr int kKeyboardHeightWithoutNav = 260;
 constexpr int kKeyboardKeyHeightWithNav = 46;
@@ -79,31 +80,29 @@ extern const uint8_t boot_png_end[] asm("_binary_boot_png_end");
 extern const uint8_t boot_light_png_start[] asm("_binary_boot_light_png_start");
 extern const uint8_t boot_light_png_end[] asm("_binary_boot_light_png_end");
 
+// One accent colour as shown on dark and on light backgrounds. Pressed and
+// tinted variants are derived from it in apply_theme_palette().
 struct AccentPalette {
     uint32_t dark_rgb;
-    uint32_t dark_pressed_rgb;
-    uint32_t dark_surface_rgb;
     uint32_t light_rgb;
-    uint32_t light_pressed_rgb;
-    uint32_t light_surface_rgb;
 };
-extern const AccentPalette kAccentPalettes[8];
-constexpr size_t kAccentPaletteCount = 8;
+constexpr size_t kAccentPaletteCount = 6;
+extern const AccentPalette kAccentPalettes[kAccentPaletteCount];
 
 enum class View : uintptr_t {
-    Menu, Player, TrackInfo, FullscreenInfoArt, Queue, Apps, Calculator, Calendar,
-    Stopwatch, Timer, Photos, Ebook, DotLink, Dice,
+    Menu, Player, TrackInfo, FullscreenInfoArt, Queue, Apps, Photos, Ebook,
     Library, LibrarySongs, LibraryArtists, LibraryAlbums, LibraryGenres,
     LibraryYears, InternetRadio, RadioAdd, RadioFiles, RadioPlaying,
     AlbumDetail, ArtistDetail, Folders, FolderDetail, FileViewer, FolderPlaylist, FileNameInput,
     Playlists, PlaylistDetail, PlaylistCreate, PlaylistAdd, Equalizer,
     EqualizerPresets, Search, Settings, SortingSettings, SortingOptions,
     PlaybackSettings, CrossfadeOptions, SleepTimerOptions, SoundSettings,
-    DisplaySettings, SystemSettings, ClockSettings, ClockTimeSettings, ClockDateSettings,
+    AppearanceSettings, LibrarySettings, SystemSettings, ClockSettings,
+    ClockTimeSettings, ClockDateSettings,
     LanguageOptions, DatabaseStorage, WifiSettings, WifiPassword, NetworkTests,
     About, DebugMenu, PageJump,
-    Licenses, TrackList, ThemeOptions,
-    SetupWelcome, SetupLanguage, SetupClock, SetupTheme, SetupScan, SetupComplete,
+    Licenses, TrackList,
+    SetupWelcome, SetupLanguage, SetupClock, SetupAppearance, SetupScan, SetupComplete,
 };
 enum class LibraryTab : uint8_t { Songs, Artists, Albums, Genres, Years };
 enum class ArtistDetailTab : uint8_t { Songs, Albums };
@@ -150,20 +149,12 @@ constexpr size_t kNavigationDepth = 16;
 struct ArtistDetailListContext;
 struct AlbumListContext;
 
+using ClockPosition = lyra::gui_settings::ClockPosition;
 extern bool s_dark_mode;
-extern bool s_listening_hub;
-using Theme = lyra::gui_settings::Theme;
-extern Theme s_theme;
-inline bool is_zeno_theme() { return s_theme == Theme::Zeno; }
-inline bool is_aura_theme() { return s_theme == Theme::Aura; }
-inline bool is_cute_theme() { return s_theme == Theme::CutePink; }
-inline bool is_standard_theme() { return s_theme == Theme::Standard; }
-// s_dark_mode remains the user's Standard preference, even in fixed themes.
-inline bool uses_dark_palette() {
-    return is_zeno_theme() || s_theme == Theme::NeonSky || (is_standard_theme() && s_dark_mode);
-}
-extern bool s_neon_hud;
 extern uint8_t s_accent_colour;
+// Tints the backgrounds and surfaces with the accent colour.
+extern bool s_dynamic_tint;
+extern ClockPosition s_clock_position;
 extern lv_color_t kBackground;
 extern lv_color_t kSurface;
 extern lv_color_t kSurfaceRaised;
@@ -248,7 +239,6 @@ extern DateFormat s_date_format;
 extern bool s_use_24_hour;
 extern bool s_dst_enabled;
 extern bool s_speaker_output_enabled;
-extern bool s_timer_alarm_enabled;
 extern bool s_t9_input;
 extern bool s_list_artwork;
 extern bool s_automatic_time;
@@ -277,6 +267,7 @@ extern bool s_playlist_manage_mode;
 extern bool s_playlist_create_from_queue;
 extern bool s_queue_add_mode;
 extern bool s_queue_edit_mode;
+// Settings > Appearance > Mini player: playback controls under browsing pages.
 extern bool s_show_nav;
 extern bool s_setup_pending;
 extern bool s_setup_scan_active;
@@ -339,49 +330,12 @@ extern lv_style_t s_marquee_style;
 extern bool s_marquee_style_ready;
 
 void apply_theme_palette();
-const char *theme_name(Theme theme);
-// Three palette dots aligned to a row's right edge (offset is negative).
-void make_theme_swatches(lv_obj_t *row, Theme theme, int right_offset);
-// Rasterizes decorative primitives once into a caller-owned RGB565 buffer so
-// themes can blit the result instead of redrawing vectors on every frame.
-using RasterPainter = void (*)(lv_layer_t *layer, void *context);
-bool rasterize_rgb565(uint16_t *pixels, int width, int height,
-                      RasterPainter paint, void *context = nullptr);
-void init_rgb565_image(lv_image_dsc_t *image, const uint16_t *pixels, int width, int height);
-void make_aura_background();
-void style_aura_surface(lv_obj_t *object, lv_color_t color, int width, int height, bool button);
-void style_aura_controls(lv_obj_t *object);
-void make_aura_equalizer_grid(lv_obj_t *parent);
-void make_aura_transport(lv_obj_t *parent, int y);
-void update_aura_transport();
-void make_cute_background();
-void make_cute_body_background(lv_obj_t *body);
-void make_cute_header_mascot(lv_obj_t *header);
-void add_cute_plastic_finish(lv_obj_t *object);
-void make_cute_menu_icon(lv_obj_t *row, View view);
-void style_cute_controls(lv_obj_t *object);
-// Neon Sky (Night City HUD) signal colours beside the shared palette: cyan
-// marks the selected or live item, yellow is reserved for branding.
-constexpr uint32_t kHudCyanRgb = 0x5EF6FF;
-constexpr uint32_t kHudYellowRgb = 0xFCEE0A;
-void make_hud_background();
-void make_hud_body_background(lv_obj_t *body);
-void add_hud_frame(lv_obj_t *object, bool octagonal = false);
-void add_hud_brackets(lv_obj_t *object);
-void make_hud_equalizer_grid(lv_obj_t *parent, int x, int y, int width, int height);
-void style_hud_controls(lv_obj_t *object);
-void style_hud_progress_bar(lv_obj_t *bar);
-void decorate_hud_status_bar(lv_obj_t *bar);
-void decorate_hud_header(lv_obj_t *header, lv_obj_t *title);
-void decorate_hud_banner(lv_obj_t *banner);
-// Uppercases pure-ASCII headings; other scripts are returned unchanged so the
-// font never needs glyphs the catalog check has not verified.
-const char *hud_heading_text(const char *text, char *buffer, size_t capacity);
-void render_theme_options();
+// The accent colour of the given palette index for the current theme.
+lv_color_t accent_color(size_t index);
 void render_setup_welcome();
 void render_setup_language();
 void render_setup_clock();
-void render_setup_theme();
+void render_setup_appearance();
 void render_setup_scan();
 void render_setup_complete();
 void stop_setup_welcome_cycle();
@@ -408,20 +362,81 @@ size_t library_page_size();
 size_t search_page_size();
 lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int width, int height, lv_color_t color, int radius = 0, bool show_border = false);
 lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color);
-// Vector icons shared by every theme, drawn on a 20 x 20 grid and scaled.
+// Vector icons drawn on a 20 x 20 grid and scaled.
 enum class Icon : uint8_t {
     Music, NowPlaying, Search, Queue, Apps, Folder, Equalizer, Settings,
     Playback, Sound, Display, Sorting, System, About, Theme, Language, Clock,
     Wifi, SdCard, Storage, Sleep, Crossfade, Radio, Album, Artist, Genre,
-    Calendar, Playlist, Favorite, Recent, Added, Calculator, Stopwatch, Timer,
-    Book, Photo, Network, DotLink, Dice,
+    Calendar, Playlist, Favorite, Recent, Added, Timer,
+    Book, Photo, Network, More, Brightness,
 };
 // Marks icon objects so pressed-row feedback recolours them with the text.
 constexpr lv_obj_flag_t kIconFlag = LV_OBJ_FLAG_USER_3;
 lv_obj_t *make_icon(lv_obj_t *parent, Icon icon, lv_color_t color, int size = 20);
-// The colour make_label() would give text in this parent, without the
-// heading override, so icons and their labels always agree.
-lv_color_t themed_icon_color(lv_obj_t *parent, lv_color_t color);
+
+// ---- LyraOS design language ---------------------------------------------------
+// Flat dark or light pages, rounded cards, two-tone tile badges and one
+// accent colour. Every screen builds from these pieces.
+constexpr int kPageInset = 10;
+constexpr int kCardRadius = 14;
+constexpr int kRowRadius = 12;
+constexpr int kHeaderHeight = 44;
+constexpr int kContentTop = kStatusHeight + kHeaderHeight;
+// 18 px headings and tile names; display figures (the control-centre clock).
+const lv_font_t *title_font();
+const lv_font_t *display_font(bool large = false);
+// A plain rounded card in the surface colour.
+lv_obj_t *make_card(lv_obj_t *parent, int x, int y, int width, int height);
+// Two overlapping rounded squares in one hue with a white icon on the front
+// one. size is the side of one square; the badge is size * 4 / 3 wide.
+void make_tile_badge(lv_obj_t *parent, int x, int y, int size, Icon icon, uint32_t hue);
+// A home-style tile: badge above a centred name. Returns the button.
+lv_obj_t *make_tile(lv_obj_t *parent, int x, int y, int width, int height,
+                    Icon icon, uint32_t hue, const char *label);
+// A round, borderless icon button (header actions, transport).
+lv_obj_t *make_icon_button(lv_obj_t *parent, int x, int y, int size, Icon icon,
+                           lv_color_t color);
+lv_obj_t *make_symbol_button(lv_obj_t *parent, int x, int y, int size, const char *symbol,
+                             lv_color_t color);
+// An on/off switch drawn inside a row; set_switch() restyles it in place.
+lv_obj_t *make_switch(lv_obj_t *parent, bool checked);
+void set_switch(lv_obj_t *track, bool checked);
+// A card with a title and a row of pill choices. Each pill's click callback
+// receives its index as user data. Returns the card height used.
+int make_choice_card(lv_obj_t *parent, int y, const char *title, const char *const *labels,
+                     size_t count, size_t selected, lv_event_cb_t callback);
+// Small muted caption above a group of cards.
+void make_section_label(lv_obj_t *parent, int y, const char *text);
+// Accent indicator, round knob and a slim rail; keeps swipes off the page.
+void style_slider(lv_obj_t *slider);
+// A bottom sheet over the page. *slot holds the sheet until it closes.
+// content_out receives the area below the title for the caller's rows.
+lv_obj_t *make_sheet(lv_obj_t **slot, const char *title, int content_height,
+                     lv_obj_t **content_out);
+void close_sheet(lv_obj_t **slot);
+// One full-width action row inside a sheet; the callback's user data is value.
+lv_obj_t *make_sheet_row(lv_obj_t *content, int y, Icon icon, const char *text,
+                         lv_event_cb_t callback, uintptr_t value);
+
+// ---- Shell: mini player, control centre and gestures --------------------------
+// True when the current page shows the mini player under its content.
+bool mini_player_visible();
+void make_mini_player();
+void show_control_centre();
+void close_control_centre();
+// Lets a downward drag on the status bar pull the control centre open.
+void control_centre_pull_events(lv_obj_t *status_bar);
+// Swipe right goes back, swipe left opens Now Playing, swipe down on the
+// status bar opens the control centre. Installed once on the screen.
+void install_gesture_navigation();
+// Keeps an object (slider, seek bar, keyboard) from starting page gestures.
+void block_page_gestures(lv_obj_t *object);
+// Brings the status bar above full-bleed artwork on Now Playing.
+void raise_status_bar();
+// The player's mode button cycles in order, repeat all, repeat one, shuffle.
+void cycle_play_mode();
+// Keeps a play/pause glyph in step with playback until the label is deleted.
+void track_play_icon(lv_obj_t *label);
 void set_label_text_if_changed(lv_obj_t *label, const char *text);
 // Truncate rests as "…" and plays once when its row is long-pressed. Focus
 // is for the one thing being looked at (now playing, page title): a calm
@@ -433,7 +448,6 @@ void make_marquee(lv_obj_t *label, int width, MarqueeMode mode = MarqueeMode::Tr
 // For rows whose long press already does something else.
 void disable_marquee_reveal(lv_obj_t *row);
 lv_obj_t *make_button(lv_obj_t *parent, int x, int y, int width, int height, lv_color_t color, int radius = 7, bool show_border = false);
-void make_equalizer_icon(lv_obj_t *parent, lv_color_t color);
 void configure_cover_aware_scroll(lv_obj_t *body);
 lv_obj_t *make_scroll_body(int top);
 void style_root();
@@ -476,24 +490,21 @@ void update_nav_play_icon();
 void nav_previous_cb(lv_event_t *);
 void nav_next_cb(lv_event_t *);
 bool restart_current_track();
-void make_virtual_nav();
 // Explains why a track failed (memory, missing file, format, unreadable).
 void show_playback_error(esp_err_t error);
 uint8_t display_volume_percent(uint8_t volume_percent);
 uint8_t audio_volume_percent_from_display(uint8_t display_percent);
 void update_status_volume_label(uint8_t volume_percent);
 void update_status_time_label();
-void close_volume_popup();
-void volume_popup_slider_cb(lv_event_t *event);
-void volume_popup_slider_released_cb(lv_event_t *);
-void show_volume_popup_cb(lv_event_t *);
 void make_status_bar();
 constexpr size_t kWifiSignalBarCount = 4;
 int wifi_signal_bar_count(int8_t rssi);
 void make_wifi_signal_bars(lv_obj_t *parent, int x, int y, int signal_bars,
                            lv_color_t active_color, lv_color_t inactive_color,
                            lv_obj_t **bars_out = nullptr);
-lv_obj_t *make_header(const char *title, View back, bool show_back = false, const char *right = nullptr, lv_event_cb_t custom_back = nullptr);
+// action_width reserves room on the right for buttons the caller adds.
+lv_obj_t *make_header(const char *title, View back, bool show_back = false, const char *right = nullptr,
+                      lv_event_cb_t custom_back = nullptr, int action_width = 0);
 void make_queue_add_mode_toggle(lv_obj_t *parent, int x, int y, int width = 40, int height = 36);
 void dismiss_overlay_cb(lv_event_t *event);
 void show_notice(const char *title_text, const char *message_text);
@@ -623,30 +634,14 @@ void open_queue_cb(lv_event_t *);
 bool show_now_playing();
 void open_library_cb(lv_event_t *);
 void open_folders_cb(lv_event_t *);
-void make_zeno_background();
-lv_color_t zeno_label_color(lv_obj_t *parent, lv_color_t color);
-void style_zeno_box(lv_obj_t *box, lv_color_t color, int width, int height);
-void style_zeno_button(lv_obj_t *button, lv_color_t color, int width, int height);
-const lv_font_t *zeno_heading_font(bool large = false);
-lv_obj_t *make_zeno_label(lv_obj_t *parent, const char *text, bool large = false);
-void render_zeno_library();
-void render_zeno_settings();
-void make_zeno_album_song_row(lv_obj_t *parent, int y, size_t track_index, size_t ordinal);
-void make_zeno_transport(lv_obj_t *parent, int y);
-void update_zeno_transport();
+// Opens a library destination by the user data of the tile that was tapped.
+void open_library_destination(uintptr_t destination);
 void render_menu();
-// Keeps the home screen's now-playing card (and Zeno's lit entry) in step
-// with playback while the home screen is shown. Called from the player poll.
+// Keeps the mini player and the control centre in step with playback.
+// Called from the player poll.
 void update_menu_playback();
 void render_apps();
-void render_calculator();
-void render_calendar();
-void render_stopwatch();
-void render_timer();
 void render_app_files();
-void render_dot_link();
-void render_dice();
-void stop_dot_link_runtime();
 void release_app_file_scan(View view);
 void stop_apps_runtime_timers(View next_view);
 void queue_track_cb(lv_event_t *event);
@@ -657,8 +652,11 @@ lyra::media::GroupKind group_kind(LibraryTab section);
 void open_track_list_cb(lv_event_t *event);
 void open_album_detail_cb(lv_event_t *event);
 void open_library_playlists_cb(lv_event_t *);
-// user data: 0 recently played, 1 recently added, 2 favorites, 3 folders.
-void library_shortcut_cb(lv_event_t *event);
+// The tiles of the Music page, in their on-screen order.
+enum class LibraryDestination : uintptr_t {
+    AllSongs, Albums, Artists, Genres, Years, Favorites, Playlists,
+    RecentlyPlayed, RecentlyAdded, MostPlayed, Folders, Count,
+};
 void render_library();
 void make_album_row(lv_obj_t *parent, int y, size_t group_index);
 void render_library_section(LibraryTab section);
@@ -706,7 +704,11 @@ void close_playlist_picker();
 void add_current_track_to_playlist_cb(lv_event_t *event);
 void show_player_playlist_picker_cb(lv_event_t *);
 void reset_player_action_ui();
-void make_player_action_buttons(lv_obj_t *parent, int y, bool favorite);
+// The Now Playing "more" sheet: queue, playlist, album, artist, details,
+// equaliser, speed, A-B repeat, bookmarks and sleep timer.
+void show_player_more_menu();
+// While A-B repeat is on, draws its A / B / end controls and returns true.
+bool make_player_ab_bar(lv_obj_t *parent, int y);
 bool is_player_ab_mode_active();
 bool update_player_ab_loop(const lyra::audio::Status &audio_status);
 void format_playback_time(uint32_t milliseconds, bool unknown, char *output, size_t capacity);
@@ -807,6 +809,8 @@ void make_setting_toggle(lv_obj_t *parent, int y, const char *title, const char 
                          bool *value, bool enabled = true);
 void accent_colour_cb(lv_event_t *event);
 void make_accent_selector(lv_obj_t *parent, int y);
+// The Dark / Light pills. Returns the card height.
+int make_theme_choices(lv_obj_t *parent, int y);
 void artwork_setting_cb(lv_event_t *event);
 void make_artwork_setting_toggle(lv_obj_t *parent, int y, const char *title, const char *subtitle, bool value, ArtworkSetting setting);
 void volume_slider_cb(lv_event_t *event);

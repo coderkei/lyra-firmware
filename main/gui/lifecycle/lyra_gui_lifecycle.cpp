@@ -45,7 +45,6 @@ void render(View view)
     if (s_view == View::RadioPlaying && view != View::RadioPlaying) {
         stop_radio_status_timer();
     }
-    if (s_view == View::DotLink && view != View::DotLink) stop_dot_link_runtime();
     if ((s_view == View::Search || s_view == View::PlaylistCreate ||
          s_view == View::WifiPassword || s_view == View::RadioAdd ||
          s_view == View::FileNameInput) && s_view != view) {
@@ -69,7 +68,7 @@ void render(View view)
     s_status_time_label = nullptr;
     style_root();
     const bool setup_view = view == View::SetupWelcome || view == View::SetupLanguage ||
-        view == View::SetupClock || view == View::SetupTheme || view == View::SetupScan ||
+        view == View::SetupClock || view == View::SetupAppearance || view == View::SetupScan ||
         view == View::SetupComplete || (s_setup_pending &&
         (view == View::ClockTimeSettings || view == View::ClockDateSettings));
     if (view != View::FullscreenInfoArt && view != View::FileViewer && !setup_view) make_status_bar();
@@ -80,14 +79,8 @@ void render(View view)
         case View::FullscreenInfoArt: render_fullscreen_info_art(); break;
         case View::Queue: render_queue(); break;
         case View::Apps: render_apps(); break;
-        case View::Calculator: render_calculator(); break;
-        case View::Calendar: render_calendar(); break;
-        case View::Stopwatch: render_stopwatch(); break;
-        case View::Timer: render_timer(); break;
         case View::Photos:
         case View::Ebook: render_app_files(); break;
-        case View::DotLink: render_dot_link(); break;
-        case View::Dice: render_dice(); break;
         case View::Library: render_library(); break;
         case View::LibrarySongs: render_library_section(LibraryTab::Songs); break;
         case View::LibraryArtists: render_library_section(LibraryTab::Artists); break;
@@ -113,11 +106,10 @@ void render(View view)
         case View::PlaylistAdd: render_playlist_add(); break;
         case View::Equalizer: render_equalizer(); break;
         case View::EqualizerPresets: render_equalizer_presets(); break;
-        case View::ThemeOptions: render_theme_options(); break;
         case View::SetupWelcome: render_setup_welcome(); break;
         case View::SetupLanguage: render_setup_language(); break;
         case View::SetupClock: render_setup_clock(); break;
-        case View::SetupTheme: render_setup_theme(); break;
+        case View::SetupAppearance: render_setup_appearance(); break;
         case View::SetupScan: render_setup_scan(); break;
         case View::SetupComplete: render_setup_complete(); break;
         case View::Search: render_search(); break;
@@ -126,7 +118,8 @@ void render(View view)
         case View::SortingOptions: render_sorting_options(); break;
         case View::PlaybackSettings:
         case View::SoundSettings:
-        case View::DisplaySettings:
+        case View::AppearanceSettings:
+        case View::LibrarySettings:
         case View::SystemSettings: render_settings_page(view); break;
         case View::WifiSettings: render_wifi_settings(); break;
         case View::WifiPassword: render_wifi_password(); break;
@@ -142,10 +135,7 @@ void render(View view)
         case View::DebugMenu: render_debug_menu(); break;
         case View::Licenses: render_licenses(); break;
     }
-    if (s_show_nav && !s_setup_pending && view != View::FullscreenInfoArt && view != View::FileViewer &&
-        !((is_zeno_theme() || is_aura_theme()) && view == View::Player)) {
-        make_virtual_nav();
-    }
+    make_mini_player();
     if (s_pending_scroll_restore_y >= 0 && s_scroll_body) {
         lv_obj_update_layout(s_scroll_body);
         const int32_t max_scroll_y = std::max<int32_t>(
@@ -155,11 +145,6 @@ void render(View view)
     }
     s_pending_scroll_restore_y = -1;
     s_pending_list_position = SIZE_MAX;
-    if (view != View::FileViewer) {
-        if (s_neon_hud) style_hud_controls(s_screen);
-        if (is_cute_theme()) style_cute_controls(s_screen);
-        if (is_aura_theme()) style_aura_controls(s_screen);
-    }
 }
 
 bool automatic_track_advance_available()
@@ -312,10 +297,7 @@ void show_sorting_overlay(const lyra::media::Status &status)
     lv_obj_set_style_bg_opa(s_sort_overlay, LV_OPA_80, 0);
     lv_obj_add_flag(s_sort_overlay, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_move_foreground(s_sort_overlay);
-    lv_obj_t *dialog = make_box(s_sort_overlay, 24, 126, 272, 228,
-                                kSurfaceRaised, 14);
-    lv_obj_set_style_border_width(dialog, 1, 0);
-    lv_obj_set_style_border_color(dialog, kAccentDark, 0);
+    lv_obj_t *dialog = make_box(s_sort_overlay, 24, 126, 272, 228, kSurface, 20);
     lv_obj_t *spinner = lv_spinner_create(dialog);
     lv_obj_set_size(spinner, 62, 62);
     lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, 25);
@@ -403,7 +385,7 @@ void catalog_poll_cb(lv_timer_t *)
                 show_notice(tr(lyra::i18n::StringId::ScanMusicLibrary),
                             tr(lyra::i18n::StringId::SetupScanFailed));
             } else {
-                render(setup_scan ? View::SetupComplete : View::SystemSettings);
+                render(setup_scan ? View::SetupComplete : View::LibrarySettings);
             }
         }
         return;
@@ -422,7 +404,7 @@ void catalog_poll_cb(lv_timer_t *)
         render(View::PageJump);
         return;
     }
-    if (changed && s_view == View::SystemSettings) render(View::SystemSettings);
+    if (changed && s_view == View::LibrarySettings) render(View::LibrarySettings);
     if (sorting_changed &&
         (s_view == View::LibrarySongs || s_view == View::LibraryAlbums ||
          s_view == View::LibraryArtists)) {
@@ -442,7 +424,7 @@ void catalog_poll_cb(lv_timer_t *)
         if (s_view == View::Player && !changed) {
             // Preserve transport buttons and their active touch gestures.
             refresh_player_artwork();
-        } else if (s_view == View::Menu || s_view == View::Player ||
+        } else if (s_view == View::Player ||
             s_view == View::TrackInfo || s_view == View::FullscreenInfoArt ||
             s_view == View::AlbumDetail) {
             render(s_view);

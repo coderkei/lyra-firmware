@@ -3,7 +3,7 @@
 Patches are welcome for things like:
 
 - playback and library bugs
-- GUI performance, as long as the themes still look the way they should
+- GUI performance, as long as the design still looks the way it should
 - translation and keyboard/input-method fixes
 - documentation
 - ports to specific boards
@@ -63,7 +63,7 @@ involved, the firmware commit and steps to reproduce. Keep what you read in
 the source separate from what you saw on hardware.
 
 Please mention anything your change might affect in audio continuity,
-playlist or catalog compatibility, theme appearance, multilingual input or
+playlist or catalog compatibility, dark and light appearance, multilingual input or
 touch navigation, and avoid changing those as a side effect of unrelated
 cleanup.
 

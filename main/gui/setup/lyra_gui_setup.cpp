@@ -99,6 +99,7 @@ void setup_header(lyra::i18n::StringId title_id,
     }
 
     lv_obj_t *title = make_label(s_screen, tr(title_id), kTextPrimary);
+    lv_obj_set_style_text_font(title, title_font(), 0);
     lv_obj_set_width(title, 288);
     lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
@@ -117,8 +118,7 @@ lv_obj_t *setup_button(lv_obj_t *parent, int x, int y, int width, int height,
                        const char *text, bool primary, lv_event_cb_t callback)
 {
     lv_obj_t *button = make_button(parent, x, y, width, height,
-                                   primary ? kAccentDark : kSurfaceRaised,
-                                   12, !primary);
+                                   primary ? kAccent : kSurface, LV_RADIUS_CIRCLE, !primary);
     lv_obj_t *label = make_label(button, text, primary ? kTextOnAccent : kTextPrimary);
     lv_obj_center(label);
     if (callback) lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, nullptr);
@@ -134,8 +134,8 @@ void setup_next_cb(lv_event_t *)
 {
     switch (s_view) {
     case View::SetupLanguage: render(View::SetupClock); break;
-    case View::SetupClock: render(View::SetupTheme); break;
-    case View::SetupTheme: render(View::SetupScan); break;
+    case View::SetupClock: render(View::SetupAppearance); break;
+    case View::SetupAppearance: render(View::SetupScan); break;
     default: break;
     }
 }
@@ -172,22 +172,6 @@ void setup_date_cb(lv_event_t *)
     begin_clock_input(ClockInputKind::Date);
 }
 
-void setup_theme_option_cb(lv_event_t *event)
-{
-    const uintptr_t selection = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
-    if (selection >= static_cast<uintptr_t>(Theme::Count)) return;
-    s_theme = static_cast<Theme>(selection);
-    apply_theme_palette();
-    const esp_err_t result = save_user_settings();
-    render(View::SetupTheme);
-    if (result != ESP_OK) {
-        char message[112];
-        format_text(lyra::i18n::StringId::SetupSaveFailed,
-                    esp_err_to_name(result), message, sizeof(message));
-        show_notice(tr(lyra::i18n::StringId::Theme), message);
-    }
-}
-
 void setup_later_cb(lv_event_t *)
 {
     render(View::SetupComplete);
@@ -212,8 +196,8 @@ void setup_language_row(lv_obj_t *parent, int y,
                         lyra::i18n::Language language, size_t index)
 {
     const bool active = language == lyra::i18n::current_language();
-    lv_obj_t *row = make_button(parent, 10, y, 280, 38,
-                                active ? kAccentSurface : kSurface, 9, true);
+    lv_obj_t *row = make_button(parent, 10, y, 280, 40,
+                                active ? kAccentSurface : kSurface, kRowRadius, true);
     lv_obj_t *label = make_label(row, lyra::i18n::language_name(language),
                                  active ? kAccent : kTextPrimary);
     lv_obj_align(label, LV_ALIGN_LEFT_MID, 12, 0);
@@ -223,24 +207,6 @@ void setup_language_row(lv_obj_t *parent, int y,
     }
     lv_obj_add_event_cb(row, setup_language_option_cb, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(static_cast<uintptr_t>(index)));
-}
-
-void setup_theme_row(lv_obj_t *parent, int y, Theme theme, uintptr_t selection)
-{
-    const bool active = s_theme == theme;
-    lv_obj_t *row = make_button(parent, 16, y, 288, 48,
-                                active ? kAccentSurface : kSurface, 10, true);
-    lv_obj_t *label = make_label(row, theme_name(theme),
-                                 active ? kAccent : kTextPrimary);
-    make_marquee(label, 166);
-    lv_obj_align(label, LV_ALIGN_LEFT_MID, 14, 0);
-    make_theme_swatches(row, theme, -42);
-    if (active) {
-        lv_obj_t *check = make_label(row, LV_SYMBOL_OK, kAccent);
-        lv_obj_align(check, LV_ALIGN_RIGHT_MID, -14, 0);
-    }
-    lv_obj_add_event_cb(row, setup_theme_option_cb, LV_EVENT_CLICKED,
-                        reinterpret_cast<void *>(selection));
 }
 
 } // namespace
@@ -310,10 +276,11 @@ void render_setup_clock()
 {
     setup_header(lyra::i18n::StringId::TimeAndDate,
                  lyra::i18n::StringId::SetupClockHint, 2);
-    lv_obj_t *summary = make_box(s_screen, 16, 142, 288, 68, kAccentSurface, 12, true);
+    lv_obj_t *summary = make_card(s_screen, 16, 142, 288, 68);
     char current[40];
     format_clock_date_time(lyra::clock::now(), current, sizeof(current));
-    lv_obj_t *value = make_label(summary, current, kAccent);
+    lv_obj_t *value = make_label(summary, current, kTextPrimary);
+    lv_obj_set_style_text_font(value, title_font(), 0);
     lv_obj_set_width(value, 268);
     lv_obj_set_style_text_align(value, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(value);
@@ -326,14 +293,16 @@ void render_setup_clock()
         tr(lyra::i18n::StringId::NextSetup), true, setup_next_cb);
 }
 
-void render_setup_theme()
+void render_setup_appearance()
 {
-    setup_header(lyra::i18n::StringId::Theme,
+    setup_header(lyra::i18n::StringId::Appearance,
                  lyra::i18n::StringId::SetupThemeHint, 3);
-    for (uintptr_t selection = 0; selection < static_cast<uintptr_t>(Theme::Count); ++selection) {
-        setup_theme_row(s_screen, 133 + static_cast<int>(selection) * 54,
-                        static_cast<Theme>(selection), selection);
-    }
+    // The same theme and accent cards as Settings > Appearance; choosing
+    // re-renders this step in the new colours.
+    lv_obj_t *body = make_box(s_screen, 0, 122, kScreenWidth, 284, kBackground);
+    lv_obj_remove_flag(body, LV_OBJ_FLAG_CLICKABLE);
+    const int theme_height = make_theme_choices(body, 0);
+    make_accent_selector(body, theme_height + 10);
     setup_button(s_screen, 24, kSetupButtonY, 272, 48,
         tr(lyra::i18n::StringId::NextSetup), true, setup_next_cb);
 }
@@ -354,12 +323,14 @@ void render_setup_complete()
         make_box(s_screen, 20 + static_cast<int>(index) * 72, 25, 64, 4,
                  kAccent, 2);
     }
-    lv_obj_t *badge = make_box(s_screen, 124, 142, 72, 72, kAccentSurface, 36);
-    lv_obj_t *check = make_label(badge, LV_SYMBOL_OK, kAccent);
+    lv_obj_t *badge = make_box(s_screen, 124, 142, 72, 72, kAccent, LV_RADIUS_CIRCLE);
+    lv_obj_t *check = make_label(badge, LV_SYMBOL_OK, kTextOnAccent);
+    lv_obj_set_style_text_font(check, &lv_font_montserrat_28, 0);
     lv_obj_center(check);
 
     lv_obj_t *title = make_label(s_screen,
         tr(lyra::i18n::StringId::SetupCompleteTitle), kTextPrimary);
+    lv_obj_set_style_text_font(title, title_font(), 0);
     lv_obj_set_width(title, 292);
     lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
