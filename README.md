@@ -10,6 +10,25 @@ a proper player for it. No account, no app, no internet needed. Wi-Fi is there
 if you want internet radio or the correct time, but everything else works
 offline.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src="screenshots/homescreen.png" width="220" alt="Home screen"><br><sub>Home</sub></td>
+    <td align="center"><img src="screenshots/player.png" width="220" alt="Now Playing"><br><sub>Now Playing</sub></td>
+    <td align="center"><img src="screenshots/albums.png" width="220" alt="Albums list"><br><sub>Albums</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/status.png" width="220" alt="Control centre"><br><sub>Control centre</sub></td>
+    <td align="center"><img src="screenshots/settings.png" width="220" alt="Settings"><br><sub>Settings</sub></td>
+    <td></td>
+  </tr>
+</table>
+
+These show the light theme with the pink accent. There's a dark mode too, and
+five other accent colours, all in Settings → Appearance (dark mode is also a
+toggle in the control centre).
+
 ## Hardware
 
 Development happens on the **JC3248W535EN**, an inexpensive ESP32-S3 board
@@ -212,6 +231,7 @@ components/lyra_board/  Display, touch and board setup for the JC3248W535EN
 board/                  Pin definitions and vendor references
 docs/                   Design, hardware and validation documents
 graphics/               Boot images and wordmarks
+screenshots/            Screenshots used in this README
 tools/                  Emulator, translation checks, font and IME tools
 partitions.csv          Flash layout (16 MB)
 sdkconfig.defaults      Reference ESP-IDF configuration
