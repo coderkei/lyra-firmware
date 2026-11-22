@@ -21,13 +21,13 @@ offline.
   <tr>
     <td align="center"><img src="screenshots/status.png" width="220" alt="Control centre"><br><sub>Control centre</sub></td>
     <td align="center"><img src="screenshots/settings.png" width="220" alt="Settings"><br><sub>Settings</sub></td>
-    <td></td>
+    <td align="center"><img src="screenshots/homescreen_dark.png" width="220" alt="Home screen in dark mode"><br><sub>Home in dark mode</sub></td>
   </tr>
 </table>
 
-These show the light theme with the pink accent. There's a dark mode too, and
-five other accent colours, all in Settings → Appearance (dark mode is also a
-toggle in the control centre).
+Most of these show the light theme with the pink accent; the last one is the
+dark theme. Both themes, and five other accent colours, are in Settings →
+Appearance, and dark mode is also a toggle in the control centre.
 
 ## Hardware
 
